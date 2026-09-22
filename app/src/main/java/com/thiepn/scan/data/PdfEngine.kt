@@ -54,7 +54,9 @@ class PdfEngine(
                 val imageWidth = pageEntity.width.coerceAtLeast(1)
                 val imageHeight = pageEntity.height.coerceAtLeast(1)
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
-                val page = PDPage(PDRectangle(pdfWidth, pdfHeight))
+                val page = PDPage(PDRectangle(pdfWidth, pdfHeight)).apply {
+                    rotation = normalizeRotation(pageEntity.rotationDegrees)
+                }
                 document.addPage(page)
 
                 PDPageContentStream(document, page).use { stream ->
@@ -121,7 +123,8 @@ class PdfEngine(
         source: File,
         pageIndices: List<Int>,
         destination: File,
-        password: String? = null
+        password: String? = null,
+        rotationDeltas: List<Int>? = null
     ) {
         require(source.isFile) { "PDF source is unavailable" }
         require(pageIndices.isNotEmpty()) { "No pages selected" }
@@ -129,11 +132,13 @@ class PdfEngine(
 
         PDDocument.load(source).use { sourceDocument ->
             PDDocument().use { output ->
-                pageIndices.distinct().forEach { index ->
+                pageIndices.forEachIndexed { outputIndex, index ->
                     require(index in 0 until sourceDocument.numberOfPages) {
                         "Page ${index + 1} is outside the document"
                     }
-                    output.importPage(sourceDocument.getPage(index))
+                    val imported = output.importPage(sourceDocument.getPage(index))
+                    val delta = rotationDeltas?.getOrNull(outputIndex) ?: 0
+                    imported.rotation = normalizeRotation(imported.rotation + delta)
                 }
                 if (!password.isNullOrBlank()) {
                     protect(output, password)
@@ -242,6 +247,9 @@ class PdfEngine(
             pageWidth to pageHeight
         }
     }
+
+    private fun normalizeRotation(degrees: Int): Int =
+        ((degrees % 360) + 360) % 360
 
     private fun protect(document: PDDocument, userPassword: String) {
         val permission = AccessPermission()
