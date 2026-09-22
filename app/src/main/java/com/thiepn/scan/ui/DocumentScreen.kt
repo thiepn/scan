@@ -3,6 +3,7 @@ package com.thiepn.scan.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentCopy
@@ -32,15 +36,19 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,19 +69,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.PageEntity
+import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +98,8 @@ fun DocumentScreen(
     onBack: () -> Unit,
     onDeleted: () -> Unit,
     onAddPages: () -> Unit,
+    onInsertPages: (Int) -> Unit,
+    onRetakePage: (String) -> Unit,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -117,6 +134,21 @@ fun DocumentScreen(
             }
         }
     }
+
+    var replacePageId by rememberSaveable { mutableStateOf<String?>(null) }
+    val replaceImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val pageId = replacePageId
+        replacePageId = null
+        if (uri != null && pageId != null) {
+            scope.launch {
+                runCatching { repository.replacePageFromUri(documentId, pageId, uri) }
+                    .onSuccess { onMessage("Page replaced") }
+                    .onFailure { onMessage(it.message ?: "Could not replace page") }
+            }
+        }
+    }
     val document by repository.observeDocument(documentId).collectAsStateWithLifecycle(initialValue = null)
     val pages by repository.observePages(documentId).collectAsStateWithLifecycle(initialValue = emptyList())
     val deletedPages by repository.observeDeletedPages(documentId)
@@ -131,6 +163,19 @@ fun DocumentScreen(
     var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
     var cropPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var enhancePageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedPageIds by remember { mutableStateOf(emptyList<String>()) }
+    var batchFilterOpen by remember { mutableStateOf(false) }
+    var batchMoveOpen by remember { mutableStateOf(false) }
+    var batchDeleteOpen by remember { mutableStateOf(false) }
+    var batchExportOpen by remember { mutableStateOf(false) }
+    var insertPagesOpen by remember { mutableStateOf(false) }
+    var resetAllEditsOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pages.map { it.id }) {
+        val activeIds = pages.map { it.id }.toSet()
+        selectedPageIds = selectedPageIds.filter { it in activeIds }
+    }
 
     val doc = document
     if (doc == null) {
