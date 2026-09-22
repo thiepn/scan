@@ -90,6 +90,29 @@ class PdfEngine(
         }
     }
 
+    fun extractPages(
+        source: File,
+        pageIndices: List<Int>,
+        destination: File
+    ) {
+        require(source.isFile) { "PDF source is unavailable" }
+        require(pageIndices.isNotEmpty()) { "No pages selected" }
+        destination.parentFile?.mkdirs()
+
+        PDDocument.load(source).use { sourceDocument ->
+            PDDocument().use { output ->
+                pageIndices.distinct().forEach { index ->
+                    require(index in 0 until sourceDocument.numberOfPages) {
+                        "Page ${index + 1} is outside the document"
+                    }
+                    output.importPage(sourceDocument.getPage(index))
+                }
+                output.documentInformation.producer = "Scan"
+                output.save(destination)
+            }
+        }
+    }
+
     fun merge(
         sources: List<File>,
         destination: File
