@@ -30,12 +30,14 @@ class ScanRepository(
                 LibraryFilter.ACTIVE -> dao.searchActive(normalized)
                 LibraryFilter.FAVORITES -> dao.searchFavorites(normalized)
                 LibraryFilter.ARCHIVED -> dao.searchArchived(normalized)
+                LibraryFilter.TRASH -> dao.searchTrash(normalized)
             }
         }
         return when (filter) {
             LibraryFilter.ACTIVE -> dao.observeActive()
             LibraryFilter.FAVORITES -> dao.observeFavorites()
             LibraryFilter.ARCHIVED -> dao.observeArchived()
+            LibraryFilter.TRASH -> dao.observeTrash()
         }
     }
 
@@ -187,7 +189,22 @@ class ScanRepository(
         dao.setArchived(id, value, System.currentTimeMillis())
     }
 
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
+    suspend fun trashDocument(id: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext
+        if (document.trashedAt != null) return@withContext
+        val now = System.currentTimeMillis()
+        dao.setTrashed(id, now, now)
+    }
+
+    suspend fun restoreDocument(id: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext
+        if (document.trashedAt == null) return@withContext
+        dao.setTrashed(id, null, System.currentTimeMillis())
+    }
+
+    suspend fun deleteForever(id: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext
+        require(document.trashedAt != null) { "Move the document to Trash before deleting it forever" }
         dao.deleteDocument(id)
         files.deleteDocument(id)
     }
