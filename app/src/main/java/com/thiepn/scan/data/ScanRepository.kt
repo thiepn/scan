@@ -46,6 +46,9 @@ class ScanRepository(
     fun observePages(id: String): Flow<List<PageEntity>> = dao.observePages(id)
     fun observeCoverPage(id: String): Flow<PageEntity?> = dao.observeCoverPage(id)
     fun observeDeletedPages(id: String): Flow<List<PageEntity>> = dao.observeDeletedPages(id)
+    fun observeFolders(): Flow<List<FolderEntity>> = dao.observeFolders()
+    fun observeTags(): Flow<List<TagEntity>> = dao.observeTags()
+    fun observeDocumentTags(): Flow<List<DocumentTagCrossRef>> = dao.observeDocumentTags()
 
     fun resumePendingProcessing() {
         appScope.launch(Dispatchers.IO) {
@@ -636,6 +639,159 @@ class ScanRepository(
         )
     }
 
+    suspend fun createFolder(
+        name: String,
+        parentId: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val cleanName = name.trim()
+        require(cleanName.isNotBlank()) { "Folder name cannot be blank" }
+        require(cleanName.length <= 80) { "Folder name is too long" }
+        if (parentId != null) {
+            require(dao.getFolder(parentId) != null) { "Parent folder no longer exists" }
+        }
+        val normalized = normalizeOrganizationName(cleanName)
+        require(dao.findFolder(normalized, parentId) == null) {
+            "A folder with this name already exists here"
+        }
+
+        val now = System.currentTimeMillis()
+        val id = UUID.randomUUID().toString()
+        dao.insertFolder(
+            FolderEntity(
+                id = id,
+                name = cleanName,
+                normalizedName = normalized,
+                parentId = parentId,
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+        id
+    }
+
+    suspend fun renameFolder(folderId: String, name: String) =
+        withContext(Dispatchers.IO) {
+            val folder = dao.getFolder(folderId)
+                ?: throw IllegalArgumentException("Folder not found")
+            val cleanName = name.trim()
+            require(cleanName.isNotBlank()) { "Folder name cannot be blank" }
+            require(cleanName.length <= 80) { "Folder name is too long" }
+            val normalized = normalizeOrganizationName(cleanName)
+            val duplicate = dao.findFolder(normalized, folder.parentId)
+            require(duplicate == null || duplicate.id == folderId) {
+                "A folder with this name already exists here"
+            }
+            dao.renameFolder(
+                id = folderId,
+                name = cleanName,
+                normalizedName = normalized,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+
+    suspend fun deleteFolder(folderId: String) = withContext(Dispatchers.IO) {
+        require(dao.getFolder(folderId) != null) { "Folder not found" }
+        dao.deleteFolderAndPromoteContents(folderId)
+    }
+
+    suspend fun createTag(name: String): String = withContext(Dispatchers.IO) {
+        val cleanName = name.trim().removePrefix("#").trim()
+        require(cleanName.isNotBlank()) { "Tag name cannot be blank" }
+        require(cleanName.length <= 40) { "Tag name is too long" }
+        val normalized = normalizeOrganizationName(cleanName)
+        dao.findTag(normalized)?.let { return@withContext it.id }
+
+        val id = UUID.randomUUID().toString()
+        dao.insertTag(
+            TagEntity(
+                id = id,
+                name = cleanName,
+                normalizedName = normalized,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+        id
+    }
+
+    suspend fun deleteTag(tagId: String) = withContext(Dispatchers.IO) {
+        dao.deleteTag(tagId)
+    }
+
+    suspend fun setDocumentFolder(
+        documentIds: List<String>,
+        folderId: String?
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        if (folderId != null) {
+            require(dao.getFolder(folderId) != null) { "Folder no longer exists" }
+        }
+        dao.setDocumentFolder(ids, folderId, System.currentTimeMillis())
+    }
+
+    suspend fun setDocumentType(
+        documentIds: List<String>,
+        type: DocumentType
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        dao.setDocumentType(ids, type.name, System.currentTimeMillis())
+    }
+
+    suspend fun setDocumentsNeedsReview(
+        documentIds: List<String>,
+        needsReview: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        dao.setDocumentsNeedsReview(ids, needsReview, System.currentTimeMillis())
+    }
+
+    suspend fun setDocumentsFavorite(
+        documentIds: List<String>,
+        favorite: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        dao.setDocumentsFavorite(ids, favorite, System.currentTimeMillis())
+    }
+
+    suspend fun setDocumentsArchived(
+        documentIds: List<String>,
+        archived: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        dao.setDocumentsArchived(ids, archived, System.currentTimeMillis())
+    }
+
+    suspend fun addTagsToDocuments(
+        documentIds: List<String>,
+        tagIds: List<String>
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        val validTags = dao.getTags().map { it.id }.toSet()
+        require(tagIds.all { it in validTags }) { "A selected tag no longer exists" }
+        dao.addDocumentTags(ids, tagIds.distinct())
+    }
+
+    suspend fun replaceDocumentTags(
+        documentIds: List<String>,
+        tagIds: List<String>
+    ) = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        val validTags = dao.getTags().map { it.id }.toSet()
+        require(tagIds.all { it in validTags }) { "A selected tag no longer exists" }
+        dao.replaceDocumentTags(ids, tagIds.distinct())
+    }
+
+    suspend fun acceptSuggestedType(documentId: String) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        val suggestion = document.suggestedType
+            ?.let(DocumentType::valueOf)
+            ?: return@withContext
+        dao.setDocumentType(
+            documentIds = listOf(documentId),
+            documentType = suggestion.name,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     suspend fun ensureSpatialOcr(documentId: String) =
         withContext(Dispatchers.IO) {
             val document = dao.getDocument(documentId) ?: return@withContext
@@ -707,6 +863,7 @@ class ScanRepository(
     suspend fun rename(id: String, title: String) {
         requireEditableDocument(id)
         dao.rename(id, title.trim().ifBlank { "Scan" }, System.currentTimeMillis())
+        refreshTypeSuggestion(id)
     }
 
     suspend fun setFavorite(id: String, value: Boolean) {
@@ -1137,7 +1294,38 @@ class ScanRepository(
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
         )
+        if (!processing) refreshTypeSuggestion(documentId)
     }
+
+    private suspend fun refreshTypeSuggestion(documentId: String) {
+        val document = dao.getDocument(documentId) ?: return
+        if (DocumentType.fromStored(document.documentType) != DocumentType.UNSPECIFIED) {
+            if (document.suggestedType != null || document.needsReview) {
+                dao.setSuggestedDocumentType(documentId, null, false)
+            }
+            return
+        }
+
+        val suggestion = DocumentClassifier.suggest(document.title, document.ocrText)
+        dao.setSuggestedDocumentType(
+            id = documentId,
+            suggestedType = suggestion?.type?.name,
+            needsReview = suggestion != null
+        )
+    }
+
+    private suspend fun editableDocumentIds(documentIds: List<String>): List<String> {
+        val ids = documentIds.distinct()
+        require(ids.isNotEmpty()) { "Select at least one document" }
+        ids.forEach { id ->
+            val document = requireEditableDocument(id)
+            require(!document.processing) { "${document.title} is still processing" }
+        }
+        return ids
+    }
+
+    private fun normalizeOrganizationName(value: String): String =
+        value.trim().lowercase().replace(Regex("\\s+"), " ")
 
     private fun nativePdfSource(
         document: DocumentEntity,
