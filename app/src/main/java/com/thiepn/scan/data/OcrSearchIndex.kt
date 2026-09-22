@@ -106,26 +106,32 @@ class OcrSearchIndex(
         val query = if (ftsQuery != null) {
             SimpleSQLiteQuery(
                 """
-                WITH ranked AS (
-                    SELECT documentId, MIN(bm25(ocr_pages_fts)) AS rank
+                SELECT id
+                FROM (
+                    SELECT
+                        d.id AS id,
+                        -1000.0 AS rank,
+                        d.favorite AS favorite,
+                        d.updatedAt AS updatedAt
+                    FROM documents d
+                    WHERE $filterClause
+                      AND LOWER(d.title) LIKE LOWER(?)
+
+                    UNION ALL
+
+                    SELECT
+                        d.id AS id,
+                        bm25(ocr_pages_fts) AS rank,
+                        d.favorite AS favorite,
+                        d.updatedAt AS updatedAt
                     FROM ocr_pages_fts
-                    WHERE ocr_pages_fts MATCH ?
-                    GROUP BY documentId
+                    JOIN documents d ON d.id = ocr_pages_fts.documentId
+                    WHERE $filterClause
+                      AND ocr_pages_fts MATCH ?
                 )
-                SELECT d.id
-                FROM documents d
-                LEFT JOIN ranked r ON r.documentId = d.id
-                WHERE $filterClause
-                  AND (LOWER(d.title) LIKE LOWER(?) OR r.documentId IS NOT NULL)
-                ORDER BY
-                    CASE
-                        WHEN LOWER(d.title) LIKE LOWER(?) THEN -1000.0
-                        ELSE COALESCE(r.rank, 999999.0)
-                    END ASC,
-                    d.favorite DESC,
-                    d.updatedAt DESC
+                ORDER BY rank ASC, favorite DESC, updatedAt DESC
                 """.trimIndent(),
-                arrayOf(ftsQuery, titleLike, titleLike)
+                arrayOf(titleLike, ftsQuery)
             )
         } else {
             SimpleSQLiteQuery(
@@ -141,12 +147,12 @@ class OcrSearchIndex(
         }
 
         return db.query(query).use { cursor ->
-            buildList {
-                val idColumn = cursor.getColumnIndexOrThrow("id")
-                while (cursor.moveToNext()) {
-                    add(cursor.getString(idColumn))
-                }
+            val seen = linkedSetOf<String>()
+            val idColumn = cursor.getColumnIndexOrThrow("id")
+            while (cursor.moveToNext()) {
+                seen += cursor.getString(idColumn)
             }
+            seen.toList()
         }
     }
 
