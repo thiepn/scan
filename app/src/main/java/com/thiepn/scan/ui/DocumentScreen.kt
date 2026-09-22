@@ -9,12 +9,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -23,6 +28,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -72,11 +78,15 @@ fun DocumentScreen(
     val scope = rememberCoroutineScope()
     val document by repository.observeDocument(documentId).collectAsStateWithLifecycle(initialValue = null)
     val pages by repository.observePages(documentId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val deletedPages by repository.observeDeletedPages(documentId)
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     var renameOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var protectOpen by remember { mutableStateOf(false) }
     var extractOpen by remember { mutableStateOf(false) }
     var exportOpen by remember { mutableStateOf(false) }
+    var deletedPagesOpen by remember { mutableStateOf(false) }
+    var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
 
     val doc = document
     if (doc == null) {
@@ -162,11 +172,37 @@ fun DocumentScreen(
                             Text(" Extract pages")
                         }
                     }
+                    if (deletedPages.isNotEmpty() && !doc.processing) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = { deletedPagesOpen = true }) {
+                            Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
+                            Text(" Deleted pages (${deletedPages.size})")
+                        }
+                    }
                 }
             }
 
-            items(pages, key = { it.id }) { page ->
-                PageCard(page)
+            itemsIndexed(pages, key = { _, page -> page.id }) { index, page ->
+                PageCard(
+                    page = page,
+                    displayNumber = index + 1,
+                    canMoveUp = !doc.processing && index > 0,
+                    canMoveDown = !doc.processing && index < pages.lastIndex,
+                    canDelete = !doc.processing && pages.size > 1,
+                    onMoveUp = {
+                        scope.launch {
+                            runCatching { repository.movePage(doc.id, page.id, -1) }
+                                .onFailure { onMessage(it.message ?: "Could not move page") }
+                        }
+                    },
+                    onMoveDown = {
+                        scope.launch {
+                            runCatching { repository.movePage(doc.id, page.id, 1) }
+                                .onFailure { onMessage(it.message ?: "Could not move page") }
+                        }
+                    },
+                    onDelete = { pageDeleteCandidate = page }
+                )
             }
 
             if (pages.isEmpty()) {
@@ -244,6 +280,42 @@ fun DocumentScreen(
         )
     }
 
+    if (deletedPagesOpen) {
+        DeletedPagesDialog(
+            pages = deletedPages,
+            onDismiss = { deletedPagesOpen = false },
+            onRestore = { page ->
+                scope.launch {
+                    runCatching { repository.restorePage(doc.id, page.id) }
+                        .onSuccess { onMessage("Page restored") }
+                        .onFailure { onMessage(it.message ?: "Could not restore page") }
+                }
+            }
+        )
+    }
+
+    pageDeleteCandidate?.let { page ->
+        val displayNumber = pages.indexOfFirst { it.id == page.id }.let { if (it >= 0) it + 1 else page.position + 1 }
+        AlertDialog(
+            onDismissRequest = { pageDeleteCandidate = null },
+            title = { Text("Delete page $displayNumber?") },
+            text = { Text("The page will be hidden from this document but kept recoverable under Deleted pages.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pageDeleteCandidate = null
+                    scope.launch {
+                        runCatching { repository.softDeletePage(doc.id, page.id) }
+                            .onSuccess { onMessage("Page moved to Deleted pages") }
+                            .onFailure { onMessage(it.message ?: "Could not delete page") }
+                    }
+                }) { Text("Delete page") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pageDeleteCandidate = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (deleteOpen) {
         AlertDialog(
             onDismissRequest = { deleteOpen = false },
@@ -264,19 +336,42 @@ fun DocumentScreen(
 }
 
 @Composable
-private fun PageCard(page: PageEntity) {
+private fun PageCard(
+    page: PageEntity,
+    displayNumber: Int,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    canDelete: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDelete: () -> Unit
+) {
     Card(Modifier.fillMaxWidth()) {
         Column {
-            Text(
-                "Page ${page.position + 1}",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(12.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(
+                    "Page $displayNumber",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move page up")
+                }
+                IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
+                }
+                IconButton(onClick = onDelete, enabled = canDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete page")
+                }
+            }
             FileImage(
                 path = page.imagePath,
                 modifier = Modifier.fillMaxWidth().height(460.dp),
-                contentDescription = "Page ${page.position + 1}"
+                contentDescription = "Page $displayNumber"
             )
             if (page.ocrText.isNotBlank()) {
                 Column(Modifier.padding(14.dp)) {
@@ -462,5 +557,50 @@ private fun ExportPdfDialog(
             TextButton(onClick = { onExport(quality) }) { Text("Export") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+
+@Composable
+private fun DeletedPagesDialog(
+    pages: List<PageEntity>,
+    onDismiss: () -> Unit,
+    onRestore: (PageEntity) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Deleted pages") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "Deleted pages are excluded from search and exports but their original page images are retained.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                pages.forEach { page ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Original page ${page.position + 1}",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        TextButton(onClick = { onRestore(page) }) {
+                            Text("Restore")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        }
     )
 }
