@@ -146,6 +146,17 @@ class ScanRepository(
         }
     }
 
+    suspend fun rotatePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+
+        val page = dao.getPages(documentId).firstOrNull { it.id == pageId }
+            ?: throw IllegalArgumentException("Page not found")
+        val nextRotation = normalizeRotation(page.rotationDegrees + 90)
+        dao.setPageRotation(pageId, nextRotation)
+        dao.touchDocument(documentId, System.currentTimeMillis())
+    }
+
     suspend fun duplicatePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
         val document = requireEditableDocument(documentId)
         require(!document.processing) { "Document is still processing" }
@@ -351,8 +362,10 @@ class ScanRepository(
 
         if (source != null && quality == PdfQuality.ORIGINAL) {
             val nativeOrder = pages.map { it.position }
+            val rotations = pages.map { it.rotationDegrees }
             val unchanged = deletedPages.isEmpty() &&
-                nativeOrder == (0 until pages.size).toList()
+                nativeOrder == (0 until pages.size).toList() &&
+                rotations.all { it == 0 }
 
             if (unchanged) {
                 if (password.isNullOrBlank()) {
@@ -373,7 +386,8 @@ class ScanRepository(
                         source = source,
                         pageIndices = nativeOrder,
                         destination = temporary,
-                        password = password
+                        password = password,
+                        rotationDeltas = rotations
                     )
                     files.commitGeneratedExport(temporary, destination)
                 }.getOrElse {
@@ -418,7 +432,8 @@ class ScanRepository(
                 pdfEngine.extractPages(
                     source = source,
                     pageIndices = selectedPages.map { it.position },
-                    destination = temporary
+                    destination = temporary,
+                    rotationDeltas = selectedPages.map { it.rotationDegrees }
                 )
             } else {
                 pdfEngine.createSearchablePdf(
@@ -451,14 +466,21 @@ class ScanRepository(
 
                 if (nativeSource != null) {
                     val nativeOrder = pages.map { it.position }
+                    val rotations = pages.map { it.rotationDegrees }
                     val unchanged = deleted.isEmpty() &&
-                        nativeOrder == (0 until pages.size).toList()
+                        nativeOrder == (0 until pages.size).toList() &&
+                        rotations.all { it == 0 }
 
                     if (unchanged) {
                         mergeInputs += nativeSource
                     } else {
                         val working = files.temporaryWorkingPdf("scan-native-edit")
-                        pdfEngine.extractPages(nativeSource, nativeOrder, working)
+                        pdfEngine.extractPages(
+                            source = nativeSource,
+                            pageIndices = nativeOrder,
+                            destination = working,
+                            rotationDeltas = rotations
+                        )
                         mergeInputs += working
                         temporaryInputs += working
                     }
@@ -518,6 +540,9 @@ class ScanRepository(
             updatedAt = System.currentTimeMillis()
         )
     }
+
+    private fun normalizeRotation(degrees: Int): Int =
+        ((degrees % 360) + 360) % 360
 
     private fun nativePdfSource(
         document: DocumentEntity,
