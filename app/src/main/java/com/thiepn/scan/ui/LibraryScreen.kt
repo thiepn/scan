@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.Search
@@ -165,7 +168,11 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(documents, key = { it.id }) { document ->
-                            DocumentCard(document, onClick = { onOpenDocument(document.id) })
+                            DocumentCard(
+                                document = document,
+                                repository = repository,
+                                onClick = { onOpenDocument(document.id) }
+                            )
                         }
                     }
                 }
@@ -295,17 +302,59 @@ private fun EmptyLibrary(query: String, filter: LibraryFilter) {
 }
 
 @Composable
-private fun DocumentCard(document: DocumentEntity, onClick: () -> Unit) {
+private fun DocumentCard(
+    document: DocumentEntity,
+    repository: ScanRepository,
+    onClick: () -> Unit
+) {
+    val coverFlow = remember(document.id) { repository.observeCoverPage(document.id) }
+    val cover by coverFlow.collectAsStateWithLifecycle(initialValue = null)
+
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Description,
-                contentDescription = null,
-                tint = if (document.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            val coverPage = cover
+            if (coverPage != null) {
+                Box(
+                    modifier = Modifier.width(76.dp).height(104.dp)
+                ) {
+                    FileImage(
+                        path = coverPage.imagePath,
+                        modifier = Modifier.fillMaxSize(),
+                        maxDecodeEdge = 480,
+                        rotationDegrees = coverPage.rotationDegrees,
+                        contentDescription = "Preview of ${document.title}"
+                    )
+                    if (document.favorite) {
+                        Icon(
+                            Icons.Default.Favorite,
+                            contentDescription = "Favorite",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .size(18.dp)
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier.width(76.dp).height(104.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        tint = if (document.favorite) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
             Column(Modifier.padding(start = 14.dp).weight(1f)) {
                 Text(
                     document.title,

@@ -45,6 +45,9 @@ interface DocumentDao {
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 0 ORDER BY sortKey, position")
     fun observePages(documentId: String): Flow<List<PageEntity>>
 
+    @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 0 ORDER BY sortKey, position LIMIT 1")
+    fun observeCoverPage(documentId: String): Flow<PageEntity?>
+
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 0 ORDER BY sortKey, position")
     suspend fun getPages(documentId: String): List<PageEntity>
 

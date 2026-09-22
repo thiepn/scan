@@ -43,6 +43,7 @@ class ScanRepository(
 
     fun observeDocument(id: String): Flow<DocumentEntity?> = dao.observeDocument(id)
     fun observePages(id: String): Flow<List<PageEntity>> = dao.observePages(id)
+    fun observeCoverPage(id: String): Flow<PageEntity?> = dao.observeCoverPage(id)
     fun observeDeletedPages(id: String): Flow<List<PageEntity>> = dao.observeDeletedPages(id)
 
     fun resumePendingProcessing() {
