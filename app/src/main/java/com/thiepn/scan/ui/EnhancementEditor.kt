@@ -198,15 +198,19 @@ private fun EnhancementPreview(
     ) {
         value = withContext(Dispatchers.Default) {
             runCatching {
-                val geometry = PageGeometryRenderer.renderFile(
+                val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
                     file = File(page.imagePath),
                     cropQuad = CropQuadCodec.decode(page.cropQuad),
-                    rotationDegrees = page.rotationDegrees,
                     maxLongEdge = 1400
                 )
                 val enhanced = ImageEnhancementRenderer.apply(geometry, recipe)
                 if (enhanced !== geometry) geometry.recycle()
-                enhanced
+                val rotated = PageGeometryRenderer.rotateBitmap(
+                    enhanced,
+                    page.rotationDegrees
+                )
+                if (rotated !== enhanced) enhanced.recycle()
+                rotated
             }.getOrNull()
         }
     }
