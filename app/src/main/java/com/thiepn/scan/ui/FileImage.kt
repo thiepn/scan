@@ -1,10 +1,12 @@
 package com.thiepn.scan.ui
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -13,15 +15,20 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.ImageEnhancementRenderer
+import com.thiepn.scan.data.OcrWordBox
 import com.thiepn.scan.data.PageGeometryRenderer
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.min
 
 @Composable
 fun FileImage(
@@ -31,6 +38,9 @@ fun FileImage(
     rotationDegrees: Int = 0,
     cropQuad: String? = null,
     visualRecipe: String? = null,
+    highlightWords: List<OcrWordBox> = emptyList(),
+    highlightSourceWidth: Int = 0,
+    highlightSourceHeight: Int = 0,
     contentDescription: String? = null
 ) {
     val bitmap by produceState<Bitmap?>(
@@ -68,6 +78,7 @@ fun FileImage(
     }
 
     val image = remember(bitmap) { bitmap?.asImageBitmap() }
+    val highlightColor = MaterialTheme.colorScheme.primary
 
     Box(
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
@@ -77,9 +88,48 @@ fun FileImage(
             Image(
                 bitmap = it,
                 contentDescription = contentDescription,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.matchParentSize(),
                 contentScale = ContentScale.Fit
             )
+
+            if (
+                highlightWords.isNotEmpty() &&
+                highlightSourceWidth > 0 &&
+                highlightSourceHeight > 0
+            ) {
+                Canvas(Modifier.matchParentSize()) {
+                    val sourceWidth = highlightSourceWidth.toFloat()
+                    val sourceHeight = highlightSourceHeight.toFloat()
+                    val scale = min(
+                        size.width / sourceWidth,
+                        size.height / sourceHeight
+                    )
+                    val renderedWidth = sourceWidth * scale
+                    val renderedHeight = sourceHeight * scale
+                    val originX = (size.width - renderedWidth) / 2f
+                    val originY = (size.height - renderedHeight) / 2f
+                    val stroke = (2f * density).coerceAtLeast(1f)
+
+                    highlightWords.forEach { word ->
+                        val left = originX + word.left * scale
+                        val top = originY + word.top * scale
+                        val width = (word.right - word.left).coerceAtLeast(1) * scale
+                        val height = (word.bottom - word.top).coerceAtLeast(1) * scale
+
+                        drawRect(
+                            color = highlightColor.copy(alpha = 0.20f),
+                            topLeft = Offset(left, top),
+                            size = Size(width, height)
+                        )
+                        drawRect(
+                            color = highlightColor.copy(alpha = 0.92f),
+                            topLeft = Offset(left, top),
+                            size = Size(width, height),
+                            style = Stroke(width = stroke)
+                        )
+                    }
+                }
+            }
         }
     }
 }
