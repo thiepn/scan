@@ -18,7 +18,9 @@ data class DocumentEntity(
     val archived: Boolean = false,
     val trashedAt: Long? = null,
     val processing: Boolean = false,
-    val ocrText: String = ""
+    val ocrText: String = "",
+    @ColumnInfo(defaultValue = "'LATIN'")
+    val ocrScript: String = OcrScript.LATIN.name
 )
 
 @Entity(
@@ -52,7 +54,10 @@ data class PageEntity(
     val imagePath: String,
     val width: Int,
     val height: Int,
-    val ocrText: String = ""
+    val ocrText: String = "",
+    val ocrLayout: String? = null,
+    val ocrFingerprint: String? = null,
+    val ocrScript: String? = null
 )
 
 enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
