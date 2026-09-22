@@ -18,7 +18,16 @@ interface DocumentDao {
     fun observeArchived(): Flow<List<DocumentEntity>>
 
     @Query("SELECT * FROM documents WHERE archived = 0 AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY favorite DESC, updatedAt DESC")
-    fun search(query: String): Flow<List<DocumentEntity>>
+    fun searchActive(query: String): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE archived = 0 AND favorite = 1 AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY updatedAt DESC")
+    fun searchFavorites(query: String): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE archived = 1 AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY updatedAt DESC")
+    fun searchArchived(query: String): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE processing = 1 ORDER BY createdAt")
+    suspend fun getProcessingDocuments(): List<DocumentEntity>
 
     @Query("SELECT * FROM documents WHERE id = :id LIMIT 1")
     fun observeDocument(id: String): Flow<DocumentEntity?>

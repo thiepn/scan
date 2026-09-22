@@ -49,7 +49,6 @@ import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
-import java.io.File
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -100,9 +99,11 @@ fun DocumentScreen(
                         Icon(Icons.Default.Edit, contentDescription = "Rename")
                     }
                     IconButton(onClick = {
-                        val path = doc.pdfPath
-                        if (path != null && File(path).exists()) shareFile(context, File(path), "application/pdf")
-                        else onMessage("PDF is not available yet")
+                        scope.launch {
+                            val file = repository.createPdfExport(doc.id)
+                            if (file != null) shareFile(context, file, "application/pdf")
+                            else onMessage("PDF is not available yet")
+                        }
                     }) {
                         Icon(Icons.Default.Share, contentDescription = "Share PDF")
                     }
