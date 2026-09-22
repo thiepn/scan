@@ -426,14 +426,14 @@ class ScanRepository(
             protected = !password.isNullOrBlank()
         )
 
-        if (source != null && quality == PdfQuality.ORIGINAL) {
+        val hasGeometryEdits = pages.any { !CropQuadCodec.decode(it.cropQuad).isFullFrame() }
+
+        if (source != null && quality == PdfQuality.ORIGINAL && !hasGeometryEdits) {
             val nativeOrder = pages.map { it.position }
             val rotations = pages.map { it.rotationDegrees }
-            val hasGeometryEdits = pages.any { !CropQuadCodec.decode(it.cropQuad).isFullFrame() }
             val unchanged = deletedPages.isEmpty() &&
                 nativeOrder == (0 until pages.size).toList() &&
-                rotations.all { it == 0 } &&
-                !hasGeometryEdits
+                rotations.all { it == 0 }
 
             if (unchanged) {
                 if (password.isNullOrBlank()) {
