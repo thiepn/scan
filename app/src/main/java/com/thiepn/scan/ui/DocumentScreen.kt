@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.RestartAlt
@@ -160,6 +161,10 @@ fun DocumentScreen(
     val pages by repository.observePages(documentId).collectAsStateWithLifecycle(initialValue = emptyList())
     val deletedPages by repository.observeDeletedPages(documentId)
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val folders by repository.observeFolders()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val tags by repository.observeTags()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     var renameOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var protectOpen by remember { mutableStateOf(false) }
@@ -178,6 +183,7 @@ fun DocumentScreen(
     var batchExportOpen by remember { mutableStateOf(false) }
     var insertPagesOpen by remember { mutableStateOf(false) }
     var resetAllEditsOpen by remember { mutableStateOf(false) }
+    var organizeDocumentOpen by remember { mutableStateOf(false) }
     var documentSearchOpen by remember { mutableStateOf(false) }
     var documentSearchQuery by remember { mutableStateOf("") }
     var documentSearchHits by remember { mutableStateOf<List<DocumentPageSearchHit>>(emptyList()) }
@@ -276,6 +282,12 @@ fun DocumentScreen(
                             Icon(Icons.Default.SelectAll, contentDescription = "Select all pages")
                         }
                     } else if (doc.trashedAt == null) {
+                        IconButton(
+                            onClick = { organizeDocumentOpen = true },
+                            enabled = !doc.processing
+                        ) {
+                            Icon(Icons.Default.Label, contentDescription = "Organize document")
+                        }
                         IconButton(
                             onClick = { documentSearchOpen = true },
                             enabled = !doc.processing && pages.isNotEmpty()
@@ -601,6 +613,42 @@ fun DocumentScreen(
                     }
                         .onSuccess { onMessage("Crop updated; refreshing OCR") }
                         .onFailure { onMessage(it.message ?: "Could not update crop") }
+                }
+            }
+        )
+    }
+
+    if (organizeDocumentOpen) {
+        BulkOrganizeDialog(
+            selectedCount = 1,
+            folders = folders,
+            tags = tags,
+            onDismiss = { organizeDocumentOpen = false },
+            onApply = { change ->
+                organizeDocumentOpen = false
+                scope.launch {
+                    runCatching {
+                        val ids = listOf(doc.id)
+                        if (change.changeFolder) {
+                            repository.setDocumentFolder(ids, change.folderId)
+                        }
+                        if (change.changeType) {
+                            repository.setDocumentType(
+                                ids,
+                                requireNotNull(change.documentType)
+                            )
+                        }
+                        if (change.changeTags) {
+                            repository.replaceDocumentTags(ids, change.tagIds)
+                        }
+                        if (change.changeReview) {
+                            repository.setDocumentsNeedsReview(ids, change.needsReview)
+                        }
+                    }
+                        .onSuccess { onMessage("Document organized") }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not organize document")
+                        }
                 }
             }
         )
