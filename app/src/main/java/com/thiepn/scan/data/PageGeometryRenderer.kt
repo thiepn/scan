@@ -36,12 +36,9 @@ object PageGeometryRenderer {
             current = scaled
         }
 
-        val normalizedRotation = PageRotation.normalize(rotationDegrees)
-        if (normalizedRotation != 0) {
-            val rotated = rotate(current, normalizedRotation)
-            if (rotated !== current) current.recycle()
-            current = rotated
-        }
+        val rotated = rotateBitmap(current, rotationDegrees)
+        if (rotated !== current) current.recycle()
+        current = rotated
 
         return current
     }
@@ -161,7 +158,9 @@ object PageGeometryRenderer {
         return Bitmap.createScaledBitmap(bitmap, width, height, true)
     }
 
-    private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
+    fun rotateBitmap(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
+        val degrees = PageRotation.normalize(rotationDegrees)
+        if (degrees == 0) return bitmap
         val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
         return Bitmap.createBitmap(
             bitmap,
@@ -173,6 +172,7 @@ object PageGeometryRenderer {
             true
         )
     }
+
 
     private fun distance(
         a: Pair<Float, Float>,
