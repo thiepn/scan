@@ -83,7 +83,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.DocumentPageSearchHit
+import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.OcrScript
+import com.thiepn.scan.data.OcrSearchTerms
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
@@ -1057,6 +1059,13 @@ private fun PageCard(
     val density = LocalDensity.current
     val dragThresholdPx = with(density) { 92.dp.toPx() }
     var dragDistance by remember(page.id) { mutableStateOf(0f) }
+    val highlightLayout = remember(page.ocrLayout) {
+        OcrLayoutCodec.decode(page.ocrLayout)
+    }
+    val highlightWords = remember(highlightLayout, highlightQuery) {
+        OcrSearchTerms.matchingWords(highlightLayout, highlightQuery.orEmpty())
+    }
+
     val dragModifier = if (canDragReorder) {
         Modifier.pointerInput(page.id, canDragReorder) {
             detectDragGesturesAfterLongPress(
@@ -1157,6 +1166,9 @@ private fun PageCard(
                 rotationDegrees = page.rotationDegrees,
                 cropQuad = page.cropQuad,
                 visualRecipe = page.visualRecipe,
+                highlightWords = highlightWords,
+                highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
+                highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,
                 contentDescription = "Page $displayNumber"
             )
             if (page.ocrText.isNotBlank()) {
