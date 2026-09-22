@@ -185,7 +185,11 @@ class ScanRepository(
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
 
-    suspend fun createPdfExport(id: String, password: String? = null): File? = withContext(Dispatchers.IO) {
+    suspend fun createPdfExport(
+        id: String,
+        password: String? = null,
+        quality: PdfQuality = PdfQuality.ORIGINAL
+    ): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
         val pages = dao.getPages(id)
         val source = nativePdfSource(document, pages)
@@ -196,7 +200,7 @@ class ScanRepository(
             protected = !password.isNullOrBlank()
         )
 
-        if (source != null) {
+        if (source != null && quality == PdfQuality.ORIGINAL) {
             if (password.isNullOrBlank()) {
                 return@withContext files.copyToExport(source, destination)
             }
@@ -214,7 +218,8 @@ class ScanRepository(
                 pdfEngine.createSearchablePdf(
                     pages = pages,
                     destination = temporary,
-                    password = password
+                    password = password,
+                    quality = quality
                 )
                 files.commitGeneratedExport(temporary, destination)
             }.getOrElse {
