@@ -17,6 +17,8 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Searchable PDF generation for scanned pages using invisible spatial OCR text.
 - Native imported PDFs remain preserved and are shared without rasterizing them.
 - AES-256 password-protected PDF copies.
+- Merge multiple library documents into a single PDF while preserving native imported PDFs where possible.
+- Extract page ranges such as `1-3,5,8` into a new PDF.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Plain-text export of recognized pages.
 - No account, no mandatory cloud, no analytics SDK, and no broad storage permission.
