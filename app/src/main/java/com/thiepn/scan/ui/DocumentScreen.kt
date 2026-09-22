@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -43,6 +44,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.PageEntity
@@ -66,6 +70,7 @@ fun DocumentScreen(
     val pages by repository.observePages(documentId).collectAsStateWithLifecycle(initialValue = emptyList())
     var renameOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
+    var protectOpen by remember { mutableStateOf(false) }
 
     val doc = document
     if (doc == null) {
@@ -98,14 +103,20 @@ fun DocumentScreen(
                     IconButton(onClick = { renameOpen = true }) {
                         Icon(Icons.Default.Edit, contentDescription = "Rename")
                     }
+                    IconButton(onClick = { protectOpen = true }) {
+                        Icon(Icons.Default.Lock, contentDescription = "Protect PDF")
+                    }
                     IconButton(onClick = {
                         scope.launch {
-                            val file = repository.createPdfExport(doc.id)
-                            if (file != null) shareFile(context, file, "application/pdf")
-                            else onMessage("PDF is not available yet")
+                            runCatching { repository.createPdfExport(doc.id) }
+                                .onSuccess { file ->
+                                    if (file != null) shareFile(context, file, "application/pdf")
+                                    else onMessage("PDF is not available yet")
+                                }
+                                .onFailure { onMessage(it.message ?: "Could not create PDF") }
                         }
                     }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share PDF")
+                        Icon(Icons.Default.Share, contentDescription = "Share searchable PDF")
                     }
                 }
             )
@@ -173,6 +184,23 @@ fun DocumentScreen(
             onSave = { title ->
                 renameOpen = false
                 scope.launch { repository.rename(doc.id, title) }
+            }
+        )
+    }
+
+    if (protectOpen) {
+        ProtectPdfDialog(
+            onDismiss = { protectOpen = false },
+            onProtect = { password ->
+                protectOpen = false
+                scope.launch {
+                    runCatching { repository.createPdfExport(doc.id, password) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "application/pdf")
+                            else onMessage("PDF is not available yet")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not protect PDF") }
+                }
             }
         )
     }
@@ -247,6 +275,58 @@ private fun RenameDialog(current: String, onDismiss: () -> Unit, onSave: (String
         },
         confirmButton = {
             TextButton(onClick = { onSave(title) }, enabled = title.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+
+@Composable
+private fun ProtectPdfDialog(
+    onDismiss: () -> Unit,
+    onProtect: (String) -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    val valid = password.length >= 4 && password == confirm
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Protect PDF") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Creates a new AES-256 password-protected copy. Your local document remains unchanged.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    singleLine = true,
+                    label = { Text("Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                OutlinedTextField(
+                    value = confirm,
+                    onValueChange = { confirm = it },
+                    singleLine = true,
+                    label = { Text("Confirm password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    supportingText = {
+                        if (confirm.isNotEmpty() && password != confirm) {
+                            Text("Passwords do not match")
+                        }
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onProtect(password) },
+                enabled = valid
+            ) { Text("Create protected PDF") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
