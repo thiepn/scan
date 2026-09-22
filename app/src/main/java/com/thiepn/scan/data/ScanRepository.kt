@@ -23,7 +23,14 @@ class ScanRepository(
     private val appScope: CoroutineScope
 ) {
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
-        if (query.isNotBlank()) return dao.search(query.trim())
+        val normalized = query.trim()
+        if (normalized.isNotBlank()) {
+            return when (filter) {
+                LibraryFilter.ACTIVE -> dao.searchActive(normalized)
+                LibraryFilter.FAVORITES -> dao.searchFavorites(normalized)
+                LibraryFilter.ARCHIVED -> dao.searchArchived(normalized)
+            }
+        }
         return when (filter) {
             LibraryFilter.ACTIVE -> dao.observeActive()
             LibraryFilter.FAVORITES -> dao.observeFavorites()
@@ -33,6 +40,25 @@ class ScanRepository(
 
     fun observeDocument(id: String): Flow<DocumentEntity?> = dao.observeDocument(id)
     fun observePages(id: String): Flow<List<PageEntity>> = dao.observePages(id)
+
+    fun resumePendingProcessing() {
+        appScope.launch(Dispatchers.IO) {
+            dao.getProcessingDocuments().forEach { document ->
+                val pages = dao.getPages(document.id)
+                val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
+                val looksLikePdfImport = pdf != null && (
+                    pages.isEmpty() ||
+                        pages.any { page -> page.id == deterministicPageId(document.id, page.position) }
+                    )
+
+                if (looksLikePdfImport) {
+                    renderPdfAndRecognize(document.id, pdf)
+                } else {
+                    recognizeDocument(document.id)
+                }
+            }
+        }
+    }
 
     suspend fun ingestScan(pageUris: List<Uri>, pdfUri: Uri?): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
@@ -157,6 +183,12 @@ class ScanRepository(
     }
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
+
+    suspend fun createPdfExport(id: String): File? = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext null
+        val source = document.pdfPath?.let(::File)?.takeIf { it.isFile } ?: return@withContext null
+        files.createPdfExport(id, document.title, source)
+    }
 
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
