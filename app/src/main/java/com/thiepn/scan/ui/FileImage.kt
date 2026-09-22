@@ -16,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.PageGeometryRenderer
+import com.thiepn.scan.data.PageVisualRecipeCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -28,6 +30,7 @@ fun FileImage(
     maxDecodeEdge: Int = 1600,
     rotationDegrees: Int = 0,
     cropQuad: String? = null,
+    visualRecipe: String? = null,
     contentDescription: String? = null
 ) {
     val bitmap by produceState<Bitmap?>(
@@ -35,16 +38,23 @@ fun FileImage(
         path,
         maxDecodeEdge,
         rotationDegrees,
-        cropQuad
+        cropQuad,
+        visualRecipe
     ) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                PageGeometryRenderer.renderFile(
+                val geometry = PageGeometryRenderer.renderFile(
                     file = File(path),
                     cropQuad = CropQuadCodec.decode(cropQuad),
                     rotationDegrees = rotationDegrees,
                     maxLongEdge = maxDecodeEdge
                 )
+                val enhanced = ImageEnhancementRenderer.apply(
+                    geometry,
+                    PageVisualRecipeCodec.decode(visualRecipe)
+                )
+                if (enhanced !== geometry) geometry.recycle()
+                enhanced
             }.getOrNull()
         }
     }
