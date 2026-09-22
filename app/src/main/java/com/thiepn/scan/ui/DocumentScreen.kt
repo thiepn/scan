@@ -186,18 +186,55 @@ fun DocumentScreen(
         return
     }
 
+    val hasAnyPageEdits = pages.any { page ->
+        page.rotationDegrees != 0 ||
+            !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
+            !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal()
+    }
+
     Scaffold(
         modifier = Modifier.padding(contentPadding),
         topBar = {
             TopAppBar(
-                title = { Text(doc.title, maxLines = 1) },
+                title = {
+                    Text(
+                        if (selectionMode) {
+                            "${selectedPageIds.size} selected"
+                        } else {
+                            doc.title
+                        },
+                        maxLines = 1
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    if (selectionMode) {
+                        IconButton(onClick = {
+                            selectionMode = false
+                            selectedPageIds = emptyList()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit page selection")
+                        }
+                    } else {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {
-                    if (doc.trashedAt == null) {
+                    if (selectionMode) {
+                        IconButton(
+                            onClick = {
+                                selectedPageIds = if (selectedPageIds.size == pages.size) {
+                                    emptyList()
+                                } else {
+                                    pages.map { it.id }
+                                }
+                            },
+                            enabled = pages.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select all pages")
+                        }
+                    } else if (doc.trashedAt == null) {
                         IconButton(onClick = {
                             scope.launch { repository.setFavorite(doc.id, !doc.favorite) }
                         }) {
@@ -280,12 +317,42 @@ fun DocumentScreen(
                             }
                         }
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = onAddPages,
-                            enabled = !doc.processing
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.AddAPhoto, contentDescription = null)
-                            Text(" Add pages")
+                            OutlinedButton(
+                                onClick = onAddPages,
+                                enabled = !doc.processing
+                            ) {
+                                Icon(Icons.Default.AddAPhoto, contentDescription = null)
+                                Text(" Add pages")
+                            }
+                            OutlinedButton(
+                                onClick = { insertPagesOpen = true },
+                                enabled = !doc.processing
+                            ) {
+                                Text("Insert scans")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    selectionMode = true
+                                    selectedPageIds = emptyList()
+                                },
+                                enabled = !doc.processing && pages.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.SelectAll, contentDescription = null)
+                                Text(" Select pages")
+                            }
+                            if (hasAnyPageEdits) {
+                                OutlinedButton(
+                                    onClick = { resetAllEditsOpen = true },
+                                    enabled = !doc.processing
+                                ) {
+                                    Icon(Icons.Default.RestartAlt, contentDescription = null)
+                                    Text(" Reset all edits")
+                                }
+                            }
                         }
                         if (pages.size > 1) {
                             Spacer(Modifier.height(8.dp))
@@ -305,17 +372,76 @@ fun DocumentScreen(
                 }
             }
 
+            if (selectionMode && doc.trashedAt == null) {
+                item {
+                    BatchActionBar(
+                        selectedCount = selectedPageIds.size,
+                        canDelete = pages.size - selectedPageIds.size >= 1,
+                        onRotate = {
+                            val selected = selectedPageIds
+                            scope.launch {
+                                runCatching { repository.rotatePages(doc.id, selected) }
+                                    .onSuccess { onMessage("Selected pages rotated") }
+                                    .onFailure { onMessage(it.message ?: "Could not rotate pages") }
+                            }
+                        },
+                        onFilter = { batchFilterOpen = true },
+                        onMove = { batchMoveOpen = true },
+                        onDuplicate = {
+                            val selected = selectedPageIds
+                            scope.launch {
+                                runCatching { repository.duplicatePages(doc.id, selected) }
+                                    .onSuccess { count ->
+                                        selectionMode = false
+                                        selectedPageIds = emptyList()
+                                        onMessage("$count page${if (count == 1) "" else "s"} duplicated")
+                                    }
+                                    .onFailure { onMessage(it.message ?: "Could not duplicate pages") }
+                            }
+                        },
+                        onReset = {
+                            val selected = selectedPageIds
+                            scope.launch {
+                                runCatching { repository.resetPageEdits(doc.id, selected) }
+                                    .onSuccess { onMessage("Selected page edits reset") }
+                                    .onFailure { onMessage(it.message ?: "Could not reset page edits") }
+                            }
+                        },
+                        onDelete = { batchDeleteOpen = true },
+                        onExport = { batchExportOpen = true }
+                    )
+                }
+            }
+
             itemsIndexed(pages, key = { _, page -> page.id }) { index, page ->
+                val editable = doc.trashedAt == null && !doc.processing
+                val pageHasEdits =
+                    page.rotationDegrees != 0 ||
+                        !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
+                        !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal()
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
-                    canMoveUp = doc.trashedAt == null && !doc.processing && index > 0,
-                    canMoveDown = doc.trashedAt == null && !doc.processing && index < pages.lastIndex,
-                    canRotate = doc.trashedAt == null && !doc.processing,
-                    canCrop = doc.trashedAt == null && !doc.processing,
-                    canEnhance = doc.trashedAt == null && !doc.processing,
-                    canDuplicate = doc.trashedAt == null && !doc.processing,
-                    canDelete = doc.trashedAt == null && !doc.processing && pages.size > 1,
+                    selectionMode = selectionMode,
+                    selected = page.id in selectedPageIds,
+                    canMoveUp = editable && index > 0,
+                    canMoveDown = editable && index < pages.lastIndex,
+                    canRotate = editable,
+                    canCrop = editable,
+                    canEnhance = editable,
+                    canDuplicate = editable,
+                    canReplace = editable,
+                    canRetake = editable,
+                    canReset = editable && pageHasEdits,
+                    canDelete = editable && pages.size > 1,
+                    canDragReorder = editable && pages.size > 1 && !selectionMode,
+                    onToggleSelected = {
+                        selectedPageIds = if (page.id in selectedPageIds) {
+                            selectedPageIds - page.id
+                        } else {
+                            selectedPageIds + page.id
+                        }
+                    },
                     onMoveUp = {
                         scope.launch {
                             runCatching { repository.movePage(doc.id, page.id, -1) }
@@ -326,6 +452,19 @@ fun DocumentScreen(
                         scope.launch {
                             runCatching { repository.movePage(doc.id, page.id, 1) }
                                 .onFailure { onMessage(it.message ?: "Could not move page") }
+                        }
+                    },
+                    onDragReorder = { offset ->
+                        val target = (index + offset).coerceIn(0, pages.lastIndex)
+                        if (target != index) {
+                            scope.launch {
+                                runCatching {
+                                    repository.movePages(doc.id, listOf(page.id), target)
+                                }
+                                    .onFailure {
+                                        onMessage(it.message ?: "Could not reorder page")
+                                    }
+                            }
                         }
                     },
                     onRotate = {
@@ -341,6 +480,18 @@ fun DocumentScreen(
                             runCatching { repository.duplicatePage(doc.id, page.id) }
                                 .onSuccess { onMessage("Page duplicated") }
                                 .onFailure { onMessage(it.message ?: "Could not duplicate page") }
+                        }
+                    },
+                    onReplace = {
+                        replacePageId = page.id
+                        replaceImageLauncher.launch(arrayOf("image/*"))
+                    },
+                    onRetake = { onRetakePage(page.id) },
+                    onReset = {
+                        scope.launch {
+                            runCatching { repository.resetPageEdits(doc.id, listOf(page.id)) }
+                                .onSuccess { onMessage("Page edits reset") }
+                                .onFailure { onMessage(it.message ?: "Could not reset page edits") }
                         }
                     },
                     onDelete = { pageDeleteCandidate = page }
