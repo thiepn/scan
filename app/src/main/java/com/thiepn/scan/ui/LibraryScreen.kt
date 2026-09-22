@@ -151,6 +151,23 @@ fun LibraryScreen(
         }
     }
 
+    LaunchedEffect(folders.map { it.id }, tags.map { it.id }) {
+        val folderIds = folders.map { it.id }.toSet()
+        val tagIds = tags.map { it.id }.toSet()
+        if (
+            organizationFilter.folderId != null &&
+            organizationFilter.folderId !in folderIds
+        ) {
+            organizationFilter = organizationFilter.copy(folderId = null)
+        }
+        if (
+            organizationFilter.tagId != null &&
+            organizationFilter.tagId !in tagIds
+        ) {
+            organizationFilter = organizationFilter.copy(tagId = null)
+        }
+    }
+
     val sourceDocuments = if (query.isBlank()) liveDocuments else searchResults
     val tagIdsByDocument = documentTags.groupBy { it.documentId }
         .mapValues { (_, links) -> links.map { it.tagId }.toSet() }
