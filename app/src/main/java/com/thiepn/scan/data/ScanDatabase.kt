@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DocumentEntity::class, PageEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -28,12 +28,22 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN trashedAt INTEGER DEFAULT NULL")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_documents_trashedAt " +
+                        "ON documents(trashedAt)"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
             "scan.db"
         )
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 }
