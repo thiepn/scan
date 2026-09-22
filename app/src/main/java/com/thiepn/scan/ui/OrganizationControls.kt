@@ -36,7 +36,7 @@ data class OrganizationFilterState(
     val folderId: String? = null,
     val tagId: String? = null,
     val documentType: DocumentType? = null,
-    val sort: LibrarySort = LibrarySort.UPDATED_DESC
+    val sort: LibrarySort = LibrarySort.RELEVANCE
 )
 
 data class BulkOrganizationChange(
