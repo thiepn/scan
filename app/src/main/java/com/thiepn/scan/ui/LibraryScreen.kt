@@ -10,15 +10,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.MergeType
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -28,14 +34,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +52,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.DocumentEntity
 import com.thiepn.scan.data.LibraryFilter
 import com.thiepn.scan.data.ScanRepository
+import com.thiepn.scan.util.shareFile
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -55,12 +66,18 @@ fun LibraryScreen(
     busy: Boolean,
     onOpenDocument: (String) -> Unit,
     onScan: () -> Unit,
-    onImportPdf: () -> Unit
+    onImportPdf: () -> Unit,
+    onMessage: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(LibraryFilter.ACTIVE) }
+    var mergeOpen by remember { mutableStateOf(false) }
+    var mergeBusy by remember { mutableStateOf(false) }
     val documentsFlow = remember(query, filter) { repository.observeDocuments(filter, query) }
     val documents by documentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val mergeCandidates = documents.filter { !it.processing }
 
     Scaffold(
         modifier = Modifier.padding(contentPadding),
@@ -77,7 +94,12 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onImportPdf, enabled = !busy) {
+                    if (mergeCandidates.size >= 2) {
+                        IconButton(onClick = { mergeOpen = true }, enabled = !busy && !mergeBusy) {
+                            Icon(Icons.Default.MergeType, contentDescription = "Merge PDFs")
+                        }
+                    }
+                    IconButton(onClick = onImportPdf, enabled = !busy && !mergeBusy) {
                         Icon(Icons.Default.FileOpen, contentDescription = "Import PDF")
                     }
                 }
@@ -140,11 +162,99 @@ fun LibraryScreen(
                 }
             }
 
-            if (busy) {
+            if (busy || mergeBusy) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
     }
+
+    if (mergeOpen) {
+        MergeDocumentsDialog(
+            documents = mergeCandidates,
+            onDismiss = { mergeOpen = false },
+            onMerge = { ids ->
+                mergeOpen = false
+                scope.launch {
+                    mergeBusy = true
+                    runCatching { repository.mergeDocuments(ids) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "application/pdf")
+                            else onMessage("Could not create merged PDF")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not merge PDFs") }
+                    mergeBusy = false
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun MergeDocumentsDialog(
+    documents: List<DocumentEntity>,
+    onDismiss: () -> Unit,
+    onMerge: (List<String>) -> Unit
+) {
+    var selected by remember(documents) { mutableStateOf<Set<String>>(emptySet()) }
+    val toggle: (String) -> Unit = { id ->
+        selected = if (id in selected) selected - id else selected + id
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge PDFs") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    "Choose at least two documents. They will be merged in the order shown.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                documents.forEach { document ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { toggle(document.id) }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = document.id in selected,
+                            onCheckedChange = { toggle(document.id) }
+                        )
+                        Column(Modifier.padding(start = 6.dp)) {
+                            Text(
+                                document.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "${document.pageCount} page${if (document.pageCount == 1) "" else "s"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onMerge(documents.filter { it.id in selected }.map { it.id })
+                },
+                enabled = selected.size >= 2
+            ) { Text("Merge") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
