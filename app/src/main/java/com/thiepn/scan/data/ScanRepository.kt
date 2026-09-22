@@ -252,8 +252,13 @@ class ScanRepository(
             }
             rendered.forEachIndexed { index, renderedPage ->
                 val pageId = deterministicPageId(documentId, index)
+                val existing = dao.getPage(pageId)
                 dao.insertPage(
-                    PageEntity(
+                    existing?.copy(
+                        imagePath = renderedPage.file.absolutePath,
+                        width = renderedPage.width,
+                        height = renderedPage.height
+                    ) ?: PageEntity(
                         id = pageId,
                         documentId = documentId,
                         position = index,
