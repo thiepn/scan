@@ -17,48 +17,150 @@ object ImageEnhancementRenderer {
 
         val width = source.width
         val height = source.height
-        val input = IntArray(width * height)
-        source.getPixels(input, 0, width, 0, 0, width, height)
-
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val illumination = if (r.shadowNormalization > 0.001f) {
-            estimateIllumination(input, width, height)
+            estimateIllumination(source)
         } else {
             null
         }
 
-        val output = IntArray(input.size)
-        val black = (r.blackPoint * 0.42f).coerceIn(0f, 0.42f)
-        val white = (1f - r.whitePoint * 0.28f).coerceIn(0.58f, 1f)
-        val tonalRange = (white - black).coerceAtLeast(0.08f)
-        val brightnessOffset = r.brightness * 0.18f
-        val contrastFactor = (1f + r.contrast * 0.95f).coerceIn(0.25f, 2.1f)
-        val saturationFactor = (1f + r.saturation * 0.85f).coerceIn(0f, 1.85f)
-        val warmth = r.warmth * 0.12f
-        val grayscale = r.preset == ScanPreset.GRAYSCALE || r.preset == ScanPreset.BLACK_WHITE
+        if (r.sharpness <= 0.001f || width < 3 || height < 3) {
+            val raw = IntArray(width)
+            val transformed = IntArray(width)
+            for (y in 0 until height) {
+                source.getPixels(raw, 0, width, 0, y, width, 1)
+                transformRow(
+                    input = raw,
+                    output = transformed,
+                    y = y,
+                    width = width,
+                    height = height,
+                    recipe = r,
+                    illumination = illumination
+                )
+                output.setPixels(transformed, 0, width, 0, y, width, 1)
+            }
+            return output
+        }
 
-        for (index in input.indices) {
-            val color = input[index]
+        var previous = transformedRow(source, 0, r, illumination)
+        var current = transformedRow(source, 1, r, illumination)
+        output.setPixels(previous, 0, width, 0, 0, width, 1)
+
+        val sharpened = IntArray(width)
+        for (y in 1 until height - 1) {
+            val next = transformedRow(source, y + 1, r, illumination)
+            sharpenRow(
+                previous = previous,
+                current = current,
+                next = next,
+                output = sharpened,
+                amount = r.sharpness
+            )
+            output.setPixels(sharpened, 0, width, 0, y, width, 1)
+            previous = current
+            current = next
+        }
+
+        output.setPixels(current, 0, width, 0, height - 1, width, 1)
+        return output
+    }
+
+    private data class IlluminationGrid(
+        val values: FloatArray,
+        val width: Int,
+        val height: Int,
+        val median: Float
+    ) {
+        fun sample(
+            x: Int,
+            y: Int,
+            imageWidth: Int,
+            imageHeight: Int
+        ): Float {
+            val fx = if (imageWidth <= 1) 0f else x.toFloat() / (imageWidth - 1)
+            val fy = if (imageHeight <= 1) 0f else y.toFloat() / (imageHeight - 1)
+            val px = fx * (width - 1)
+            val py = fy * (height - 1)
+            val x0 = px.toInt().coerceIn(0, width - 1)
+            val y0 = py.toInt().coerceIn(0, height - 1)
+            val x1 = min(width - 1, x0 + 1)
+            val y1 = min(height - 1, y0 + 1)
+            val tx = px - x0
+            val ty = py - y0
+
+            val a = lerp(values[y0 * width + x0], values[y0 * width + x1], tx)
+            val b = lerp(values[y1 * width + x0], values[y1 * width + x1], tx)
+            return lerp(a, b, ty)
+        }
+    }
+
+    private fun transformedRow(
+        source: Bitmap,
+        y: Int,
+        recipe: PageVisualRecipe,
+        illumination: IlluminationGrid?
+    ): IntArray {
+        val width = source.width
+        val input = IntArray(width)
+        val output = IntArray(width)
+        source.getPixels(input, 0, width, 0, y, width, 1)
+        transformRow(
+            input = input,
+            output = output,
+            y = y,
+            width = width,
+            height = source.height,
+            recipe = recipe,
+            illumination = illumination
+        )
+        return output
+    }
+
+    private fun transformRow(
+        input: IntArray,
+        output: IntArray,
+        y: Int,
+        width: Int,
+        height: Int,
+        recipe: PageVisualRecipe,
+        illumination: IlluminationGrid?
+    ) {
+        val black = (recipe.blackPoint * 0.42f).coerceIn(0f, 0.42f)
+        val white = (1f - recipe.whitePoint * 0.28f).coerceIn(0.58f, 1f)
+        val tonalRange = (white - black).coerceAtLeast(0.08f)
+        val brightnessOffset = recipe.brightness * 0.18f
+        val contrastFactor = (1f + recipe.contrast * 0.95f).coerceIn(0.25f, 2.1f)
+        val saturationFactor = (1f + recipe.saturation * 0.85f).coerceIn(0f, 1.85f)
+        val warmth = recipe.warmth * 0.12f
+        val grayscale =
+            recipe.preset == ScanPreset.GRAYSCALE ||
+                recipe.preset == ScanPreset.BLACK_WHITE
+
+        for (x in input.indices) {
+            val color = input[x]
             var red = Color.red(color) / 255f
             var green = Color.green(color) / 255f
             var blue = Color.blue(color) / 255f
             val alpha = Color.alpha(color)
 
-            var luminance = luma(red, green, blue)
-
-            illumination?.let { map ->
-                val local = map[index]
-                val correction = ((map.median - local) * r.shadowNormalization * 0.70f)
-                    .coerceIn(-0.22f, 0.30f)
+            illumination?.let { grid ->
+                val local = grid.sample(x, y, width, height)
+                val correction = (
+                    (grid.median - local) *
+                        recipe.shadowNormalization *
+                        0.70f
+                    ).coerceIn(-0.22f, 0.30f)
                 red = (red + correction).coerceIn(0f, 1f)
                 green = (green + correction).coerceIn(0f, 1f)
                 blue = (blue + correction).coerceIn(0f, 1f)
-                luminance = luma(red, green, blue)
             }
 
+            var luminance = luma(red, green, blue)
             val lifted = applyShadowHighlightCurve(
                 luminance = luminance,
-                shadows = r.shadows,
-                highlights = r.highlights
+                shadows = recipe.shadows,
+                highlights = recipe.highlights
             )
             val luminanceDelta = lifted - luminance
             red += luminanceDelta
@@ -69,21 +171,24 @@ object ImageEnhancementRenderer {
             green = ((green - black) / tonalRange).coerceIn(0f, 1f)
             blue = ((blue - black) / tonalRange).coerceIn(0f, 1f)
 
-            red = ((red - 0.5f) * contrastFactor + 0.5f + brightnessOffset).coerceIn(0f, 1f)
-            green = ((green - 0.5f) * contrastFactor + 0.5f + brightnessOffset).coerceIn(0f, 1f)
-            blue = ((blue - 0.5f) * contrastFactor + 0.5f + brightnessOffset).coerceIn(0f, 1f)
+            red = ((red - 0.5f) * contrastFactor + 0.5f + brightnessOffset)
+                .coerceIn(0f, 1f)
+            green = ((green - 0.5f) * contrastFactor + 0.5f + brightnessOffset)
+                .coerceIn(0f, 1f)
+            blue = ((blue - 0.5f) * contrastFactor + 0.5f + brightnessOffset)
+                .coerceIn(0f, 1f)
 
             red = (red + warmth).coerceIn(0f, 1f)
             blue = (blue - warmth).coerceIn(0f, 1f)
 
-            val gray = luma(red, green, blue)
-            red = (gray + (red - gray) * saturationFactor).coerceIn(0f, 1f)
-            green = (gray + (green - gray) * saturationFactor).coerceIn(0f, 1f)
-            blue = (gray + (blue - gray) * saturationFactor).coerceIn(0f, 1f)
+            luminance = luma(red, green, blue)
+            red = (luminance + (red - luminance) * saturationFactor).coerceIn(0f, 1f)
+            green = (luminance + (green - luminance) * saturationFactor).coerceIn(0f, 1f)
+            blue = (luminance + (blue - luminance) * saturationFactor).coerceIn(0f, 1f)
 
-            if (r.backgroundWhitening > 0.001f) {
+            if (recipe.backgroundWhitening > 0.001f) {
                 val lum = luma(red, green, blue)
-                val mask = smoothstep(0.58f, 0.95f, lum) * r.backgroundWhitening
+                val mask = smoothstep(0.58f, 0.95f, lum) * recipe.backgroundWhitening
                 red += (1f - red) * mask
                 green += (1f - green) * mask
                 blue += (1f - blue) * mask
@@ -96,59 +201,46 @@ object ImageEnhancementRenderer {
                 blue = value
             }
 
-            if (r.preset == ScanPreset.BLACK_WHITE) {
-                val threshold = 0.70f - r.blackPoint * 0.14f + r.whitePoint * 0.08f
-                val lum = luma(red, green, blue)
-                val widthSoft = 0.10f
+            if (recipe.preset == ScanPreset.BLACK_WHITE) {
+                val threshold =
+                    0.70f -
+                        recipe.blackPoint * 0.14f +
+                        recipe.whitePoint * 0.08f
                 val value = smoothstep(
-                    threshold - widthSoft,
-                    threshold + widthSoft,
-                    lum
+                    threshold - 0.10f,
+                    threshold + 0.10f,
+                    luma(red, green, blue)
                 )
                 red = value
                 green = value
                 blue = value
             }
 
-            output[index] = Color.argb(
+            output[x] = Color.argb(
                 alpha,
                 (red * 255f).roundToInt().coerceIn(0, 255),
                 (green * 255f).roundToInt().coerceIn(0, 255),
                 (blue * 255f).roundToInt().coerceIn(0, 255)
             )
         }
-
-        if (r.sharpness > 0.001f && width > 2 && height > 2) {
-            applySharpen(output, width, height, r.sharpness)
-        }
-
-        return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
     }
 
-    private data class IlluminationMap(
-        val values: FloatArray,
-        val median: Float
-    ) {
-        operator fun get(index: Int): Float = values[index]
-    }
+    private fun estimateIllumination(source: Bitmap): IlluminationGrid {
+        val gridWidth = 12
+        val gridHeight = 12
+        val values = FloatArray(gridWidth * gridHeight)
+        val counts = IntArray(values.size)
+        val sampleStep = max(1, max(source.width, source.height) / 900)
+        val pixel = IntArray(1)
 
-    private fun estimateIllumination(
-        pixels: IntArray,
-        width: Int,
-        height: Int
-    ): IlluminationMap {
-        val gridX = 12
-        val gridY = 12
-        val cell = FloatArray(gridX * gridY)
-        val counts = IntArray(cell.size)
-
-        for (y in 0 until height) {
-            val gy = min(gridY - 1, y * gridY / max(1, height))
-            for (x in 0 until width) {
-                val gx = min(gridX - 1, x * gridX / max(1, width))
-                val index = gy * gridX + gx
-                val color = pixels[y * width + x]
-                cell[index] += luma(
+        for (y in 0 until source.height step sampleStep) {
+            val gy = min(gridHeight - 1, y * gridHeight / max(1, source.height))
+            for (x in 0 until source.width step sampleStep) {
+                val gx = min(gridWidth - 1, x * gridWidth / max(1, source.width))
+                source.getPixels(pixel, 0, 1, x, y, 1, 1)
+                val color = pixel[0]
+                val index = gy * gridWidth + gx
+                values[index] += luma(
                     Color.red(color) / 255f,
                     Color.green(color) / 255f,
                     Color.blue(color) / 255f
@@ -157,34 +249,72 @@ object ImageEnhancementRenderer {
             }
         }
 
-        for (i in cell.indices) {
-            if (counts[i] > 0) cell[i] /= counts[i]
+        for (i in values.indices) {
+            if (counts[i] > 0) values[i] /= counts[i]
         }
 
-        val sorted = cell.copyOf().apply { sort() }
-        val median = sorted[sorted.size / 2]
-        val values = FloatArray(width * height)
+        val sorted = values.filterIndexed { index, _ -> counts[index] > 0 }
+            .sorted()
+        val median = if (sorted.isEmpty()) 0.75f else sorted[sorted.size / 2]
 
-        for (y in 0 until height) {
-            val fy = if (height <= 1) 0f else y.toFloat() / (height - 1)
-            val py = fy * (gridY - 1)
-            val y0 = py.toInt().coerceIn(0, gridY - 1)
-            val y1 = min(gridY - 1, y0 + 1)
-            val ty = py - y0
-            for (x in 0 until width) {
-                val fx = if (width <= 1) 0f else x.toFloat() / (width - 1)
-                val px = fx * (gridX - 1)
-                val x0 = px.toInt().coerceIn(0, gridX - 1)
-                val x1 = min(gridX - 1, x0 + 1)
-                val tx = px - x0
+        return IlluminationGrid(
+            values = values,
+            width = gridWidth,
+            height = gridHeight,
+            median = median
+        )
+    }
 
-                val a = lerp(cell[y0 * gridX + x0], cell[y0 * gridX + x1], tx)
-                val b = lerp(cell[y1 * gridX + x0], cell[y1 * gridX + x1], tx)
-                values[y * width + x] = lerp(a, b, ty)
+    private fun sharpenRow(
+        previous: IntArray,
+        current: IntArray,
+        next: IntArray,
+        output: IntArray,
+        amount: Float
+    ) {
+        val strength = (amount * 0.62f).coerceIn(0f, 0.62f)
+        output[0] = current[0]
+        output[current.lastIndex] = current[current.lastIndex]
+
+        for (x in 1 until current.lastIndex) {
+            val center = current[x]
+            val left = current[x - 1]
+            val right = current[x + 1]
+            val up = previous[x]
+            val down = next[x]
+
+            fun sharpen(c: Int, l: Int, r: Int, u: Int, d: Int): Int {
+                val avg = (l + r + u + d) / 4f
+                return (c + (c - avg) * strength)
+                    .roundToInt()
+                    .coerceIn(0, 255)
             }
-        }
 
-        return IlluminationMap(values, median)
+            output[x] = Color.argb(
+                Color.alpha(center),
+                sharpen(
+                    Color.red(center),
+                    Color.red(left),
+                    Color.red(right),
+                    Color.red(up),
+                    Color.red(down)
+                ),
+                sharpen(
+                    Color.green(center),
+                    Color.green(left),
+                    Color.green(right),
+                    Color.green(up),
+                    Color.green(down)
+                ),
+                sharpen(
+                    Color.blue(center),
+                    Color.blue(left),
+                    Color.blue(right),
+                    Color.blue(up),
+                    Color.blue(down)
+                )
+            )
+        }
     }
 
     private fun applyShadowHighlightCurve(
@@ -202,44 +332,6 @@ object ImageEnhancementRenderer {
             value += highlights * 0.25f * highlightMask
         }
         return value.coerceIn(0f, 1f)
-    }
-
-    private fun applySharpen(
-        pixels: IntArray,
-        width: Int,
-        height: Int,
-        amount: Float
-    ) {
-        val source = pixels.copyOf()
-        val strength = (amount * 0.62f).coerceIn(0f, 0.62f)
-        for (y in 1 until height - 1) {
-            for (x in 1 until width - 1) {
-                val i = y * width + x
-                val center = source[i]
-                val left = source[i - 1]
-                val right = source[i + 1]
-                val up = source[i - width]
-                val down = source[i + width]
-
-                fun sharpenChannel(extract: (Int) -> Int): Int {
-                    val c = extract(center)
-                    val avg = (
-                        extract(left) + extract(right) +
-                            extract(up) + extract(down)
-                        ) / 4f
-                    return (c + (c - avg) * strength)
-                        .roundToInt()
-                        .coerceIn(0, 255)
-                }
-
-                pixels[i] = Color.argb(
-                    Color.alpha(center),
-                    sharpenChannel(Color::red),
-                    sharpenChannel(Color::green),
-                    sharpenChannel(Color::blue)
-                )
-            }
-        }
     }
 
     private fun luma(r: Float, g: Float, b: Float): Float =
