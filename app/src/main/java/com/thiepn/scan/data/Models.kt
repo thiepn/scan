@@ -5,7 +5,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "documents")
+@Entity(tableName = "documents", indices = [Index("trashedAt")])
 data class DocumentEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -15,6 +15,7 @@ data class DocumentEntity(
     val pageCount: Int,
     val favorite: Boolean = false,
     val archived: Boolean = false,
+    val trashedAt: Long? = null,
     val processing: Boolean = false,
     val ocrText: String = ""
 )
@@ -47,4 +48,4 @@ data class PageEntity(
     val ocrText: String = ""
 )
 
-enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED }
+enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
