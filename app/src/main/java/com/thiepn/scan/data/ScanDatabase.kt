@@ -5,7 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.Dispatchers
 
 @Database(
     entities = [DocumentEntity::class, PageEntity::class],
@@ -17,11 +20,11 @@ abstract class ScanDatabase : RoomDatabase() {
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE pages ADD COLUMN sortKey INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("UPDATE pages SET sortKey = (position + 1) * 1000")
-                db.execSQL("ALTER TABLE pages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
-                db.execSQL(
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE pages ADD COLUMN sortKey INTEGER NOT NULL DEFAULT 0")
+                connection.execSQL("UPDATE pages SET sortKey = (position + 1) * 1000")
+                connection.execSQL("ALTER TABLE pages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+                connection.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_pages_documentId_deleted_sortKey " +
                         "ON pages(documentId, deleted, sortKey)"
                 )
@@ -29,9 +32,9 @@ abstract class ScanDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE documents ADD COLUMN trashedAt INTEGER")
-                db.execSQL(
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE documents ADD COLUMN trashedAt INTEGER")
+                connection.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_documents_trashedAt " +
                         "ON documents(trashedAt)"
                 )
@@ -39,8 +42,8 @@ abstract class ScanDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
                     """
                     CREATE TABLE pages_new (
                         id TEXT NOT NULL PRIMARY KEY,
@@ -58,7 +61,7 @@ abstract class ScanDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                db.execSQL(
+                connection.execSQL(
                     """
                     INSERT INTO pages_new (
                         id, documentId, position, sortKey, deleted,
@@ -70,16 +73,16 @@ abstract class ScanDatabase : RoomDatabase() {
                     FROM pages
                     """.trimIndent()
                 )
-                db.execSQL("DROP TABLE pages")
-                db.execSQL("ALTER TABLE pages_new RENAME TO pages")
-                db.execSQL(
+                connection.execSQL("DROP TABLE pages")
+                connection.execSQL("ALTER TABLE pages_new RENAME TO pages")
+                connection.execSQL(
                     "CREATE INDEX index_pages_documentId ON pages(documentId)"
                 )
-                db.execSQL(
+                connection.execSQL(
                     "CREATE UNIQUE INDEX index_pages_documentId_position " +
                         "ON pages(documentId, position)"
                 )
-                db.execSQL(
+                connection.execSQL(
                     "CREATE INDEX index_pages_documentId_deleted_sortKey " +
                         "ON pages(documentId, deleted, sortKey)"
                 )
@@ -87,24 +90,24 @@ abstract class ScanDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE pages ADD COLUMN cropQuad TEXT")
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE pages ADD COLUMN cropQuad TEXT")
             }
         }
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE pages ADD COLUMN visualRecipe TEXT")
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE pages ADD COLUMN visualRecipe TEXT")
             }
         }
 
         private val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE documents ADD COLUMN ocrScript TEXT NOT NULL DEFAULT 'LATIN'")
-                db.execSQL("ALTER TABLE pages ADD COLUMN ocrLayout TEXT")
-                db.execSQL("ALTER TABLE pages ADD COLUMN ocrFingerprint TEXT")
-                db.execSQL("ALTER TABLE pages ADD COLUMN ocrScript TEXT")
-                db.execSQL(
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE documents ADD COLUMN ocrScript TEXT NOT NULL DEFAULT 'LATIN'")
+                connection.execSQL("ALTER TABLE pages ADD COLUMN ocrLayout TEXT")
+                connection.execSQL("ALTER TABLE pages ADD COLUMN ocrFingerprint TEXT")
+                connection.execSQL("ALTER TABLE pages ADD COLUMN ocrScript TEXT")
+                connection.execSQL(
                     """
                     CREATE VIRTUAL TABLE IF NOT EXISTS ocr_pages_fts
                     USING fts5(
@@ -115,7 +118,7 @@ abstract class ScanDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                db.execSQL(
+                connection.execSQL(
                     """
                     INSERT INTO ocr_pages_fts(documentId, pageId, content)
                     SELECT documentId, id, ocrText
@@ -139,6 +142,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7
             )
+            .setDriver(BundledSQLiteDriver())
+            .setQueryCoroutineContext(Dispatchers.IO)
             .build()
     }
 }
