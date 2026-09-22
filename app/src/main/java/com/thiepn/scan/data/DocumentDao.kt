@@ -66,6 +66,9 @@ interface DocumentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPage(page: PageEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPages(pages: List<PageEntity>)
+
     @Query("UPDATE pages SET ocrText = :text WHERE id = :pageId")
     suspend fun updatePageOcr(pageId: String, text: String)
 
