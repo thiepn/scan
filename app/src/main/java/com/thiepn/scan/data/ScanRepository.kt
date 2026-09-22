@@ -544,6 +544,7 @@ class ScanRepository(
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
         )
+        refreshTypeSuggestion(documentId)
     }
 
     private suspend fun recognizePageAndRefresh(documentId: String, pageId: String) {
