@@ -27,4 +27,4 @@ jobs:
         with:
           gradle-version: '9.6.0'
       - name: Build and test
-        run: gradle :app:assembleDebug :app:testDebugUnitTest --stacktrace
+        run: gradle :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest --stacktrace
