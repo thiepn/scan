@@ -254,6 +254,56 @@ fun LibraryScreen(
                         ) {
                             Icon(Icons.Default.Label, contentDescription = "Organize selected documents")
                         }
+                        IconButton(
+                            onClick = {
+                                val ids = selectedDocumentIds.toList()
+                                val favorite = filter != LibraryFilter.FAVORITES
+                                scope.launch {
+                                    runCatching {
+                                        repository.setDocumentsFavorite(ids, favorite)
+                                    }
+                                        .onSuccess {
+                                            selectionMode = false
+                                            selectedDocumentIds = emptySet()
+                                            onMessage(
+                                                if (favorite) "Documents favorited"
+                                                else "Documents removed from favorites"
+                                            )
+                                        }
+                                        .onFailure {
+                                            onMessage(it.message ?: "Could not update favorites")
+                                        }
+                                }
+                            },
+                            enabled = selectedDocumentIds.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.Favorite, contentDescription = "Toggle favorites")
+                        }
+                        IconButton(
+                            onClick = {
+                                val ids = selectedDocumentIds.toList()
+                                val archived = filter != LibraryFilter.ARCHIVED
+                                scope.launch {
+                                    runCatching {
+                                        repository.setDocumentsArchived(ids, archived)
+                                    }
+                                        .onSuccess {
+                                            selectionMode = false
+                                            selectedDocumentIds = emptySet()
+                                            onMessage(
+                                                if (archived) "Documents archived"
+                                                else "Documents restored from archive"
+                                            )
+                                        }
+                                        .onFailure {
+                                            onMessage(it.message ?: "Could not update archive")
+                                        }
+                                }
+                            },
+                            enabled = selectedDocumentIds.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.Archive, contentDescription = "Toggle archive")
+                        }
                     } else {
                         IconButton(onClick = { organizationFilterOpen = true }) {
                             Icon(Icons.Default.FilterList, contentDescription = "Sort and filter")
