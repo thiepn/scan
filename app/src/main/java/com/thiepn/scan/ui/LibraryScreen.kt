@@ -192,34 +192,94 @@ fun LibraryScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("Scan", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Local-first document scanner",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (selectionMode) {
+                        Text("${selectedDocumentIds.size} selected")
+                    } else {
+                        Column {
+                            Text("Scan", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Local-first document scanner",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    if (selectionMode) {
+                        IconButton(onClick = {
+                            selectionMode = false
+                            selectedDocumentIds = emptySet()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                        }
                     }
                 },
                 actions = {
-                    if (mergeCandidates.size >= 2) {
-                        IconButton(onClick = { mergeOpen = true }, enabled = !busy && !mergeBusy) {
-                            Icon(Icons.Default.MergeType, contentDescription = "Merge PDFs")
+                    if (selectionMode) {
+                        IconButton(
+                            onClick = {
+                                selectedDocumentIds = if (
+                                    selectedDocumentIds.size == documents.size
+                                ) {
+                                    emptySet()
+                                } else {
+                                    documents.map { it.id }.toSet()
+                                }
+                            },
+                            enabled = documents.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select all documents")
                         }
-                    }
-                    IconButton(onClick = onImportPdf, enabled = !busy && !mergeBusy) {
-                        Icon(Icons.Default.FileOpen, contentDescription = "Import PDF")
+                        IconButton(
+                            onClick = { bulkOrganizeOpen = true },
+                            enabled = selectedDocumentIds.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.Label, contentDescription = "Organize selected documents")
+                        }
+                    } else {
+                        IconButton(onClick = { organizationFilterOpen = true }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Sort and filter")
+                        }
+                        IconButton(onClick = { folderManagerOpen = true }) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = "Manage folders")
+                        }
+                        IconButton(onClick = { tagManagerOpen = true }) {
+                            Icon(Icons.Default.Label, contentDescription = "Manage tags")
+                        }
+                        IconButton(
+                            onClick = {
+                                selectionMode = true
+                                selectedDocumentIds = emptySet()
+                            },
+                            enabled = documents.isNotEmpty() && filter != LibraryFilter.TRASH
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "Select documents")
+                        }
+                        if (mergeCandidates.size >= 2) {
+                            IconButton(
+                                onClick = { mergeOpen = true },
+                                enabled = !busy && !mergeBusy
+                            ) {
+                                Icon(Icons.Default.MergeType, contentDescription = "Merge PDFs")
+                            }
+                        }
+                        IconButton(onClick = onImportPdf, enabled = !busy && !mergeBusy) {
+                            Icon(Icons.Default.FileOpen, contentDescription = "Import PDF")
+                        }
                     }
                 }
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onScan,
-                expanded = true,
-                icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
-                text = { Text("Scan") }
-            )
+            if (!selectionMode) {
+                ExtendedFloatingActionButton(
+                    onClick = onScan,
+                    expanded = true,
+                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                    text = { Text("Scan") }
+                )
+            }
         }
     ) { innerPadding ->
         Box(Modifier.fillMaxSize().padding(innerPadding)) {
@@ -267,6 +327,28 @@ fun LibraryScreen(
                     )
                 }
 
+                if (filter != LibraryFilter.TRASH) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SmartCollection.entries.forEach { smart ->
+                            FilterChip(
+                                selected = organizationFilter.smartCollection == smart,
+                                onClick = {
+                                    organizationFilter = organizationFilter.copy(
+                                        smartCollection = smart
+                                    )
+                                },
+                                label = { Text(smart.label) }
+                            )
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(8.dp))
 
                 if (documents.isEmpty()) {
@@ -277,10 +359,53 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(documents, key = { it.id }) { document ->
+                            val documentTagList = tagIdsByDocument[document.id]
+                                .orEmpty()
+                                .mapNotNull { id -> tags.firstOrNull { it.id == id } }
                             DocumentCard(
                                 document = document,
                                 repository = repository,
-                                onClick = { onOpenDocument(document.id) }
+                                folders = folders,
+                                tags = documentTagList,
+                                selectionMode = selectionMode,
+                                selected = document.id in selectedDocumentIds,
+                                onToggleSelected = {
+                                    selectedDocumentIds = if (
+                                        document.id in selectedDocumentIds
+                                    ) {
+                                        selectedDocumentIds - document.id
+                                    } else {
+                                        selectedDocumentIds + document.id
+                                    }
+                                },
+                                onAcceptSuggestion = {
+                                    scope.launch {
+                                        runCatching {
+                                            repository.acceptSuggestedType(document.id)
+                                        }
+                                            .onSuccess {
+                                                onMessage("Document type updated")
+                                            }
+                                            .onFailure {
+                                                onMessage(
+                                                    it.message ?: "Could not update document type"
+                                                )
+                                            }
+                                    }
+                                },
+                                onClick = {
+                                    if (selectionMode) {
+                                        selectedDocumentIds = if (
+                                            document.id in selectedDocumentIds
+                                        ) {
+                                            selectedDocumentIds - document.id
+                                        } else {
+                                            selectedDocumentIds + document.id
+                                        }
+                                    } else {
+                                        onOpenDocument(document.id)
+                                    }
+                                }
                             )
                         }
                     }
