@@ -106,9 +106,15 @@ class PdfEngine(
                         val recognition = runCatching {
                             val geometry = geometryBitmap
                             if (geometry != null) {
-                                ocr.recognizeDetailed(geometry)
+                                ocr.recognizeDetailed(
+                                    geometry,
+                                    OcrScript.fromStored(pageEntity.ocrScript)
+                                )
                             } else {
-                                ocr.recognizeDetailed(imageFile)
+                                ocr.recognizeDetailed(
+                                    imageFile,
+                                    OcrScript.fromStored(pageEntity.ocrScript)
+                                )
                             }
                         }.getOrNull()
 
