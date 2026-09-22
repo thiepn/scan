@@ -353,7 +353,7 @@ fun DocumentScreen(
             text = {
                 Text(
                     if (permanent) {
-                        "This permanently removes the document, its source PDF and page images, OCR data, and metadata from this device. This cannot be undone."
+                        "This permanently removes the document, its source PDF and page images, OCR data, metadata, and app-managed export copies from this device. This cannot be undone. Copies you already shared or saved elsewhere are not affected."
                     } else {
                         "The document will move to Trash and can be restored later. Its files are not deleted yet."
                     }
