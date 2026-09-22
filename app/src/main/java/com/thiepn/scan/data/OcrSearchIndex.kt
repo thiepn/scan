@@ -1,5 +1,6 @@
 package com.thiepn.scan.data
 
+import androidx.room.support.getSupportWrapper
 import androidx.sqlite.db.SimpleSQLiteQuery
 
 data class IndexedPageHit(
@@ -20,7 +21,7 @@ class OcrSearchIndex(
     private val database: ScanDatabase
 ) {
     fun rebuildAll() {
-        val db = database.openHelper.writableDatabase
+        val db = database.getSupportWrapper()
         ensureSchema()
         db.beginTransaction()
         try {
@@ -45,7 +46,7 @@ class OcrSearchIndex(
         content: String,
         deleted: Boolean = false
     ) {
-        val db = database.openHelper.writableDatabase
+        val db = database.getSupportWrapper()
         ensureSchema()
         db.beginTransaction()
         try {
@@ -66,7 +67,7 @@ class OcrSearchIndex(
     }
 
     fun deletePage(pageId: String) {
-        val db = database.openHelper.writableDatabase
+        val db = database.getSupportWrapper()
         ensureSchema()
         db.execSQL(
             "DELETE FROM ocr_pages_fts WHERE pageId = ?",
@@ -75,7 +76,7 @@ class OcrSearchIndex(
     }
 
     fun deleteDocument(documentId: String) {
-        val db = database.openHelper.writableDatabase
+        val db = database.getSupportWrapper()
         ensureSchema()
         db.execSQL(
             "DELETE FROM ocr_pages_fts WHERE documentId = ?",
@@ -89,7 +90,7 @@ class OcrSearchIndex(
     ): List<String> {
         val input = rawQuery.trim()
         if (input.isBlank()) return emptyList()
-        val db = database.openHelper.readableDatabase
+        val db = database.getSupportWrapper()
         ensureSchema()
 
         val ftsQuery = OcrSearchTerms.buildFtsQuery(input)
@@ -154,7 +155,7 @@ class OcrSearchIndex(
         rawQuery: String
     ): List<IndexedPageHit> {
         val ftsQuery = OcrSearchTerms.buildFtsQuery(rawQuery) ?: return emptyList()
-        val db = database.openHelper.readableDatabase
+        val db = database.getSupportWrapper()
         ensureSchema()
         val query = SimpleSQLiteQuery(
             """
@@ -191,7 +192,7 @@ class OcrSearchIndex(
     }
 
     private fun ensureSchema() {
-        database.openHelper.writableDatabase.execSQL(
+        database.getSupportWrapper().execSQL(
             """
             CREATE VIRTUAL TABLE IF NOT EXISTS ocr_pages_fts
             USING fts5(
