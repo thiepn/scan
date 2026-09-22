@@ -47,6 +47,9 @@ class FileStore(private val context: Context) {
     fun extractedPdfExportFile(documentId: String, title: String): File =
         File(exports, "${safeName(title)}-${documentId.take(8)}-extract.pdf")
 
+    fun selectedPdfExportFile(documentId: String, title: String): File =
+        File(exports, "${safeName(title)}-${documentId.take(8)}-selected.pdf")
+
     fun mergedPdfExportFile(): File =
         File(exports, "Merged-${System.currentTimeMillis()}.pdf")
 
@@ -74,6 +77,9 @@ class FileStore(private val context: Context) {
 
     fun textExportFile(documentId: String, title: String): File =
         File(exports, "${safeName(title)}-${documentId.take(8)}.txt")
+
+    fun selectedTextExportFile(documentId: String, title: String): File =
+        File(exports, "${safeName(title)}-${documentId.take(8)}-selected.txt")
 
     fun deleteDocument(documentId: String) {
         File(root, documentId).deleteRecursively()
