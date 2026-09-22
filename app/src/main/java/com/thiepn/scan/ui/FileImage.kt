@@ -43,10 +43,9 @@ fun FileImage(
     ) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val geometry = PageGeometryRenderer.renderFile(
+                val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
                     file = File(path),
                     cropQuad = CropQuadCodec.decode(cropQuad),
-                    rotationDegrees = rotationDegrees,
                     maxLongEdge = maxDecodeEdge
                 )
                 val enhanced = ImageEnhancementRenderer.apply(
@@ -54,7 +53,12 @@ fun FileImage(
                     PageVisualRecipeCodec.decode(visualRecipe)
                 )
                 if (enhanced !== geometry) geometry.recycle()
-                enhanced
+                val rotated = PageGeometryRenderer.rotateBitmap(
+                    enhanced,
+                    rotationDegrees
+                )
+                if (rotated !== enhanced) enhanced.recycle()
+                rotated
             }.getOrNull()
         }
     }
