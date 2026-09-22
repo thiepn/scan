@@ -90,6 +90,9 @@ interface DocumentDao {
     @Query("UPDATE pages SET cropQuad = :cropQuad WHERE id = :pageId")
     suspend fun setPageCropQuad(pageId: String, cropQuad: String?)
 
+    @Query("UPDATE pages SET visualRecipe = :visualRecipe WHERE id = :pageId")
+    suspend fun setPageVisualRecipe(pageId: String, visualRecipe: String?)
+
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
 
