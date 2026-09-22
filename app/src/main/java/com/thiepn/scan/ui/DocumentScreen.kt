@@ -615,7 +615,8 @@ private fun RenameDialog(current: String, onDismiss: () -> Unit, onSave: (String
 @Composable
 private fun ProtectPdfDialog(
     onDismiss: () -> Unit,
-    onProtect: (String) -> Unit
+    onShare: (String) -> Unit,
+    onSave: (String) -> Unit
 ) {
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
@@ -654,10 +655,16 @@ private fun ProtectPdfDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { onProtect(password) },
-                enabled = valid
-            ) { Text("Create protected PDF") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = { onSave(password) },
+                    enabled = valid
+                ) { Text("Save") }
+                TextButton(
+                    onClick = { onShare(password) },
+                    enabled = valid
+                ) { Text("Share") }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -668,7 +675,8 @@ private fun ProtectPdfDialog(
 private fun ExtractPagesDialog(
     pageCount: Int,
     onDismiss: () -> Unit,
-    onExtract: (String) -> Unit
+    onShare: (String) -> Unit,
+    onSave: (String) -> Unit
 ) {
     var range by remember(pageCount) {
         mutableStateOf(if (pageCount > 1) "1-$pageCount" else "1")
@@ -693,10 +701,16 @@ private fun ExtractPagesDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = { onExtract(range) },
-                enabled = range.isNotBlank()
-            ) { Text("Extract PDF") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = { onSave(range) },
+                    enabled = range.isNotBlank()
+                ) { Text("Save") }
+                TextButton(
+                    onClick = { onShare(range) },
+                    enabled = range.isNotBlank()
+                ) { Text("Share") }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -706,7 +720,8 @@ private fun ExtractPagesDialog(
 @Composable
 private fun ExportPdfDialog(
     onDismiss: () -> Unit,
-    onExport: (PdfQuality) -> Unit
+    onShare: (PdfQuality) -> Unit,
+    onSave: (PdfQuality) -> Unit
 ) {
     var quality by remember { mutableStateOf(PdfQuality.ORIGINAL) }
     val options = listOf(
@@ -751,7 +766,10 @@ private fun ExportPdfDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onExport(quality) }) { Text("Export") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { onSave(quality) }) { Text("Save") }
+                TextButton(onClick = { onShare(quality) }) { Text("Share") }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -798,6 +816,33 @@ private fun DeletedPagesDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Done") }
+        }
+    )
+}
+
+
+@Composable
+private fun TextExportDialog(
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    onSave: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("OCR text") },
+        text = {
+            Text(
+                "Export the current active pages as plain text in their current page order."
+            )
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onSave) { Text("Save") }
+                TextButton(onClick = onShare) { Text("Share") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }
