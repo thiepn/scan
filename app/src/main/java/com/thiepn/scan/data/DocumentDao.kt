@@ -54,6 +54,12 @@ interface DocumentDao {
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 1 ORDER BY sortKey, position")
     suspend fun getDeletedPages(documentId: String): List<PageEntity>
 
+    @Query("SELECT COALESCE(MAX(position), -1) FROM pages WHERE documentId = :documentId")
+    suspend fun getMaxPagePosition(documentId: String): Int
+
+    @Query("SELECT COALESCE(MAX(sortKey), 0) FROM pages WHERE documentId = :documentId")
+    suspend fun getMaxPageSortKey(documentId: String): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDocument(document: DocumentEntity)
 
@@ -83,6 +89,9 @@ interface DocumentDao {
 
     @Query("UPDATE documents SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchDocument(id: String, updatedAt: Long)
+
+    @Query("UPDATE documents SET processing = :processing, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setProcessing(id: String, processing: Boolean, updatedAt: Long)
 
     @Query("UPDATE documents SET pageCount = :pageCount, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updatePageCount(id: String, pageCount: Int, updatedAt: Long)
