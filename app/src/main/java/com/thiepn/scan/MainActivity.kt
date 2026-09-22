@@ -30,6 +30,13 @@ import com.thiepn.scan.ui.ScanTheme
 import com.thiepn.scan.util.displayName
 import kotlinx.coroutines.launch
 
+private sealed interface PendingScanAction {
+    data object NewDocument : PendingScanAction
+    data class Append(val documentId: String) : PendingScanAction
+    data class Insert(val documentId: String, val index: Int) : PendingScanAction
+    data class Retake(val documentId: String, val pageId: String) : PendingScanAction
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,7 +59,7 @@ private fun ScanApp(repository: ScanRepository) {
     val snackbar = remember { SnackbarHostState() }
     var selectedDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var scanDestinationDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingScanAction by remember { mutableStateOf<PendingScanAction?>(null) }
 
     val scannerOptions = remember {
         GmsDocumentScannerOptions.Builder()
@@ -65,41 +72,111 @@ private fun ScanApp(repository: ScanRepository) {
             .build()
     }
     val scanner = remember(scannerOptions) { GmsDocumentScanning.getClient(scannerOptions) }
+    val singlePageScannerOptions = remember {
+        GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(true)
+            .setPageLimit(1)
+            .setResultFormats(
+                GmsDocumentScannerOptions.RESULT_FORMAT_JPEG,
+                GmsDocumentScannerOptions.RESULT_FORMAT_PDF
+            )
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+    }
+    val singlePageScanner = remember(singlePageScannerOptions) {
+        GmsDocumentScanning.getClient(singlePageScannerOptions)
+    }
 
     val scannerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val destinationDocumentId = scanDestinationDocumentId
-        scanDestinationDocumentId = null
+        val action = pendingScanAction
+        pendingScanAction = null
 
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode == Activity.RESULT_OK && action != null) {
             val scan = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
             val pages = scan?.pages?.map { it.imageUri }.orEmpty()
             val pdf = scan?.pdf?.uri
 
             scope.launch {
                 busy = true
-                if (destinationDocumentId == null) {
-                    if (pages.isNotEmpty() || pdf != null) {
-                        runCatching { repository.ingestScan(pages, pdf) }
-                            .onSuccess { selectedDocumentId = it }
-                            .onFailure { snackbar.showSnackbar(it.message ?: "Could not save scan") }
-                    }
-                } else {
-                    if (pages.isEmpty()) {
-                        snackbar.showSnackbar("No page images were returned by the scanner")
-                    } else {
-                        runCatching { repository.appendScan(destinationDocumentId, pages) }
-                            .onSuccess { count ->
-                                selectedDocumentId = destinationDocumentId
-                                snackbar.showSnackbar(
-                                    "$count page${if (count == 1) "" else "s"} added"
-                                )
+                try {
+                    when (action) {
+                        PendingScanAction.NewDocument -> {
+                            if (pages.isNotEmpty() || pdf != null) {
+                                runCatching { repository.ingestScan(pages, pdf) }
+                                    .onSuccess { selectedDocumentId = it }
+                                    .onFailure {
+                                        snackbar.showSnackbar(it.message ?: "Could not save scan")
+                                    }
                             }
-                            .onFailure { snackbar.showSnackbar(it.message ?: "Could not add pages") }
+                        }
+
+                        is PendingScanAction.Append -> {
+                            if (pages.isEmpty()) {
+                                snackbar.showSnackbar("No page images were returned by the scanner")
+                            } else {
+                                runCatching { repository.appendScan(action.documentId, pages) }
+                                    .onSuccess { count ->
+                                        selectedDocumentId = action.documentId
+                                        snackbar.showSnackbar(
+                                            "$count page${if (count == 1) "" else "s"} added"
+                                        )
+                                    }
+                                    .onFailure {
+                                        snackbar.showSnackbar(it.message ?: "Could not add pages")
+                                    }
+                            }
+                        }
+
+                        is PendingScanAction.Insert -> {
+                            if (pages.isEmpty()) {
+                                snackbar.showSnackbar("No page images were returned by the scanner")
+                            } else {
+                                runCatching {
+                                    repository.insertScan(
+                                        action.documentId,
+                                        pages,
+                                        action.index
+                                    )
+                                }
+                                    .onSuccess { count ->
+                                        selectedDocumentId = action.documentId
+                                        snackbar.showSnackbar(
+                                            "$count page${if (count == 1) "" else "s"} inserted"
+                                        )
+                                    }
+                                    .onFailure {
+                                        snackbar.showSnackbar(it.message ?: "Could not insert pages")
+                                    }
+                            }
+                        }
+
+                        is PendingScanAction.Retake -> {
+                            val page = pages.firstOrNull()
+                            if (page == null) {
+                                snackbar.showSnackbar("No page image was returned by the scanner")
+                            } else {
+                                runCatching {
+                                    repository.replacePageFromUri(
+                                        action.documentId,
+                                        action.pageId,
+                                        page
+                                    )
+                                }
+                                    .onSuccess {
+                                        selectedDocumentId = action.documentId
+                                        snackbar.showSnackbar("Page retaken")
+                                    }
+                                    .onFailure {
+                                        snackbar.showSnackbar(it.message ?: "Could not retake page")
+                                    }
+                            }
+                        }
                     }
+                } finally {
+                    busy = false
                 }
-                busy = false
             }
         }
     }
@@ -127,7 +204,7 @@ private fun ScanApp(repository: ScanRepository) {
                 busy = busy,
                 onOpenDocument = { selectedDocumentId = it },
                 onScan = {
-                    scanDestinationDocumentId = null
+                    pendingScanAction = PendingScanAction.NewDocument
                     scanner.getStartScanIntent(activity)
                         .addOnSuccessListener { sender ->
                             scannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
@@ -147,13 +224,39 @@ private fun ScanApp(repository: ScanRepository) {
                 onBack = { selectedDocumentId = null },
                 onDeleted = { selectedDocumentId = null },
                 onAddPages = {
-                    scanDestinationDocumentId = id
+                    pendingScanAction = PendingScanAction.Append(id)
                     scanner.getStartScanIntent(activity)
                         .addOnSuccessListener { sender ->
                             scannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
                         }
                         .addOnFailureListener { error ->
-                            scanDestinationDocumentId = null
+                            pendingScanAction = null
+                            scope.launch {
+                                snackbar.showSnackbar(error.message ?: "Scanner unavailable")
+                            }
+                        }
+                },
+                onInsertPages = { index ->
+                    pendingScanAction = PendingScanAction.Insert(id, index)
+                    scanner.getStartScanIntent(activity)
+                        .addOnSuccessListener { sender ->
+                            scannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                        }
+                        .addOnFailureListener { error ->
+                            pendingScanAction = null
+                            scope.launch {
+                                snackbar.showSnackbar(error.message ?: "Scanner unavailable")
+                            }
+                        }
+                },
+                onRetakePage = { pageId ->
+                    pendingScanAction = PendingScanAction.Retake(id, pageId)
+                    singlePageScanner.getStartScanIntent(activity)
+                        .addOnSuccessListener { sender ->
+                            scannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                        }
+                        .addOnFailureListener { error ->
+                            pendingScanAction = null
                             scope.launch {
                                 snackbar.showSnackbar(error.message ?: "Scanner unavailable")
                             }
