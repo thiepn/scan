@@ -190,8 +190,9 @@ interface DocumentDao {
     )
 
     @Query(
-        "UPDATE documents SET needsReview = :needsReview, updatedAt = :updatedAt " +
-            "WHERE id IN (:documentIds)"
+        "UPDATE documents SET needsReview = :needsReview, " +
+            "suggestedType = CASE WHEN :needsReview = 0 THEN NULL ELSE suggestedType END, " +
+            "updatedAt = :updatedAt WHERE id IN (:documentIds)"
     )
     suspend fun setDocumentsNeedsReview(
         documentIds: List<String>,
