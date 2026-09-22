@@ -41,6 +41,7 @@ class ScanRepository(
 
     fun observeDocument(id: String): Flow<DocumentEntity?> = dao.observeDocument(id)
     fun observePages(id: String): Flow<List<PageEntity>> = dao.observePages(id)
+    fun observeDeletedPages(id: String): Flow<List<PageEntity>> = dao.observeDeletedPages(id)
 
     fun resumePendingProcessing() {
         appScope.launch(Dispatchers.IO) {
@@ -88,6 +89,7 @@ class ScanRepository(
                     id = pageId,
                     documentId = id,
                     position = index,
+                    sortKey = (index + 1L) * 1000L,
                     imagePath = file.absolutePath,
                     width = size.first,
                     height = size.second
@@ -135,6 +137,7 @@ class ScanRepository(
                         id = pageId,
                         documentId = documentId,
                         position = index,
+                        sortKey = (index + 1L) * 1000L,
                         imagePath = renderedPage.file.absolutePath,
                         width = renderedPage.width,
                         height = renderedPage.height
@@ -145,7 +148,13 @@ class ScanRepository(
             recognizeDocument(documentId)
         }.onFailure {
             val pages = dao.getPages(documentId)
-            dao.finishProcessing(documentId, pages.joinToString("\n\n") { it.ocrText }, false, pages.size, System.currentTimeMillis())
+            dao.finishProcessing(
+                documentId,
+                pages.joinToString("\n\n") { it.ocrText },
+                false,
+                pages.size,
+                System.currentTimeMillis()
+            )
         }
     }
 
@@ -183,6 +192,44 @@ class ScanRepository(
         files.deleteDocument(id)
     }
 
+    suspend fun movePage(documentId: String, pageId: String, direction: Int) = withContext(Dispatchers.IO) {
+        require(direction == -1 || direction == 1) { "Invalid page move" }
+        val document = dao.getDocument(documentId) ?: return@withContext
+        require(!document.processing) { "Document is still processing" }
+
+        val pages = dao.getPages(documentId).toMutableList()
+        val currentIndex = pages.indexOfFirst { it.id == pageId }
+        require(currentIndex >= 0) { "Page not found" }
+        val targetIndex = currentIndex + direction
+        if (targetIndex !in pages.indices) return@withContext
+
+        val moved = pages.removeAt(currentIndex)
+        pages.add(targetIndex, moved)
+        dao.replacePageOrder(documentId, pages.map { it.id })
+        refreshDocumentSummary(documentId)
+    }
+
+    suspend fun softDeletePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId) ?: return@withContext
+        require(!document.processing) { "Document is still processing" }
+        val pages = dao.getPages(documentId)
+        require(pages.size > 1) { "A document must keep at least one page" }
+        require(pages.any { it.id == pageId }) { "Page not found" }
+
+        dao.setPageDeleted(pageId, true)
+        refreshDocumentSummary(documentId)
+    }
+
+    suspend fun restorePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId) ?: return@withContext
+        require(!document.processing) { "Document is still processing" }
+        val deleted = dao.getDeletedPages(documentId)
+        require(deleted.any { it.id == pageId }) { "Deleted page not found" }
+
+        dao.setPageDeleted(pageId, false)
+        refreshDocumentSummary(documentId)
+    }
+
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
 
     suspend fun createPdfExport(
@@ -191,7 +238,8 @@ class ScanRepository(
         quality: PdfQuality = PdfQuality.ORIGINAL
     ): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
-        val pages = dao.getPages(id)
+        val pages = orderedPages(dao.getPages(id))
+        val deletedPages = dao.getDeletedPages(id)
         val source = nativePdfSource(document, pages)
 
         val destination = files.pdfExportFile(
@@ -201,16 +249,36 @@ class ScanRepository(
         )
 
         if (source != null && quality == PdfQuality.ORIGINAL) {
-            if (password.isNullOrBlank()) {
-                return@withContext files.copyToExport(source, destination)
-            }
-            val temporary = files.temporaryExport(destination)
-            runCatching {
-                pdfEngine.protectExisting(source, temporary, password)
-                files.commitGeneratedExport(temporary, destination)
-            }.getOrElse {
-                temporary.delete()
-                throw it
+            val nativeOrder = pages.map { it.position }
+            val unchanged = deletedPages.isEmpty() &&
+                nativeOrder == (0 until pages.size).toList()
+
+            if (unchanged) {
+                if (password.isNullOrBlank()) {
+                    return@withContext files.copyToExport(source, destination)
+                }
+                val temporary = files.temporaryExport(destination)
+                runCatching {
+                    pdfEngine.protectExisting(source, temporary, password)
+                    files.commitGeneratedExport(temporary, destination)
+                }.getOrElse {
+                    temporary.delete()
+                    throw it
+                }
+            } else {
+                val temporary = files.temporaryExport(destination)
+                runCatching {
+                    pdfEngine.extractPages(
+                        source = source,
+                        pageIndices = nativeOrder,
+                        destination = temporary,
+                        password = password
+                    )
+                    files.commitGeneratedExport(temporary, destination)
+                }.getOrElse {
+                    temporary.delete()
+                    throw it
+                }
             }
         } else if (pages.isNotEmpty()) {
             val temporary = files.temporaryExport(destination)
@@ -234,11 +302,11 @@ class ScanRepository(
     suspend fun extractPages(id: String, rangeSpec: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
         require(!document.processing) { "Document is still processing" }
-        val pages = dao.getPages(id)
+        val pages = orderedPages(dao.getPages(id))
         if (pages.isEmpty()) return@withContext null
 
         val selectedNumbers = PageRangeParser.parse(rangeSpec, pages.size)
-        val selectedSet = selectedNumbers.toSet()
+        val selectedPages = selectedNumbers.map { pageNumber -> pages[pageNumber - 1] }
         val destination = files.extractedPdfExportFile(id, document.title)
         val temporary = files.temporaryExport(destination)
         val source = nativePdfSource(document, pages)
@@ -247,14 +315,10 @@ class ScanRepository(
             if (source != null) {
                 pdfEngine.extractPages(
                     source = source,
-                    pageIndices = selectedNumbers.map { it - 1 },
+                    pageIndices = selectedPages.map { it.position },
                     destination = temporary
                 )
             } else {
-                val selectedPages = pages.filter { (it.position + 1) in selectedSet }
-                require(selectedPages.size == selectedNumbers.size) {
-                    "Some selected pages are unavailable"
-                }
                 pdfEngine.createSearchablePdf(
                     pages = selectedPages,
                     destination = temporary
@@ -278,11 +342,23 @@ class ScanRepository(
                 val document = dao.getDocument(id)
                     ?: throw IllegalArgumentException("A selected document no longer exists")
                 require(!document.processing) { "${document.title} is still processing" }
-                val pages = dao.getPages(id)
+                val pages = orderedPages(dao.getPages(id))
+                val deleted = dao.getDeletedPages(id)
                 val nativeSource = nativePdfSource(document, pages)
 
                 if (nativeSource != null) {
-                    mergeInputs += nativeSource
+                    val nativeOrder = pages.map { it.position }
+                    val unchanged = deleted.isEmpty() &&
+                        nativeOrder == (0 until pages.size).toList()
+
+                    if (unchanged) {
+                        mergeInputs += nativeSource
+                    } else {
+                        val working = files.temporaryWorkingPdf("scan-native-edit")
+                        pdfEngine.extractPages(nativeSource, nativeOrder, working)
+                        mergeInputs += working
+                        temporaryInputs += working
+                    }
                 } else {
                     require(pages.isNotEmpty()) { "${document.title} has no pages" }
                     val working = files.temporaryWorkingPdf("scan-merge")
@@ -308,7 +384,7 @@ class ScanRepository(
 
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
-        val pages = dao.getPages(id)
+        val pages = orderedPages(dao.getPages(id))
         val output = files.textExportFile(id, document.title)
         output.parentFile?.mkdirs()
         output.writeText(
@@ -322,6 +398,17 @@ class ScanRepository(
         output
     }
 
+    private suspend fun refreshDocumentSummary(documentId: String) {
+        val pages = orderedPages(dao.getPages(documentId))
+        dao.finishProcessing(
+            id = documentId,
+            text = pages.map { it.ocrText }.filter { it.isNotBlank() }.joinToString("\n\n"),
+            processing = false,
+            pageCount = pages.size,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     private fun nativePdfSource(
         document: DocumentEntity,
         pages: List<PageEntity>
@@ -333,6 +420,9 @@ class ScanRepository(
         }
         return source.takeIf { importedPdf }
     }
+
+    private fun orderedPages(pages: List<PageEntity>): List<PageEntity> =
+        pages.sortedWith(compareBy<PageEntity> { it.sortKey }.thenBy { it.position })
 
     private fun imageSize(file: File): Pair<Int, Int> {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }

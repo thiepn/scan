@@ -47,7 +47,7 @@ class PdfEngine(
                 .open("com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf")
                 .use { PDType0Font.load(document, it) }
 
-            pages.sortedBy { it.position }.forEach { pageEntity ->
+            pages.sortedWith(compareBy<PageEntity> { it.sortKey }.thenBy { it.position }).forEach { pageEntity ->
                 val imageFile = File(pageEntity.imagePath)
                 require(imageFile.isFile) { "Missing page image" }
 
@@ -120,7 +120,8 @@ class PdfEngine(
     fun extractPages(
         source: File,
         pageIndices: List<Int>,
-        destination: File
+        destination: File,
+        password: String? = null
     ) {
         require(source.isFile) { "PDF source is unavailable" }
         require(pageIndices.isNotEmpty()) { "No pages selected" }
@@ -133,6 +134,9 @@ class PdfEngine(
                         "Page ${index + 1} is outside the document"
                     }
                     output.importPage(sourceDocument.getPage(index))
+                }
+                if (!password.isNullOrBlank()) {
+                    protect(output, password)
                 }
                 output.documentInformation.producer = "Scan"
                 output.save(destination)

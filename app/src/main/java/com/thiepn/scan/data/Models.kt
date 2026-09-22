@@ -29,12 +29,18 @@ data class DocumentEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("documentId"), Index(value = ["documentId", "position"], unique = true)]
+    indices = [
+        Index("documentId"),
+        Index(value = ["documentId", "position"], unique = true),
+        Index(value = ["documentId", "deleted", "sortKey"])
+    ]
 )
 data class PageEntity(
     @PrimaryKey val id: String,
     val documentId: String,
     val position: Int,
+    val sortKey: Long = (position + 1L) * 1000L,
+    val deleted: Boolean = false,
     val imagePath: String,
     val width: Int,
     val height: Int,
