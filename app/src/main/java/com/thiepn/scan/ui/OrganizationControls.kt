@@ -129,13 +129,17 @@ fun OrganizationFilterDialog(
                 HorizontalDivider()
                 SectionTitle("Sort")
                 LibrarySort.entries.forEach { option ->
-                    if (option != LibrarySort.RELEVANCE || queryActive) {
-                        RadioRow(
-                            selected = draft.sort == option,
-                            label = option.label,
-                            onClick = { draft = draft.copy(sort = option) }
-                        )
-                    }
+                    RadioRow(
+                        selected = draft.sort == option,
+                        label = if (
+                            option == LibrarySort.RELEVANCE && !queryActive
+                        ) {
+                            "Relevance (recent without search)"
+                        } else {
+                            option.label
+                        },
+                        onClick = { draft = draft.copy(sort = option) }
+                    )
                 }
             }
         },
