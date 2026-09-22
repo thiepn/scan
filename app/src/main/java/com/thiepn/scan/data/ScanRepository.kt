@@ -52,7 +52,7 @@ class ScanRepository(
                 val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
                 val looksLikePdfImport = pdf != null && (
                     pages.isEmpty() ||
-                        pages.any { page -> page.id == deterministicPageId(document.id, page.position) }
+                        pages.all { page -> page.id == deterministicPageId(document.id, page.position) }
                     )
 
                 if (looksLikePdfImport) {
@@ -104,6 +104,81 @@ class ScanRepository(
             else recognizeDocument(id)
         }
         id
+    }
+
+    suspend fun appendScan(documentId: String, pageUris: List<Uri>): Int = withContext(Dispatchers.IO) {
+        require(pageUris.isNotEmpty()) { "No pages were captured" }
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+
+        val nextPosition = dao.getMaxPagePosition(documentId) + 1
+        val nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
+        val copiedFiles = mutableListOf<File>()
+        val pages = mutableListOf<PageEntity>()
+
+        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        try {
+            pageUris.forEachIndexed { index, uri ->
+                val pageId = UUID.randomUUID().toString()
+                val file = files.copyUri(uri, files.pageFile(documentId, pageId))
+                copiedFiles += file
+                val size = imageSize(file)
+                pages += PageEntity(
+                    id = pageId,
+                    documentId = documentId,
+                    position = nextPosition + index,
+                    sortKey = nextSortKey + index * 1000L,
+                    imagePath = file.absolutePath,
+                    width = size.first,
+                    height = size.second
+                )
+            }
+
+            dao.insertPages(pages)
+            appScope.launch(Dispatchers.IO) {
+                recognizeDocument(documentId)
+            }
+            pages.size
+        } catch (error: Throwable) {
+            copiedFiles.forEach { it.delete() }
+            dao.setProcessing(documentId, false, System.currentTimeMillis())
+            throw error
+        }
+    }
+
+    suspend fun duplicatePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+
+        val pages = orderedPages(dao.getPages(documentId))
+        val sourceIndex = pages.indexOfFirst { it.id == pageId }
+        require(sourceIndex >= 0) { "Page not found" }
+        val source = pages[sourceIndex]
+
+        val duplicateId = UUID.randomUUID().toString()
+        val file = files.copyPageFile(
+            documentId = documentId,
+            source = File(source.imagePath),
+            newPageId = duplicateId
+        )
+
+        try {
+            val duplicate = source.copy(
+                id = duplicateId,
+                position = dao.getMaxPagePosition(documentId) + 1,
+                sortKey = dao.getMaxPageSortKey(documentId) + 1000L,
+                deleted = false,
+                imagePath = file.absolutePath
+            )
+            val newOrder = pages.map { it.id }.toMutableList().apply {
+                add(sourceIndex + 1, duplicateId)
+            }
+            dao.insertPageWithOrder(duplicate, newOrder)
+            refreshDocumentSummary(documentId)
+        } catch (error: Throwable) {
+            file.delete()
+            throw error
+        }
     }
 
     suspend fun importPdf(uri: Uri, displayName: String?): String = withContext(Dispatchers.IO) {
