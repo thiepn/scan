@@ -173,7 +173,7 @@ class OcrSearchIndex(
                     add(
                         IndexedPageHit(
                             pageId = cursor.getString(pageColumn),
-                            snippet = cursor.getString(snippetColumn).orEmpty(),
+                            snippet = cursor.getString(snippetColumn) ?: "",
                             rank = cursor.getDouble(rankColumn)
                         )
                     )
@@ -196,5 +196,3 @@ class OcrSearchIndex(
         )
     }
 }
-
-private fun String?.orEmpty(): String = this ?: ""
