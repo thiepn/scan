@@ -510,14 +510,30 @@ class ScanRepository(
         }
     }
 
+    private data class RecognizedPage(
+        val result: OcrPageResult,
+        val fingerprint: String
+    )
+
     private suspend fun recognizeDocument(documentId: String) {
+        val document = dao.getDocument(documentId) ?: return
+        val script = OcrScript.fromStored(document.ocrScript)
         val pages = dao.getPages(documentId)
         val recognized = mutableListOf<String>()
+
         pages.forEach { page ->
-            val text = recognizePage(page)
-            dao.updatePageOcr(page.id, text)
-            if (text.isNotBlank()) recognized += text
+            val recognition = runCatching { recognizePage(page, script) }.getOrNull()
+            if (recognition == null) {
+                dao.clearPageOcr(page.id)
+                searchIndex.deletePage(page.id)
+                return@forEach
+            }
+            persistRecognition(documentId, page.id, recognition)
+            if (recognition.result.text.isNotBlank()) {
+                recognized += recognition.result.text
+            }
         }
+
         dao.finishProcessing(
             id = documentId,
             text = recognized.joinToString("\n\n"),
@@ -536,36 +552,136 @@ class ScanRepository(
         pageIds: List<String>
     ) {
         try {
+            val document = dao.getDocument(documentId) ?: return
+            val script = OcrScript.fromStored(document.ocrScript)
             pageIds.distinct().forEach { pageId ->
                 val page = dao.getPage(pageId) ?: return@forEach
                 if (page.deleted || page.documentId != documentId) return@forEach
-                val text = recognizePage(page)
-                dao.updatePageOcr(pageId, text)
+
+                val recognition = runCatching { recognizePage(page, script) }.getOrNull()
+                if (recognition == null) {
+                    dao.clearPageOcr(pageId)
+                    searchIndex.deletePage(pageId)
+                } else {
+                    persistRecognition(documentId, pageId, recognition)
+                }
             }
         } finally {
             refreshDocumentSummary(documentId)
         }
     }
 
-    private suspend fun recognizePage(page: PageEntity): String {
-        val quad = CropQuadCodec.decode(page.cropQuad)
-        if (quad.isFullFrame() && PageRotation.normalize(page.rotationDegrees) == 0) {
-            return runCatching { ocr.recognize(File(page.imagePath)) }.getOrDefault("")
+    private suspend fun recognizePage(
+        page: PageEntity,
+        script: OcrScript
+    ): RecognizedPage {
+        val imageFile = File(page.imagePath)
+        require(imageFile.isFile) { "Page image is unavailable" }
+        val fingerprint = OcrFingerprint.create(
+            file = imageFile,
+            cropQuad = page.cropQuad,
+            rotationDegrees = page.rotationDegrees,
+            script = script
+        )
+
+        if (
+            page.ocrFingerprint == fingerprint &&
+            page.ocrScript == script.name
+        ) {
+            OcrLayoutCodec.decode(page.ocrLayout)?.let {
+                return RecognizedPage(it, fingerprint)
+            }
         }
 
-        val bitmap = runCatching {
-            PageGeometryRenderer.renderFile(
-                file = File(page.imagePath),
+        val quad = CropQuadCodec.decode(page.cropQuad)
+        val result = if (
+            quad.isFullFrame() &&
+            PageRotation.normalize(page.rotationDegrees) == 0
+        ) {
+            ocr.recognizeDetailed(imageFile, script)
+        } else {
+            val bitmap = PageGeometryRenderer.renderFile(
+                file = imageFile,
                 cropQuad = quad,
                 rotationDegrees = page.rotationDegrees,
                 maxLongEdge = 2800
             )
-        }.getOrNull() ?: return ""
+            try {
+                ocr.recognizeDetailed(bitmap, script)
+            } finally {
+                bitmap.recycle()
+            }
+        }
 
-        return try {
-            runCatching { ocr.recognize(bitmap) }.getOrDefault("")
-        } finally {
-            bitmap.recycle()
+        return RecognizedPage(result, fingerprint)
+    }
+
+    private suspend fun persistRecognition(
+        documentId: String,
+        pageId: String,
+        recognition: RecognizedPage
+    ) {
+        val result = recognition.result
+        dao.updatePageOcrV2(
+            pageId = pageId,
+            text = result.text,
+            layout = OcrLayoutCodec.encode(result),
+            fingerprint = recognition.fingerprint,
+            script = result.script.name
+        )
+        searchIndex.upsertPage(
+            documentId = documentId,
+            pageId = pageId,
+            content = result.text
+        )
+    }
+
+    suspend fun setOcrScript(documentId: String, script: OcrScript) =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            if (document.ocrScript == script.name) return@withContext
+
+            val pages = orderedPages(dao.getPages(documentId))
+            dao.setDocumentOcrScript(
+                id = documentId,
+                script = script.name,
+                updatedAt = System.currentTimeMillis()
+            )
+            pages.forEach { page ->
+                dao.clearPageOcr(page.id)
+                searchIndex.deletePage(page.id)
+            }
+            refreshDocumentSummary(documentId, processing = true)
+            appScope.launch(Dispatchers.IO) {
+                recognizeDocument(documentId)
+            }
+        }
+
+    suspend fun searchDocuments(
+        filter: LibraryFilter,
+        query: String
+    ): List<DocumentEntity> = withContext(Dispatchers.IO) {
+        searchIndex.searchDocumentIds(filter, query)
+            .mapNotNull { dao.getDocument(it) }
+    }
+
+    suspend fun searchDocumentPages(
+        documentId: String,
+        query: String
+    ): List<DocumentPageSearchHit> = withContext(Dispatchers.IO) {
+        val pages = orderedPages(dao.getPages(documentId))
+        val numberById = pages.mapIndexed { index, page -> page.id to (index + 1) }.toMap()
+        searchIndex.searchPages(documentId, query).mapNotNull { indexed ->
+            val page = pages.firstOrNull { it.id == indexed.pageId } ?: return@mapNotNull null
+            val layout = OcrLayoutCodec.decode(page.ocrLayout)
+            DocumentPageSearchHit(
+                pageId = indexed.pageId,
+                pageNumber = numberById[indexed.pageId] ?: page.position + 1,
+                snippet = indexed.snippet,
+                rank = indexed.rank,
+                matchingWords = OcrSearchTerms.matchingWords(layout, query)
+            )
         }
     }
 
