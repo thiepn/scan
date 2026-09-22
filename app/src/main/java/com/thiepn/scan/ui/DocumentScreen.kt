@@ -17,9 +17,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -72,6 +74,7 @@ fun DocumentScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
+    onAddPages: () -> Unit,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -194,6 +197,14 @@ fun DocumentScreen(
                                 Text(" Trash")
                             }
                         }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onAddPages,
+                            enabled = !doc.processing
+                        ) {
+                            Icon(Icons.Default.AddAPhoto, contentDescription = null)
+                            Text(" Add pages")
+                        }
                         if (pages.size > 1) {
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(onClick = { extractOpen = true }) {
@@ -218,6 +229,7 @@ fun DocumentScreen(
                     displayNumber = index + 1,
                     canMoveUp = doc.trashedAt == null && !doc.processing && index > 0,
                     canMoveDown = doc.trashedAt == null && !doc.processing && index < pages.lastIndex,
+                    canDuplicate = doc.trashedAt == null && !doc.processing,
                     canDelete = doc.trashedAt == null && !doc.processing && pages.size > 1,
                     onMoveUp = {
                         scope.launch {
@@ -229,6 +241,13 @@ fun DocumentScreen(
                         scope.launch {
                             runCatching { repository.movePage(doc.id, page.id, 1) }
                                 .onFailure { onMessage(it.message ?: "Could not move page") }
+                        }
+                    },
+                    onDuplicate = {
+                        scope.launch {
+                            runCatching { repository.duplicatePage(doc.id, page.id) }
+                                .onSuccess { onMessage("Page duplicated") }
+                                .onFailure { onMessage(it.message ?: "Could not duplicate page") }
                         }
                     },
                     onDelete = { pageDeleteCandidate = page }
@@ -392,9 +411,11 @@ private fun PageCard(
     displayNumber: Int,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    canDuplicate: Boolean,
     canDelete: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(Modifier.fillMaxWidth()) {
@@ -414,6 +435,9 @@ private fun PageCard(
                 }
                 IconButton(onClick = onMoveDown, enabled = canMoveDown) {
                     Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
+                }
+                IconButton(onClick = onDuplicate, enabled = canDuplicate) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
                 }
                 IconButton(onClick = onDelete, enabled = canDelete) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete page")
