@@ -784,7 +784,7 @@ class ScanRepository(
     suspend fun acceptSuggestedType(documentId: String) = withContext(Dispatchers.IO) {
         val document = requireEditableDocument(documentId)
         val suggestion = document.suggestedType
-            ?.let(DocumentType::valueOf)
+            ?.let { DocumentType.valueOf(it) }
             ?: return@withContext
         dao.setDocumentType(
             documentIds = listOf(documentId),
