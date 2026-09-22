@@ -1,5 +1,6 @@
 package com.thiepn.scan.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +53,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.PageEntity
+import com.thiepn.scan.data.PdfQuality
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
@@ -73,6 +76,7 @@ fun DocumentScreen(
     var deleteOpen by remember { mutableStateOf(false) }
     var protectOpen by remember { mutableStateOf(false) }
     var extractOpen by remember { mutableStateOf(false) }
+    var exportOpen by remember { mutableStateOf(false) }
 
     val doc = document
     if (doc == null) {
@@ -108,17 +112,8 @@ fun DocumentScreen(
                     IconButton(onClick = { protectOpen = true }) {
                         Icon(Icons.Default.Lock, contentDescription = "Protect PDF")
                     }
-                    IconButton(onClick = {
-                        scope.launch {
-                            runCatching { repository.createPdfExport(doc.id) }
-                                .onSuccess { file ->
-                                    if (file != null) shareFile(context, file, "application/pdf")
-                                    else onMessage("PDF is not available yet")
-                                }
-                                .onFailure { onMessage(it.message ?: "Could not create PDF") }
-                        }
-                    }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share searchable PDF")
+                    IconButton(onClick = { exportOpen = true }) {
+                        Icon(Icons.Default.Share, contentDescription = "Export PDF")
                     }
                 }
             )
@@ -193,6 +188,23 @@ fun DocumentScreen(
             onSave = { title ->
                 renameOpen = false
                 scope.launch { repository.rename(doc.id, title) }
+            }
+        )
+    }
+
+    if (exportOpen) {
+        ExportPdfDialog(
+            onDismiss = { exportOpen = false },
+            onExport = { quality ->
+                exportOpen = false
+                scope.launch {
+                    runCatching { repository.createPdfExport(doc.id, quality = quality) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "application/pdf")
+                            else onMessage("PDF is not available yet")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not create PDF") }
+                }
             }
         )
     }
@@ -393,6 +405,61 @@ private fun ExtractPagesDialog(
                 onClick = { onExtract(range) },
                 enabled = range.isNotBlank()
             ) { Text("Extract PDF") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+
+@Composable
+private fun ExportPdfDialog(
+    onDismiss: () -> Unit,
+    onExport: (PdfQuality) -> Unit
+) {
+    var quality by remember { mutableStateOf(PdfQuality.ORIGINAL) }
+    val options = listOf(
+        PdfQuality.ORIGINAL to ("Original" to "Best quality; preserves imported native PDFs"),
+        PdfQuality.HIGH to ("High" to "Up to 3000 px per page, high JPEG quality"),
+        PdfQuality.BALANCED to ("Balanced" to "Up to 2200 px per page; good default for sharing"),
+        PdfQuality.SMALL to ("Small" to "Up to 1400 px per page; smallest files")
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export PDF") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "All scan exports remain searchable. Reduced-size modes rebuild imported PDFs as searchable image pages.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                options.forEach { (option, labels) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { quality = option }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = quality == option,
+                            onClick = { quality = option }
+                        )
+                        Column(Modifier.padding(start = 6.dp)) {
+                            Text(labels.first, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                labels.second,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onExport(quality) }) { Text("Export") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

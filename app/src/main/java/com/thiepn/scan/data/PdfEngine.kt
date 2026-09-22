@@ -1,6 +1,8 @@
 package com.thiepn.scan.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -17,6 +19,16 @@ import java.io.File
 import java.util.UUID
 import kotlin.math.max
 
+enum class PdfQuality(
+    val maxLongEdge: Int?,
+    val jpegQuality: Float
+) {
+    ORIGINAL(null, 1f),
+    HIGH(3000, 0.88f),
+    BALANCED(2200, 0.78f),
+    SMALL(1400, 0.62f)
+}
+
 class PdfEngine(
     private val context: Context,
     private val ocr: OcrEngine
@@ -25,7 +37,7 @@ class PdfEngine(
         pages: List<PageEntity>,
         destination: File,
         password: String? = null,
-        jpegQuality: Float = 0.9f
+        quality: PdfQuality = PdfQuality.ORIGINAL
     ) {
         require(pages.isNotEmpty()) { "Document has no pages" }
         destination.parentFile?.mkdirs()
@@ -46,9 +58,24 @@ class PdfEngine(
                 document.addPage(page)
 
                 PDPageContentStream(document, page).use { stream ->
-                    imageFile.inputStream().use { input ->
-                        val image = JPEGFactory.createFromStream(document, input)
-                        stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
+                    if (quality == PdfQuality.ORIGINAL) {
+                        imageFile.inputStream().use { input ->
+                            val image = JPEGFactory.createFromStream(document, input)
+                            stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
+                        }
+                    } else {
+                        val targetEdge = requireNotNull(quality.maxLongEdge)
+                        val bitmap = decodeScaled(imageFile, targetEdge)
+                        try {
+                            val image = JPEGFactory.createFromImage(
+                                document,
+                                bitmap,
+                                quality.jpegQuality
+                            )
+                            stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
+                        } finally {
+                            bitmap.recycle()
+                        }
                     }
 
                     val recognition = runCatching { ocr.recognizeDetailed(imageFile) }.getOrNull()
@@ -126,6 +153,38 @@ class PdfEngine(
             destinationFileName = destination.absolutePath
             mergeDocuments(MemoryUsageSetting.setupTempFileOnly())
         }
+    }
+
+    private fun decodeScaled(file: File, maxLongEdge: Int): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unreadable page image" }
+
+        var sample = 1
+        while (
+            max(bounds.outWidth / sample, bounds.outHeight / sample) > maxLongEdge * 2 &&
+            sample < 32
+        ) {
+            sample *= 2
+        }
+
+        val decoded = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        ) ?: error("Unable to decode page image")
+
+        val currentLongEdge = max(decoded.width, decoded.height)
+        if (currentLongEdge <= maxLongEdge) return decoded
+
+        val scale = maxLongEdge.toFloat() / currentLongEdge
+        val width = max(1, (decoded.width * scale).toInt())
+        val height = max(1, (decoded.height * scale).toInt())
+        val scaled = Bitmap.createScaledBitmap(decoded, width, height, true)
+        if (scaled !== decoded) decoded.recycle()
+        return scaled
     }
 
     private fun addInvisibleWord(
