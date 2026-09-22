@@ -206,7 +206,7 @@ class ScanRepository(
         val moved = pages.removeAt(currentIndex)
         pages.add(targetIndex, moved)
         dao.replacePageOrder(documentId, pages.map { it.id })
-        dao.touchDocument(documentId, System.currentTimeMillis())
+        refreshDocumentSummary(documentId)
     }
 
     suspend fun softDeletePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
