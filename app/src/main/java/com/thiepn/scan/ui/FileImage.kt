@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import com.thiepn.scan.data.PageRotation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -72,7 +73,7 @@ private fun decode(
         BitmapFactory.Options().apply { inSampleSize = sample }
     ) ?: return null
 
-    val normalized = ((rotationDegrees % 360) + 360) % 360
+    val normalized = PageRotation.normalize(rotationDegrees)
     if (normalized == 0) return decoded
 
     val matrix = Matrix().apply { postRotate(normalized.toFloat()) }
