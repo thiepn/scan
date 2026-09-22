@@ -674,6 +674,12 @@ private fun EmptyLibrary(query: String, filter: LibraryFilter) {
 private fun DocumentCard(
     document: DocumentEntity,
     repository: ScanRepository,
+    folders: List<FolderEntity>,
+    tags: List<TagEntity>,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelected: () -> Unit,
+    onAcceptSuggestion: () -> Unit,
     onClick: () -> Unit
 ) {
     val coverFlow = remember(document.id) { repository.observeCoverPage(document.id) }
@@ -684,6 +690,13 @@ private fun DocumentCard(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onToggleSelected() },
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+            }
             val coverPage = cover
             if (coverPage != null) {
                 Box(
@@ -746,6 +759,61 @@ private fun DocumentCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                val folderLabel = folderPath(document.folderId, folders)
+                val type = DocumentType.fromStored(document.documentType)
+                val organizationLine = buildString {
+                    if (folderLabel != null) append(folderLabel)
+                    if (type != DocumentType.UNSPECIFIED) {
+                        if (isNotEmpty()) append(" · ")
+                        append(type.label)
+                    }
+                    if (document.needsReview) {
+                        if (isNotEmpty()) append(" · ")
+                        append("Needs review")
+                    }
+                }
+                if (organizationLine.isNotBlank()) {
+                    Text(
+                        organizationLine,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                if (tags.isNotEmpty()) {
+                    Text(
+                        tags.joinToString("  ") { "#${it.name}" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+
+                val suggestion = document.suggestedType
+                    ?.let(DocumentType::fromStored)
+                    ?.takeIf { it != DocumentType.UNSPECIFIED }
+                if (suggestion != null && !selectionMode) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        Text(
+                            "Suggested: ${suggestion.label}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(onClick = onAcceptSuggestion) {
+                            Text("Accept")
+                        }
+                    }
+                }
+
                 if (document.ocrText.isNotBlank()) {
                     Text(
                         document.ocrText.replace('\n', ' '),
