@@ -10,7 +10,7 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Durable app-private page/PDF storage; the scanner copies results into its own local document store instead of depending on transient provider URIs.
 - Bundled on-device ML Kit OCR for Latin-script text.
 - Background OCR after capture so scanning is not coupled to recognition latency.
-- Local Room document library with titles, favorites, archive, page counts, and processing state.
+- Local Room document library with live first-page thumbnails, titles, favorites, archive, page counts, and processing state.
 - Search across document titles and recognized text.
 - PDF import that preserves the original PDF while rendering local page derivatives for OCR/search.
 - Multipage page viewer with selectable recognized text.
