@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -37,10 +38,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
@@ -79,6 +82,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.DocumentPageSearchHit
+import com.thiepn.scan.data.OcrScript
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
@@ -171,6 +176,29 @@ fun DocumentScreen(
     var batchExportOpen by remember { mutableStateOf(false) }
     var insertPagesOpen by remember { mutableStateOf(false) }
     var resetAllEditsOpen by remember { mutableStateOf(false) }
+    var documentSearchOpen by remember { mutableStateOf(false) }
+    var documentSearchQuery by remember { mutableStateOf("") }
+    var documentSearchHits by remember { mutableStateOf<List<DocumentPageSearchHit>>(emptyList()) }
+    var documentSearchBusy by remember { mutableStateOf(false) }
+    var ocrScriptOpen by remember { mutableStateOf(false) }
+    val pageListState = rememberLazyListState()
+
+    LaunchedEffect(
+        documentSearchOpen,
+        documentSearchQuery,
+        pages.map { it.ocrFingerprint }
+    ) {
+        if (!documentSearchOpen || documentSearchQuery.isBlank()) {
+            documentSearchBusy = false
+            documentSearchHits = emptyList()
+        } else {
+            documentSearchBusy = true
+            documentSearchHits = runCatching {
+                repository.searchDocumentPages(documentId, documentSearchQuery)
+            }.getOrDefault(emptyList())
+            documentSearchBusy = false
+        }
+    }
 
     LaunchedEffect(pages.map { it.id }) {
         val activeIds = pages.map { it.id }.toSet()
@@ -258,6 +286,7 @@ fun DocumentScreen(
         }
     ) { innerPadding ->
         LazyColumn(
+            state = pageListState,
             modifier = Modifier.fillMaxSize().padding(innerPadding),
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
