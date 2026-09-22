@@ -25,7 +25,7 @@ The capture implementation intentionally uses the production ML Kit Document Sca
 Requirements:
 
 - JDK 17
-- Android SDK 37
+- Android SDK Platform 37.0
 - Android Build Tools 36.0.0
 - Gradle 9.6.0
 
