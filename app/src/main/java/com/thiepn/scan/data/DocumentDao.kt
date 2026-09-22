@@ -21,6 +21,36 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE trashedAt IS NOT NULL ORDER BY trashedAt DESC")
     fun observeTrash(): Flow<List<DocumentEntity>>
 
+    @Query("SELECT * FROM folders ORDER BY parentId, name COLLATE NOCASE")
+    fun observeFolders(): Flow<List<FolderEntity>>
+
+    @Query("SELECT * FROM tags ORDER BY name COLLATE NOCASE")
+    fun observeTags(): Flow<List<TagEntity>>
+
+    @Query("SELECT * FROM document_tags")
+    fun observeDocumentTags(): Flow<List<DocumentTagCrossRef>>
+
+    @Query("SELECT * FROM folders ORDER BY parentId, name COLLATE NOCASE")
+    suspend fun getFolders(): List<FolderEntity>
+
+    @Query("SELECT * FROM folders WHERE id = :id LIMIT 1")
+    suspend fun getFolder(id: String): FolderEntity?
+
+    @Query(
+        "SELECT * FROM folders WHERE normalizedName = :normalizedName " +
+            "AND ((parentId IS NULL AND :parentId IS NULL) OR parentId = :parentId) LIMIT 1"
+    )
+    suspend fun findFolder(normalizedName: String, parentId: String?): FolderEntity?
+
+    @Query("SELECT * FROM tags ORDER BY name COLLATE NOCASE")
+    suspend fun getTags(): List<TagEntity>
+
+    @Query("SELECT * FROM tags WHERE normalizedName = :normalizedName LIMIT 1")
+    suspend fun findTag(normalizedName: String): TagEntity?
+
+    @Query("SELECT * FROM document_tags WHERE documentId = :documentId")
+    suspend fun getDocumentTags(documentId: String): List<DocumentTagCrossRef>
+
     @Query("SELECT * FROM documents WHERE archived = 0 AND trashedAt IS NULL AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY favorite DESC, updatedAt DESC")
     fun searchActive(query: String): Flow<List<DocumentEntity>>
 
@@ -68,6 +98,18 @@ interface DocumentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDocument(document: DocumentEntity)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertFolder(folder: FolderEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTag(tag: TagEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertDocumentTag(link: DocumentTagCrossRef)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertDocumentTags(links: List<DocumentTagCrossRef>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPage(page: PageEntity)
@@ -117,6 +159,95 @@ interface DocumentDao {
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
 
+    @Query(
+        "UPDATE documents SET folderId = :folderId, updatedAt = :updatedAt " +
+            "WHERE id IN (:documentIds)"
+    )
+    suspend fun setDocumentFolder(
+        documentIds: List<String>,
+        folderId: String?,
+        updatedAt: Long
+    )
+
+    @Query(
+        "UPDATE documents SET documentType = :documentType, suggestedType = NULL, " +
+            "needsReview = 0, updatedAt = :updatedAt WHERE id IN (:documentIds)"
+    )
+    suspend fun setDocumentType(
+        documentIds: List<String>,
+        documentType: String,
+        updatedAt: Long
+    )
+
+    @Query(
+        "UPDATE documents SET suggestedType = :suggestedType, needsReview = :needsReview " +
+            "WHERE id = :id"
+    )
+    suspend fun setSuggestedDocumentType(
+        id: String,
+        suggestedType: String?,
+        needsReview: Boolean
+    )
+
+    @Query(
+        "UPDATE documents SET needsReview = :needsReview, updatedAt = :updatedAt " +
+            "WHERE id IN (:documentIds)"
+    )
+    suspend fun setDocumentsNeedsReview(
+        documentIds: List<String>,
+        needsReview: Boolean,
+        updatedAt: Long
+    )
+
+    @Query(
+        "UPDATE documents SET favorite = :favorite, updatedAt = :updatedAt " +
+            "WHERE id IN (:documentIds)"
+    )
+    suspend fun setDocumentsFavorite(
+        documentIds: List<String>,
+        favorite: Boolean,
+        updatedAt: Long
+    )
+
+    @Query(
+        "UPDATE documents SET archived = :archived, updatedAt = :updatedAt " +
+            "WHERE id IN (:documentIds)"
+    )
+    suspend fun setDocumentsArchived(
+        documentIds: List<String>,
+        archived: Boolean,
+        updatedAt: Long
+    )
+
+    @Query("UPDATE folders SET name = :name, normalizedName = :normalizedName, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun renameFolder(
+        id: String,
+        name: String,
+        normalizedName: String,
+        updatedAt: Long
+    )
+
+    @Query("UPDATE folders SET parentId = :parentId, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setFolderParent(id: String, parentId: String?, updatedAt: Long)
+
+    @Query("UPDATE folders SET parentId = :newParentId WHERE parentId = :folderId")
+    suspend fun promoteChildFolders(folderId: String, newParentId: String?)
+
+    @Query("UPDATE documents SET folderId = :newFolderId WHERE folderId = :folderId")
+    suspend fun moveDocumentsFromFolder(folderId: String, newFolderId: String?)
+
+    @Query("DELETE FROM folders WHERE id = :id")
+    suspend fun deleteFolderRecord(id: String)
+
+    @Query("DELETE FROM tags WHERE id = :id")
+    suspend fun deleteTag(id: String)
+
+    @Query("DELETE FROM document_tags WHERE documentId = :documentId AND tagId = :tagId")
+    suspend fun deleteDocumentTag(documentId: String, tagId: String)
+
+    @Query("DELETE FROM document_tags WHERE documentId IN (:documentIds)")
+    suspend fun deleteDocumentTagsForDocuments(documentIds: List<String>)
+
     @Query("UPDATE documents SET ocrScript = :script, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setDocumentOcrScript(id: String, script: String, updatedAt: Long)
 
@@ -146,6 +277,46 @@ interface DocumentDao {
 
     @Query("DELETE FROM pages WHERE id = :pageId")
     suspend fun deletePageRecord(pageId: String)
+
+    @Transaction
+    suspend fun deleteFolderAndPromoteContents(folderId: String) {
+        val folder = getFolder(folderId) ?: return
+        moveDocumentsFromFolder(folderId, folder.parentId)
+        promoteChildFolders(folderId, folder.parentId)
+        deleteFolderRecord(folderId)
+    }
+
+    @Transaction
+    suspend fun replaceDocumentTags(
+        documentIds: List<String>,
+        tagIds: List<String>
+    ) {
+        if (documentIds.isEmpty()) return
+        deleteDocumentTagsForDocuments(documentIds)
+        val links = buildList {
+            documentIds.distinct().forEach { documentId ->
+                tagIds.distinct().forEach { tagId ->
+                    add(DocumentTagCrossRef(documentId, tagId))
+                }
+            }
+        }
+        if (links.isNotEmpty()) insertDocumentTags(links)
+    }
+
+    @Transaction
+    suspend fun addDocumentTags(
+        documentIds: List<String>,
+        tagIds: List<String>
+    ) {
+        val links = buildList {
+            documentIds.distinct().forEach { documentId ->
+                tagIds.distinct().forEach { tagId ->
+                    add(DocumentTagCrossRef(documentId, tagId))
+                }
+            }
+        }
+        if (links.isNotEmpty()) insertDocumentTags(links)
+    }
 
     @Transaction
     suspend fun insertPageWithOrder(page: PageEntity, orderedPageIds: List<String>) {
