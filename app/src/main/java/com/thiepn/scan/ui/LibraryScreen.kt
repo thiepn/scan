@@ -113,8 +113,22 @@ fun LibraryScreen(
     var mergeBusy by remember { mutableStateOf(false) }
     var searchBusy by remember { mutableStateOf(false) }
     var searchResults by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
+    var organizationFilter by remember {
+        mutableStateOf(OrganizationFilterState())
+    }
+    var organizationFilterOpen by remember { mutableStateOf(false) }
+    var folderManagerOpen by remember { mutableStateOf(false) }
+    var tagManagerOpen by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedDocumentIds by remember { mutableStateOf(emptySet<String>()) }
+    var bulkOrganizeOpen by remember { mutableStateOf(false) }
+
     val documentsFlow = remember(filter) { repository.observeDocuments(filter, "") }
     val liveDocuments by documentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val folders by repository.observeFolders().collectAsStateWithLifecycle(initialValue = emptyList())
+    val tags by repository.observeTags().collectAsStateWithLifecycle(initialValue = emptyList())
+    val documentTags by repository.observeDocumentTags()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     LaunchedEffect(query, filter, liveDocuments.map { it.updatedAt }) {
         if (query.isBlank()) {
@@ -129,8 +143,49 @@ fun LibraryScreen(
         }
     }
 
-    val documents = if (query.isBlank()) liveDocuments else searchResults
-    val mergeCandidates = if (filter == LibraryFilter.TRASH) emptyList() else documents.filter { !it.processing }
+    LaunchedEffect(liveDocuments.map { it.id }) {
+        val validIds = liveDocuments.map { it.id }.toSet()
+        selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in validIds }
+        if (selectedDocumentIds.isEmpty() && selectionMode && liveDocuments.isEmpty()) {
+            selectionMode = false
+        }
+    }
+
+    val sourceDocuments = if (query.isBlank()) liveDocuments else searchResults
+    val tagIdsByDocument = documentTags.groupBy { it.documentId }
+        .mapValues { (_, links) -> links.map { it.tagId }.toSet() }
+    val selectedFolderIds = organizationFilter.folderId?.let {
+        folderAndDescendantIds(it, folders)
+    }
+    val recentThreshold = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+
+    val filteredDocuments = sourceDocuments.filter { document ->
+        val smartMatch = when (organizationFilter.smartCollection) {
+            SmartCollection.ALL -> true
+            SmartCollection.RECENT -> document.updatedAt >= recentThreshold
+            SmartCollection.UNFILED -> document.folderId == null
+            SmartCollection.NEEDS_REVIEW -> document.needsReview
+        }
+        val folderMatch = selectedFolderIds == null || document.folderId in selectedFolderIds
+        val tagMatch = organizationFilter.tagId == null ||
+            organizationFilter.tagId in tagIdsByDocument[document.id].orEmpty()
+        val typeMatch = organizationFilter.documentType == null ||
+            DocumentType.fromStored(document.documentType) == organizationFilter.documentType
+        smartMatch && folderMatch && tagMatch && typeMatch
+    }
+
+    val documents = when (organizationFilter.sort) {
+        LibrarySort.RELEVANCE -> if (query.isNotBlank()) filteredDocuments
+            else filteredDocuments.sortedByDescending { it.updatedAt }
+        LibrarySort.UPDATED_DESC -> filteredDocuments.sortedByDescending { it.updatedAt }
+        LibrarySort.CREATED_DESC -> filteredDocuments.sortedByDescending { it.createdAt }
+        LibrarySort.TITLE_ASC -> filteredDocuments.sortedBy { it.title.lowercase() }
+        LibrarySort.TITLE_DESC -> filteredDocuments.sortedByDescending { it.title.lowercase() }
+        LibrarySort.PAGE_COUNT_DESC -> filteredDocuments.sortedByDescending { it.pageCount }
+        LibrarySort.PAGE_COUNT_ASC -> filteredDocuments.sortedBy { it.pageCount }
+    }
+    val mergeCandidates = if (filter == LibraryFilter.TRASH) emptyList()
+        else documents.filter { !it.processing }
 
     Scaffold(
         modifier = Modifier.padding(contentPadding),
