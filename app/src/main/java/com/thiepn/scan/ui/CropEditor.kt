@@ -3,13 +3,13 @@ package com.thiepn.scan.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Refresh
@@ -209,8 +209,10 @@ private fun GeometryCanvas(
     Canvas(
         modifier = modifier.pointerInput(bitmap, rotationDegrees) {
             val hitRadius = 58.dp.toPx()
-            androidx.compose.foundation.gestures.detectDragGestures(
-                onDragStart = { position ->
+            detectDragGestures(
+                orientationLock = null,
+                onDragStart = { down, _, _ ->
+                    val position = down.position
                     val rect = fitRect(
                         Size(size.width.toFloat(), size.height.toFloat()),
                         bitmap.width,
@@ -227,7 +229,7 @@ private fun GeometryCanvas(
                         .minByOrNull { it.second }
                         ?.first
                 },
-                onDragEnd = { activeCorner = null },
+                onDragEnd = { _ -> activeCorner = null },
                 onDragCancel = { activeCorner = null },
                 onDrag = { change, _ ->
                     val index = activeCorner ?: return@detectDragGestures
