@@ -2,7 +2,6 @@ package com.thiepn.scan.data
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -52,10 +51,15 @@ class PdfEngine(
                 require(imageFile.isFile) { "Missing page image" }
 
                 val cropQuad = CropQuadCodec.decode(pageEntity.cropQuad)
+                val recipe = PageVisualRecipeCodec.decode(pageEntity.visualRecipe)
                 val geometryEdited = !cropQuad.isFullFrame()
-                val directJpeg = quality == PdfQuality.ORIGINAL && !geometryEdited
+                val directJpeg =
+                    quality == PdfQuality.ORIGINAL &&
+                        !geometryEdited &&
+                        recipe.isOriginal()
 
-                var renderedBitmap: Bitmap? = null
+                var geometryBitmap: Bitmap? = null
+                var visualBitmap: Bitmap? = null
                 val imageWidth: Int
                 val imageHeight: Int
 
@@ -63,13 +67,17 @@ class PdfEngine(
                     imageWidth = pageEntity.width.coerceAtLeast(1)
                     imageHeight = pageEntity.height.coerceAtLeast(1)
                 } else {
-                    renderedBitmap = PageGeometryRenderer.renderUnrotatedForPdf(
+                    geometryBitmap = PageGeometryRenderer.renderUnrotatedForPdf(
                         file = imageFile,
                         cropQuad = cropQuad,
                         maxLongEdge = quality.maxLongEdge
                     )
-                    imageWidth = renderedBitmap.width
-                    imageHeight = renderedBitmap.height
+                    visualBitmap = ImageEnhancementRenderer.apply(
+                        geometryBitmap,
+                        recipe
+                    )
+                    imageWidth = visualBitmap.width
+                    imageHeight = visualBitmap.height
                 }
 
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
@@ -86,7 +94,7 @@ class PdfEngine(
                                 stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
                             }
                         } else {
-                            val bitmap = requireNotNull(renderedBitmap)
+                            val bitmap = requireNotNull(visualBitmap)
                             val image = JPEGFactory.createFromImage(
                                 document,
                                 bitmap,
@@ -96,8 +104,9 @@ class PdfEngine(
                         }
 
                         val recognition = runCatching {
-                            if (renderedBitmap != null) {
-                                ocr.recognizeDetailed(requireNotNull(renderedBitmap))
+                            val geometry = geometryBitmap
+                            if (geometry != null) {
+                                ocr.recognizeDetailed(geometry)
                             } else {
                                 ocr.recognizeDetailed(imageFile)
                             }
@@ -116,7 +125,10 @@ class PdfEngine(
                         }
                     }
                 } finally {
-                    renderedBitmap?.recycle()
+                    val visual = visualBitmap
+                    val geometry = geometryBitmap
+                    if (visual != null && visual !== geometry) visual.recycle()
+                    geometry?.recycle()
                 }
             }
 

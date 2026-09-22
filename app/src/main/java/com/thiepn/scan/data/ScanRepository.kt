@@ -190,6 +190,24 @@ class ScanRepository(
         }
     }
 
+    suspend fun updatePageVisualRecipe(
+        documentId: String,
+        pageId: String,
+        recipe: PageVisualRecipe
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId) { "Page does not belong to this document" }
+
+        dao.setPageVisualRecipe(
+            pageId = pageId,
+            visualRecipe = PageVisualRecipeCodec.encode(recipe)
+        )
+        dao.touchDocument(documentId, System.currentTimeMillis())
+    }
+
     suspend fun duplicatePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
         val document = requireEditableDocument(documentId)
         require(!document.processing) { "Document is still processing" }
@@ -433,8 +451,16 @@ class ScanRepository(
         )
 
         val hasGeometryEdits = pages.any { !CropQuadCodec.decode(it.cropQuad).isFullFrame() }
+        val hasVisualEdits = pages.any {
+            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+        }
 
-        if (source != null && quality == PdfQuality.ORIGINAL && !hasGeometryEdits) {
+        if (
+            source != null &&
+            quality == PdfQuality.ORIGINAL &&
+            !hasGeometryEdits &&
+            !hasVisualEdits
+        ) {
             val nativeOrder = pages.map { it.position }
             val rotations = pages.map { it.rotationDegrees }
             val unchanged = deletedPages.isEmpty() &&
@@ -505,7 +531,10 @@ class ScanRepository(
             val hasGeometryEdits = selectedPages.any {
                 !CropQuadCodec.decode(it.cropQuad).isFullFrame()
             }
-            if (source != null && !hasGeometryEdits) {
+            val hasVisualEdits = selectedPages.any {
+                !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+            }
+            if (source != null && !hasGeometryEdits && !hasVisualEdits) {
                 pdfEngine.extractPages(
                     source = source,
                     pageIndices = selectedPages.map { it.position },
@@ -547,14 +576,18 @@ class ScanRepository(
                     val hasGeometryEdits = pages.any {
                         !CropQuadCodec.decode(it.cropQuad).isFullFrame()
                     }
+                    val hasVisualEdits = pages.any {
+                        !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+                    }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
                         rotations.all { it == 0 } &&
-                        !hasGeometryEdits
+                        !hasGeometryEdits &&
+                        !hasVisualEdits
 
                     if (unchanged) {
                         mergeInputs += nativeSource
-                    } else if (!hasGeometryEdits) {
+                    } else if (!hasGeometryEdits && !hasVisualEdits) {
                         val working = files.temporaryWorkingPdf("scan-native-edit")
                         pdfEngine.extractPages(
                             source = nativeSource,

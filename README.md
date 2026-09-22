@@ -26,6 +26,8 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Duplicate an existing page non-destructively and place the copy directly after its source page.
 - Rotate pages clockwise in 90° steps without changing the immutable source; preview and every PDF export path honor the rotation.
 - Full-screen post-capture crop/perspective editor with four draggable corners, live magnifier, conservative auto-detect, reset, non-destructive geometry metadata, geometry-aware OCR, thumbnails, and PDF export.
+- Non-destructive scan enhancement editor with Original, Auto, Clean, Color, Grayscale, B&W, Notes, Receipt, and Whiteboard presets plus brightness, contrast, highlights, shadows, black/white point, warmth, saturation, sharpness, background whitening, and shadow normalization controls.
+- Cosmetic enhancement is intentionally separate from OCR truth: OCR/search use the geometry-corrected source while previews and visible PDF output use the visual recipe.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
