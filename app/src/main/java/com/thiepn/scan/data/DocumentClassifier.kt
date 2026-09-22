@@ -130,8 +130,7 @@ object DocumentClassifier {
     )
 
     fun suggest(title: String, ocrText: String): DocumentTypeSuggestion? {
-        val haystack = "$title
-$ocrText".lowercase()
+        val haystack = "$title\\n$ocrText".lowercase()
         if (haystack.isBlank()) return null
 
         val scored = rules.map { rule ->
