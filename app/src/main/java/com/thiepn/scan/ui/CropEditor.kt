@@ -204,6 +204,7 @@ private fun GeometryCanvas(
 ) {
     var activeCorner by remember { mutableStateOf<Int?>(null) }
     val image = remember(bitmap) { bitmap.asImageBitmap() }
+    val primaryColor = MaterialTheme.colorScheme.primary
 
     Canvas(
         modifier = modifier.pointerInput(bitmap, rotationDegrees) {
@@ -290,7 +291,7 @@ private fun GeometryCanvas(
         offsets.forEachIndexed { index, point ->
             drawCircle(
                 color = if (activeCorner == index) {
-                    MaterialTheme.colorScheme.primary
+                    primaryColor
                 } else {
                     Color.White
                 },
