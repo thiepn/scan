@@ -114,7 +114,8 @@ private fun ScanApp(repository: ScanRepository) {
                             scope.launch { snackbar.showSnackbar(error.message ?: "Scanner unavailable") }
                         }
                 },
-                onImportPdf = { pdfLauncher.launch(arrayOf("application/pdf")) }
+                onImportPdf = { pdfLauncher.launch(arrayOf("application/pdf")) },
+                onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } }
             )
         } else {
             DocumentScreen(
