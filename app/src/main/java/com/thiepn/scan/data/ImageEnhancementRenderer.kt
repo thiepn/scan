@@ -228,41 +228,41 @@ object ImageEnhancementRenderer {
     private fun estimateIllumination(source: Bitmap): IlluminationGrid {
         val gridWidth = 12
         val gridHeight = 12
-        val values = FloatArray(gridWidth * gridHeight)
-        val counts = IntArray(values.size)
-        val sampleStep = max(1, max(source.width, source.height) / 900)
-        val pixel = IntArray(1)
-
-        for (y in 0 until source.height step sampleStep) {
-            val gy = min(gridHeight - 1, y * gridHeight / max(1, source.height))
-            for (x in 0 until source.width step sampleStep) {
-                val gx = min(gridWidth - 1, x * gridWidth / max(1, source.width))
-                source.getPixels(pixel, 0, 1, x, y, 1, 1)
-                val color = pixel[0]
-                val index = gy * gridWidth + gx
-                values[index] += luma(
+        val reduced = Bitmap.createScaledBitmap(
+            source,
+            gridWidth,
+            gridHeight,
+            true
+        )
+        return try {
+            val pixels = IntArray(gridWidth * gridHeight)
+            reduced.getPixels(
+                pixels,
+                0,
+                gridWidth,
+                0,
+                0,
+                gridWidth,
+                gridHeight
+            )
+            val values = FloatArray(pixels.size) { index ->
+                val color = pixels[index]
+                luma(
                     Color.red(color) / 255f,
                     Color.green(color) / 255f,
                     Color.blue(color) / 255f
                 )
-                counts[index]++
             }
+            val sorted = values.copyOf().apply { sort() }
+            IlluminationGrid(
+                values = values,
+                width = gridWidth,
+                height = gridHeight,
+                median = sorted[sorted.size / 2]
+            )
+        } finally {
+            if (reduced !== source) reduced.recycle()
         }
-
-        for (i in values.indices) {
-            if (counts[i] > 0) values[i] /= counts[i]
-        }
-
-        val sorted = values.filterIndexed { index, _ -> counts[index] > 0 }
-            .sorted()
-        val median = if (sorted.isEmpty()) 0.75f else sorted[sorted.size / 2]
-
-        return IlluminationGrid(
-            values = values,
-            width = gridWidth,
-            height = gridHeight,
-            median = median
-        )
     }
 
     private fun sharpenRow(
