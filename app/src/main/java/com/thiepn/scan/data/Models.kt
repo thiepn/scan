@@ -6,7 +6,15 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "documents", indices = [Index("trashedAt")])
+@Entity(
+    tableName = "documents",
+    indices = [
+        Index("trashedAt"),
+        Index("folderId"),
+        Index("documentType"),
+        Index("needsReview")
+    ]
+)
 data class DocumentEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -20,7 +28,61 @@ data class DocumentEntity(
     val processing: Boolean = false,
     val ocrText: String = "",
     @ColumnInfo(defaultValue = "'LATIN'")
-    val ocrScript: String = OcrScript.LATIN.name
+    val ocrScript: String = OcrScript.LATIN.name,
+    val folderId: String? = null,
+    @ColumnInfo(defaultValue = "'UNSPECIFIED'")
+    val documentType: String = DocumentType.UNSPECIFIED.name,
+    val suggestedType: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val needsReview: Boolean = false
+)
+
+@Entity(
+    tableName = "folders",
+    indices = [Index("parentId"), Index(value = ["parentId", "normalizedName"])]
+)
+data class FolderEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val normalizedName: String,
+    val parentId: String? = null,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+@Entity(
+    tableName = "tags",
+    indices = [Index(value = ["normalizedName"], unique = true)]
+)
+data class TagEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val normalizedName: String,
+    val createdAt: Long
+)
+
+@Entity(
+    tableName = "document_tags",
+    primaryKeys = ["documentId", "tagId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = DocumentEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["documentId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = TagEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tagId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("documentId"), Index("tagId")]
+)
+data class DocumentTagCrossRef(
+    val documentId: String,
+    val tagId: String
 )
 
 @Entity(
@@ -61,3 +123,39 @@ data class PageEntity(
 )
 
 enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
+
+enum class DocumentType(val label: String) {
+    UNSPECIFIED("Unspecified"),
+    RECEIPT("Receipt"),
+    INVOICE("Invoice"),
+    ID("ID"),
+    FORM("Form"),
+    NOTES("Notes"),
+    LETTER("Letter"),
+    BUSINESS_CARD("Business card"),
+    BOOK("Book"),
+    WHITEBOARD("Whiteboard"),
+    CERTIFICATE("Certificate");
+
+    companion object {
+        fun fromStored(value: String?): DocumentType =
+            entries.firstOrNull { it.name == value } ?: UNSPECIFIED
+    }
+}
+
+enum class SmartCollection(val label: String) {
+    ALL("All"),
+    RECENT("Recent"),
+    UNFILED("Unfiled"),
+    NEEDS_REVIEW("Needs review")
+}
+
+enum class LibrarySort(val label: String) {
+    RELEVANCE("Relevance"),
+    UPDATED_DESC("Recently modified"),
+    CREATED_DESC("Recently created"),
+    TITLE_ASC("Title A–Z"),
+    TITLE_DESC("Title Z–A"),
+    PAGE_COUNT_DESC("Most pages"),
+    PAGE_COUNT_ASC("Fewest pages")
+}
