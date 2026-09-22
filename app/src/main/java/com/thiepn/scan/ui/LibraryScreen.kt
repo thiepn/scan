@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -165,7 +166,11 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(documents, key = { it.id }) { document ->
-                            DocumentCard(document, onClick = { onOpenDocument(document.id) })
+                            DocumentCard(
+                                document = document,
+                                repository = repository,
+                                onClick = { onOpenDocument(document.id) }
+                            )
                         }
                     }
                 }
@@ -295,17 +300,44 @@ private fun EmptyLibrary(query: String, filter: LibraryFilter) {
 }
 
 @Composable
-private fun DocumentCard(document: DocumentEntity, onClick: () -> Unit) {
+private fun DocumentCard(
+    document: DocumentEntity,
+    repository: ScanRepository,
+    onClick: () -> Unit
+) {
+    val coverFlow = remember(document.id) { repository.observeCoverPage(document.id) }
+    val cover by coverFlow.collectAsStateWithLifecycle(initialValue = null)
+
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Description,
-                contentDescription = null,
-                tint = if (document.favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            val coverPage = cover
+            if (coverPage != null) {
+                FileImage(
+                    path = coverPage.imagePath,
+                    modifier = Modifier.width(76.dp).height(104.dp),
+                    maxDecodeEdge = 480,
+                    rotationDegrees = coverPage.rotationDegrees,
+                    contentDescription = "Preview of ${document.title}"
+                )
+            } else {
+                Box(
+                    modifier = Modifier.width(76.dp).height(104.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        tint = if (document.favorite) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
             Column(Modifier.padding(start = 14.dp).weight(1f)) {
                 Text(
                     document.title,
