@@ -32,6 +32,10 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Per-document offline OCR models are bundled for Latin, Chinese, Devanagari, Japanese, and Korean scripts; switching the model triggers a controlled re-recognition pass.
 - Ranked local FTS5 search supports exact quoted phrases, prefix queries such as `acc*`, highlighted snippets, document-level page hits, jump-to-page navigation, exact recognized-word copying, and on-page word-box overlays.
 - Room uses AndroidX Bundled SQLite for deterministic FTS5 availability, with migration-safe indexing and lazy spatial-OCR upgrades for documents created before OCR V2.
+- Document Organization System with nested folders, reusable tags, document types, favorites/archive, bulk filing/tagging/classification, and direct organization from both the library and document editor.
+- Smart collections provide Recent (7 days), Unfiled, and Needs Review views; organization filters can combine folder trees, tags, and document type with relevance/date/title/page-count sorting.
+- Deterministic local classification suggests Receipt, Invoice, ID, Form, Notes, Letter, Business Card, Book, Whiteboard, or Certificate when OCR/title evidence is strong, but never overwrites a user-selected type.
+- Folder deletion is non-destructive: documents and child folders are promoted to the deleted folder's parent; tag deletion only removes tag relationships.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
