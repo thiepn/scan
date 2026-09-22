@@ -17,6 +17,17 @@ class FileStore(private val context: Context) {
 
     fun pdfFile(documentId: String): File = File(documentDir(documentId), "document.pdf")
 
+    fun copyPageFile(documentId: String, source: File, newPageId: String): File {
+        require(source.isFile) { "Source page is unavailable" }
+        val destination = pageFile(documentId, newPageId)
+        val temporary = File(destination.parentFile, destination.name + ".tmp")
+        source.inputStream().use { input ->
+            temporary.outputStream().use { output -> input.copyTo(output) }
+        }
+        commitTemporary(temporary, destination)
+        return destination
+    }
+
     suspend fun copyUri(uri: Uri, destination: File): File {
         destination.parentFile?.mkdirs()
         val temporary = File(destination.parentFile, destination.name + ".tmp")
