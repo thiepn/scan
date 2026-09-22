@@ -14,6 +14,9 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Search across document titles and recognized text.
 - PDF import that preserves the original PDF while rendering local page derivatives for OCR/search.
 - Multipage page viewer with selectable recognized text.
+- Searchable PDF generation for scanned pages using invisible spatial OCR text.
+- Native imported PDFs remain preserved and are shared without rasterizing them.
+- AES-256 password-protected PDF copies.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Plain-text export of recognized pages.
 - No account, no mandatory cloud, no analytics SDK, and no broad storage permission.
@@ -45,6 +48,8 @@ ML Kit scanner / PDF import
        /     |      \
       v      v       v
  FileStore  Room   OCR engine
+      |               |
+      +-------- PDF engine
       |      |       |
       +------+-------+
              |
