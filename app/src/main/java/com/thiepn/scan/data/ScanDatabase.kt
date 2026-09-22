@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DocumentEntity::class, PageEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -98,6 +98,34 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE documents ADD COLUMN ocrScript TEXT NOT NULL DEFAULT 'LATIN'")
+                db.execSQL("ALTER TABLE pages ADD COLUMN ocrLayout TEXT")
+                db.execSQL("ALTER TABLE pages ADD COLUMN ocrFingerprint TEXT")
+                db.execSQL("ALTER TABLE pages ADD COLUMN ocrScript TEXT")
+                db.execSQL(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS ocr_pages_fts
+                    USING fts5(
+                        documentId UNINDEXED,
+                        pageId UNINDEXED,
+                        content,
+                        tokenize='unicode61 remove_diacritics 2'
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO ocr_pages_fts(documentId, pageId, content)
+                    SELECT documentId, id, ocrText
+                    FROM pages
+                    WHERE deleted = 0 AND TRIM(ocrText) <> ''
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -108,7 +136,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_2_3,
                 MIGRATION_3_4,
                 MIGRATION_4_5,
-                MIGRATION_5_6
+                MIGRATION_5_6,
+                MIGRATION_6_7
             )
             .build()
     }
