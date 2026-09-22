@@ -454,6 +454,118 @@ fun LibraryScreen(
             }
         )
     }
+
+    if (organizationFilterOpen) {
+        OrganizationFilterDialog(
+            state = organizationFilter,
+            folders = folders,
+            tags = tags,
+            queryActive = query.isNotBlank(),
+            onDismiss = { organizationFilterOpen = false },
+            onApply = { state ->
+                organizationFilter = state
+                organizationFilterOpen = false
+            }
+        )
+    }
+
+    if (folderManagerOpen) {
+        FolderManagerDialog(
+            folders = folders,
+            onDismiss = { folderManagerOpen = false },
+            onCreate = { name, parentId ->
+                scope.launch {
+                    runCatching { repository.createFolder(name, parentId) }
+                        .onSuccess { onMessage("Folder created") }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not create folder")
+                        }
+                }
+            },
+            onRename = { folderId, name ->
+                scope.launch {
+                    runCatching { repository.renameFolder(folderId, name) }
+                        .onSuccess { onMessage("Folder renamed") }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not rename folder")
+                        }
+                }
+            },
+            onDelete = { folderId ->
+                scope.launch {
+                    runCatching { repository.deleteFolder(folderId) }
+                        .onSuccess { onMessage("Folder deleted; contents preserved") }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not delete folder")
+                        }
+                }
+            }
+        )
+    }
+
+    if (tagManagerOpen) {
+        TagManagerDialog(
+            tags = tags,
+            onDismiss = { tagManagerOpen = false },
+            onCreate = { name ->
+                scope.launch {
+                    runCatching { repository.createTag(name) }
+                        .onSuccess { onMessage("Tag ready") }
+                        .onFailure { onMessage(it.message ?: "Could not create tag") }
+                }
+            },
+            onDelete = { tagId ->
+                scope.launch {
+                    runCatching { repository.deleteTag(tagId) }
+                        .onSuccess { onMessage("Tag deleted") }
+                        .onFailure { onMessage(it.message ?: "Could not delete tag") }
+                }
+            }
+        )
+    }
+
+    if (bulkOrganizeOpen) {
+        BulkOrganizeDialog(
+            selectedCount = selectedDocumentIds.size,
+            folders = folders,
+            tags = tags,
+            onDismiss = { bulkOrganizeOpen = false },
+            onApply = { change ->
+                bulkOrganizeOpen = false
+                val ids = selectedDocumentIds.toList()
+                scope.launch {
+                    runCatching {
+                        if (change.changeFolder) {
+                            repository.setDocumentFolder(ids, change.folderId)
+                        }
+                        if (change.changeType) {
+                            repository.setDocumentType(
+                                ids,
+                                requireNotNull(change.documentType)
+                            )
+                        }
+                        if (change.changeTags) {
+                            repository.replaceDocumentTags(ids, change.tagIds)
+                        }
+                        if (change.changeReview) {
+                            repository.setDocumentsNeedsReview(
+                                ids,
+                                change.needsReview
+                            )
+                        }
+                    }
+                        .onSuccess {
+                            selectionMode = false
+                            selectedDocumentIds = emptySet()
+                            onMessage("Documents organized")
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not organize documents")
+                        }
+                }
+            }
+        )
+    }
 }
 
 @Composable
