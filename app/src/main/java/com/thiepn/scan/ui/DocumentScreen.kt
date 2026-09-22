@@ -549,6 +549,168 @@ fun DocumentScreen(
         )
     }
 
+    if (batchFilterOpen) {
+        BatchFilterDialog(
+            onDismiss = { batchFilterOpen = false },
+            onApply = { preset ->
+                batchFilterOpen = false
+                val selected = selectedPageIds
+                scope.launch {
+                    runCatching { repository.applyPresetToPages(doc.id, selected, preset) }
+                        .onSuccess { onMessage("Filter applied to selected pages") }
+                        .onFailure { onMessage(it.message ?: "Could not apply filter") }
+                }
+            }
+        )
+    }
+
+    if (batchMoveOpen) {
+        MovePagesDialog(
+            pageCount = pages.size,
+            selectedCount = selectedPageIds.size,
+            onDismiss = { batchMoveOpen = false },
+            onMove = { targetIndex ->
+                batchMoveOpen = false
+                val selected = selectedPageIds
+                scope.launch {
+                    runCatching { repository.movePages(doc.id, selected, targetIndex) }
+                        .onSuccess {
+                            selectionMode = false
+                            selectedPageIds = emptyList()
+                            onMessage("Selected pages moved")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not move pages") }
+                }
+            }
+        )
+    }
+
+    if (insertPagesOpen) {
+        InsertPagesDialog(
+            pageCount = pages.size,
+            onDismiss = { insertPagesOpen = false },
+            onInsert = { index ->
+                insertPagesOpen = false
+                onInsertPages(index)
+            }
+        )
+    }
+
+    if (resetAllEditsOpen) {
+        AlertDialog(
+            onDismissRequest = { resetAllEditsOpen = false },
+            title = { Text("Reset all page edits?") },
+            text = {
+                Text(
+                    "Rotation, crop/perspective, and enhancement settings will return to their original values. Page order, OCR source files, replacements, duplicates, and deleted-page history are not changed."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    resetAllEditsOpen = false
+                    scope.launch {
+                        runCatching { repository.resetAllPageEdits(doc.id) }
+                            .onSuccess { onMessage("All page edits reset") }
+                            .onFailure { onMessage(it.message ?: "Could not reset page edits") }
+                    }
+                }) { Text("Reset all") }
+            },
+            dismissButton = {
+                TextButton(onClick = { resetAllEditsOpen = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (batchDeleteOpen) {
+        AlertDialog(
+            onDismissRequest = { batchDeleteOpen = false },
+            title = { Text("Delete ${selectedPageIds.size} selected pages?") },
+            text = {
+                Text(
+                    "The selected pages will move to Deleted pages and remain recoverable. At least one active page must remain."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    batchDeleteOpen = false
+                    val selected = selectedPageIds
+                    scope.launch {
+                        runCatching { repository.softDeletePages(doc.id, selected) }
+                            .onSuccess {
+                                selectionMode = false
+                                selectedPageIds = emptyList()
+                                onMessage("Selected pages moved to Deleted pages")
+                            }
+                            .onFailure { onMessage(it.message ?: "Could not delete pages") }
+                    }
+                }) { Text("Delete pages") }
+            },
+            dismissButton = {
+                TextButton(onClick = { batchDeleteOpen = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (batchExportOpen) {
+        val selected = selectedPageIds
+        SelectedExportDialog(
+            selectedCount = selected.size,
+            onDismiss = { batchExportOpen = false },
+            onPdfSave = { quality ->
+                batchExportOpen = false
+                scope.launch {
+                    runCatching { repository.createPdfExportForPages(doc.id, selected, quality) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingPdfSavePath = file.absolutePath
+                                savePdfLauncher.launch(file.name)
+                            } else {
+                                onMessage("PDF is not available yet")
+                            }
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not export selected pages") }
+                }
+            },
+            onPdfShare = { quality ->
+                batchExportOpen = false
+                scope.launch {
+                    runCatching { repository.createPdfExportForPages(doc.id, selected, quality) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "application/pdf")
+                            else onMessage("PDF is not available yet")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not export selected pages") }
+                }
+            },
+            onTextSave = {
+                batchExportOpen = false
+                scope.launch {
+                    runCatching { repository.createTextExportForPages(doc.id, selected) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingTextSavePath = file.absolutePath
+                                saveTextLauncher.launch(file.name)
+                            } else {
+                                onMessage("No text export available")
+                            }
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not export selected text") }
+                }
+            },
+            onTextShare = {
+                batchExportOpen = false
+                scope.launch {
+                    runCatching { repository.createTextExportForPages(doc.id, selected) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "text/plain")
+                            else onMessage("No text export available")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not export selected text") }
+                }
+            }
+        )
+    }
+
     if (renameOpen) {
         RenameDialog(
             current = doc.title,
@@ -699,6 +861,17 @@ fun DocumentScreen(
                         .onSuccess { onMessage("Page restored") }
                         .onFailure { onMessage(it.message ?: "Could not restore page") }
                 }
+            },
+            onRestoreAll = {
+                val ids = deletedPages.map { it.id }
+                scope.launch {
+                    runCatching { repository.restorePages(doc.id, ids) }
+                        .onSuccess {
+                            deletedPagesOpen = false
+                            onMessage("${ids.size} page${if (ids.size == 1) "" else "s"} restored")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not restore pages") }
+                }
             }
         )
     }
@@ -769,56 +942,126 @@ fun DocumentScreen(
 private fun PageCard(
     page: PageEntity,
     displayNumber: Int,
+    selectionMode: Boolean,
+    selected: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     canRotate: Boolean,
     canCrop: Boolean,
     canEnhance: Boolean,
     canDuplicate: Boolean,
+    canReplace: Boolean,
+    canRetake: Boolean,
+    canReset: Boolean,
     canDelete: Boolean,
+    canDragReorder: Boolean,
+    onToggleSelected: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onDragReorder: (Int) -> Unit,
     onRotate: () -> Unit,
     onCrop: () -> Unit,
     onEnhance: () -> Unit,
     onDuplicate: () -> Unit,
+    onReplace: () -> Unit,
+    onRetake: () -> Unit,
+    onReset: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(Modifier.fillMaxWidth()) {
+    val density = LocalDensity.current
+    val dragThresholdPx = with(density) { 92.dp.toPx() }
+    var dragDistance by remember(page.id) { mutableStateOf(0f) }
+    val dragModifier = if (canDragReorder) {
+        Modifier.pointerInput(page.id, canDragReorder) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = { dragDistance = 0f },
+                onDragCancel = { dragDistance = 0f },
+                onDragEnd = {
+                    val steps = (dragDistance / dragThresholdPx).roundToInt()
+                    dragDistance = 0f
+                    if (steps != 0) onDragReorder(steps)
+                },
+                onDrag = { _, amount ->
+                    dragDistance += amount.y
+                }
+            )
+        }
+    } else {
+        Modifier
+    }
+
+    Card(
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (selectionMode) {
+                    Modifier.clickable(onClick = onToggleSelected)
+                } else {
+                    Modifier
+                }
+            )
+    ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { onToggleSelected() }
+                    )
+                }
                 Text(
                     "Page $displayNumber",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    IconButton(onClick = onMoveUp, enabled = canMoveUp) {
-                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move page up")
-                    }
-                    IconButton(onClick = onMoveDown, enabled = canMoveDown) {
-                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
-                    }
-                    IconButton(onClick = onRotate, enabled = canRotate) {
-                        Icon(Icons.Default.RotateRight, contentDescription = "Rotate page clockwise")
-                    }
-                    IconButton(onClick = onCrop, enabled = canCrop) {
-                        Icon(Icons.Default.CropFree, contentDescription = "Crop and perspective")
-                    }
-                    IconButton(onClick = onEnhance, enabled = canEnhance) {
-                        Icon(Icons.Default.Tune, contentDescription = "Enhance and filters")
-                    }
-                    IconButton(onClick = onDuplicate, enabled = canDuplicate) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
-                    }
-                    IconButton(onClick = onDelete, enabled = canDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete page")
+                if (!selectionMode) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        Icon(
+                            Icons.Default.DragHandle,
+                            contentDescription = "Drag to reorder page",
+                            modifier = dragModifier.padding(12.dp),
+                            tint = if (canDragReorder) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
+                        )
+                        IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = "Move page up")
+                        }
+                        IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                            Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
+                        }
+                        IconButton(onClick = onRotate, enabled = canRotate) {
+                            Icon(Icons.Default.RotateRight, contentDescription = "Rotate page clockwise")
+                        }
+                        IconButton(onClick = onCrop, enabled = canCrop) {
+                            Icon(Icons.Default.CropFree, contentDescription = "Crop and perspective")
+                        }
+                        IconButton(onClick = onEnhance, enabled = canEnhance) {
+                            Icon(Icons.Default.Tune, contentDescription = "Enhance and filters")
+                        }
+                        IconButton(onClick = onDuplicate, enabled = canDuplicate) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
+                        }
+                        IconButton(onClick = onReplace, enabled = canReplace) {
+                            Icon(Icons.Default.Image, contentDescription = "Replace page from image")
+                        }
+                        IconButton(onClick = onRetake, enabled = canRetake) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = "Retake page")
+                        }
+                        IconButton(onClick = onReset, enabled = canReset) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = "Reset page edits")
+                        }
+                        IconButton(onClick = onDelete, enabled = canDelete) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete page")
+                        }
                     }
                 }
             }
@@ -1040,7 +1283,8 @@ private fun ExportPdfDialog(
 private fun DeletedPagesDialog(
     pages: List<PageEntity>,
     onDismiss: () -> Unit,
-    onRestore: (PageEntity) -> Unit
+    onRestore: (PageEntity) -> Unit,
+    onRestoreAll: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1075,7 +1319,12 @@ private fun DeletedPagesDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
+            Row {
+                TextButton(onClick = onRestoreAll, enabled = pages.isNotEmpty()) {
+                    Text("Restore all")
+                }
+                TextButton(onClick = onDismiss) { Text("Done") }
+            }
         }
     )
 }
