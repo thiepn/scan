@@ -170,12 +170,10 @@ class ScanRepository(
                 deleted = false,
                 imagePath = file.absolutePath
             )
-            dao.insertPage(duplicate)
-
             val newOrder = pages.map { it.id }.toMutableList().apply {
                 add(sourceIndex + 1, duplicateId)
             }
-            dao.replacePageOrder(documentId, newOrder)
+            dao.insertPageWithOrder(duplicate, newOrder)
             refreshDocumentSummary(documentId)
         } catch (error: Throwable) {
             file.delete()
