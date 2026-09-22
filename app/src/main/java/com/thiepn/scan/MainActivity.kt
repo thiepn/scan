@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -49,9 +50,9 @@ private fun ScanApp(repository: ScanRepository) {
     val activity = context as Activity
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    var selectedDocumentId by remember { mutableStateOf<String?>(null) }
+    var selectedDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var scanDestinationDocumentId by remember { mutableStateOf<String?>(null) }
+    var scanDestinationDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val scannerOptions = remember {
         GmsDocumentScannerOptions.Builder()
