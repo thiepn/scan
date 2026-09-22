@@ -188,9 +188,7 @@ class ScanRepository(
     suspend fun createPdfExport(id: String, password: String? = null): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
         val pages = dao.getPages(id)
-        val source = document.pdfPath?.let(::File)?.takeIf { it.isFile }
-        val importedPdf = source != null && pages.isNotEmpty() &&
-            pages.all { page -> page.id == deterministicPageId(id, page.position) }
+        val source = nativePdfSource(document, pages)
 
         val destination = files.pdfExportFile(
             documentId = id,
@@ -198,7 +196,7 @@ class ScanRepository(
             protected = !password.isNullOrBlank()
         )
 
-        if (importedPdf && source != null) {
+        if (source != null) {
             if (password.isNullOrBlank()) {
                 return@withContext files.copyToExport(source, destination)
             }
@@ -228,6 +226,81 @@ class ScanRepository(
         }
     }
 
+    suspend fun extractPages(id: String, rangeSpec: String): File? = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext null
+        require(!document.processing) { "Document is still processing" }
+        val pages = dao.getPages(id)
+        if (pages.isEmpty()) return@withContext null
+
+        val selectedNumbers = PageRangeParser.parse(rangeSpec, pages.size)
+        val selectedSet = selectedNumbers.toSet()
+        val destination = files.extractedPdfExportFile(id, document.title)
+        val temporary = files.temporaryExport(destination)
+        val source = nativePdfSource(document, pages)
+
+        runCatching {
+            if (source != null) {
+                pdfEngine.extractPages(
+                    source = source,
+                    pageIndices = selectedNumbers.map { it - 1 },
+                    destination = temporary
+                )
+            } else {
+                val selectedPages = pages.filter { (it.position + 1) in selectedSet }
+                require(selectedPages.size == selectedNumbers.size) {
+                    "Some selected pages are unavailable"
+                }
+                pdfEngine.createSearchablePdf(
+                    pages = selectedPages,
+                    destination = temporary
+                )
+            }
+            files.commitGeneratedExport(temporary, destination)
+        }.getOrElse {
+            temporary.delete()
+            throw it
+        }
+    }
+
+    suspend fun mergeDocuments(ids: List<String>): File? = withContext(Dispatchers.IO) {
+        val orderedIds = ids.distinct()
+        require(orderedIds.size >= 2) { "Select at least two documents" }
+
+        val mergeInputs = mutableListOf<File>()
+        val temporaryInputs = mutableListOf<File>()
+        try {
+            orderedIds.forEach { id ->
+                val document = dao.getDocument(id)
+                    ?: throw IllegalArgumentException("A selected document no longer exists")
+                require(!document.processing) { "${document.title} is still processing" }
+                val pages = dao.getPages(id)
+                val nativeSource = nativePdfSource(document, pages)
+
+                if (nativeSource != null) {
+                    mergeInputs += nativeSource
+                } else {
+                    require(pages.isNotEmpty()) { "${document.title} has no pages" }
+                    val working = files.temporaryWorkingPdf("scan-merge")
+                    pdfEngine.createSearchablePdf(pages, working)
+                    mergeInputs += working
+                    temporaryInputs += working
+                }
+            }
+
+            val destination = files.mergedPdfExportFile()
+            val temporaryOutput = files.temporaryExport(destination)
+            runCatching {
+                pdfEngine.merge(mergeInputs, temporaryOutput)
+                files.commitGeneratedExport(temporaryOutput, destination)
+            }.getOrElse {
+                temporaryOutput.delete()
+                throw it
+            }
+        } finally {
+            temporaryInputs.forEach { it.delete() }
+        }
+    }
+
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
         val pages = dao.getPages(id)
@@ -242,6 +315,18 @@ class ScanRepository(
             }.joinToString("\n\n──────────\n\n")
         )
         output
+    }
+
+    private fun nativePdfSource(
+        document: DocumentEntity,
+        pages: List<PageEntity>
+    ): File? {
+        val source = document.pdfPath?.let(::File)?.takeIf { it.isFile } ?: return null
+        if (pages.isEmpty()) return null
+        val importedPdf = pages.all { page ->
+            page.id == deterministicPageId(document.id, page.position)
+        }
+        return source.takeIf { importedPdf }
     }
 
     private fun imageSize(file: File): Pair<Int, Int> {
