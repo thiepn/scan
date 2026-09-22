@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,8 +99,25 @@ fun LibraryScreen(
     var filter by remember { mutableStateOf(LibraryFilter.ACTIVE) }
     var mergeOpen by remember { mutableStateOf(false) }
     var mergeBusy by remember { mutableStateOf(false) }
-    val documentsFlow = remember(query, filter) { repository.observeDocuments(filter, query) }
-    val documents by documentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var searchBusy by remember { mutableStateOf(false) }
+    var searchResults by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
+    val documentsFlow = remember(filter) { repository.observeDocuments(filter, "") }
+    val liveDocuments by documentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    LaunchedEffect(query, filter, liveDocuments.map { it.updatedAt }) {
+        if (query.isBlank()) {
+            searchBusy = false
+            searchResults = emptyList()
+        } else {
+            searchBusy = true
+            searchResults = runCatching {
+                repository.searchDocuments(filter, query)
+            }.getOrDefault(emptyList())
+            searchBusy = false
+        }
+    }
+
+    val documents = if (query.isBlank()) liveDocuments else searchResults
     val mergeCandidates = if (filter == LibraryFilter.TRASH) emptyList() else documents.filter { !it.processing }
 
     Scaffold(
@@ -145,7 +163,12 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    placeholder = { Text("Search titles and recognized text") }
+                    placeholder = { Text("Search OCR, phrases, or prefixes*") },
+                    supportingText = {
+                        if (query.isNotBlank()) {
+                            Text("Use quotes for an exact phrase; append * for prefix search")
+                        }
+                    }
                 )
 
                 Row(
@@ -197,7 +220,7 @@ fun LibraryScreen(
                 }
             }
 
-            if (busy || mergeBusy) {
+            if (busy || mergeBusy || searchBusy) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
