@@ -8,6 +8,14 @@ data class IndexedPageHit(
     val rank: Double
 )
 
+data class DocumentPageSearchHit(
+    val pageId: String,
+    val pageNumber: Int,
+    val snippet: String,
+    val rank: Double,
+    val matchingWords: List<OcrWordBox>
+)
+
 class OcrSearchIndex(
     private val database: ScanDatabase
 ) {
