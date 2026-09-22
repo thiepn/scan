@@ -106,6 +106,12 @@ interface DocumentDao {
     suspend fun deleteDocument(id: String)
 
     @Transaction
+    suspend fun insertPageWithOrder(page: PageEntity, orderedPageIds: List<String>) {
+        insertPage(page)
+        replacePageOrder(page.documentId, orderedPageIds)
+    }
+
+    @Transaction
     suspend fun replacePageOrder(documentId: String, orderedPageIds: List<String>) {
         val current = getPages(documentId)
         require(current.size == orderedPageIds.size) { "Page order is stale" }
