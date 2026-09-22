@@ -47,6 +47,7 @@ data class PageEntity(
     val deleted: Boolean = false,
     @ColumnInfo(defaultValue = "0")
     val rotationDegrees: Int = 0,
+    val cropQuad: String? = null,
     val imagePath: String,
     val width: Int,
     val height: Int,
