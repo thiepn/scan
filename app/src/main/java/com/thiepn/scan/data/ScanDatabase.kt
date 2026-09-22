@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DocumentEntity::class, PageEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -38,12 +38,20 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE pages ADD COLUMN rotationDegrees INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
             "scan.db"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
     }
 }
