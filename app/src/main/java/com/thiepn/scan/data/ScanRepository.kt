@@ -508,6 +508,17 @@ class ScanRepository(
         }
     }
 
+    suspend fun saveExportToUri(file: File, destination: Uri) = withContext(Dispatchers.IO) {
+        require(file.isFile) { "Export file is unavailable" }
+        context.contentResolver.openOutputStream(destination, "w").use { output ->
+            requireNotNull(output) { "Unable to open the selected destination" }
+            file.inputStream().use { input ->
+                input.copyTo(output)
+            }
+            output.flush()
+        }
+    }
+
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }

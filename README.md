@@ -26,6 +26,7 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Duplicate an existing page non-destructively and place the copy directly after its source page.
 - Rotate pages clockwise in 90° steps without changing the immutable source; preview and every PDF export path honor the rotation.
 - PDF sharing through a narrowly scoped `FileProvider`.
+- Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
 - No account, no mandatory cloud, no analytics SDK, and no broad storage permission.
 
