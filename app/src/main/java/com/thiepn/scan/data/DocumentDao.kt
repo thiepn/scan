@@ -84,6 +84,9 @@ interface DocumentDao {
     @Query("UPDATE pages SET deleted = :deleted WHERE id = :pageId")
     suspend fun setPageDeleted(pageId: String, deleted: Boolean)
 
+    @Query("UPDATE pages SET deleted = :deleted WHERE id IN (:pageIds)")
+    suspend fun setPagesDeleted(pageIds: List<String>, deleted: Boolean)
+
     @Query("UPDATE pages SET rotationDegrees = :rotationDegrees WHERE id = :pageId")
     suspend fun setPageRotation(pageId: String, rotationDegrees: Int)
 
@@ -120,10 +123,33 @@ interface DocumentDao {
     @Query("DELETE FROM documents WHERE id = :id")
     suspend fun deleteDocument(id: String)
 
+    @Query("DELETE FROM pages WHERE id = :pageId")
+    suspend fun deletePageRecord(pageId: String)
+
     @Transaction
     suspend fun insertPageWithOrder(page: PageEntity, orderedPageIds: List<String>) {
         insertPage(page)
         replacePageOrder(page.documentId, orderedPageIds)
+    }
+
+    @Transaction
+    suspend fun insertPagesWithOrder(pages: List<PageEntity>, orderedPageIds: List<String>) {
+        require(pages.isNotEmpty()) { "No pages to insert" }
+        val documentId = pages.first().documentId
+        require(pages.all { it.documentId == documentId }) { "Pages belong to different documents" }
+        insertPages(pages)
+        replacePageOrder(documentId, orderedPageIds)
+    }
+
+    @Transaction
+    suspend fun replacePageRecord(
+        oldPageId: String,
+        newPage: PageEntity,
+        orderedPageIds: List<String>
+    ) {
+        insertPage(newPage)
+        deletePageRecord(oldPageId)
+        replacePageOrder(newPage.documentId, orderedPageIds)
     }
 
     @Transaction
