@@ -367,6 +367,7 @@ private fun DocumentCard(
                         modifier = Modifier.fillMaxSize(),
                         maxDecodeEdge = 480,
                         rotationDegrees = coverPage.rotationDegrees,
+                        cropQuad = coverPage.cropQuad,
                         contentDescription = "Preview of ${document.title}"
                     )
                     if (document.favorite) {
