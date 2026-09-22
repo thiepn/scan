@@ -636,6 +636,25 @@ class ScanRepository(
         )
     }
 
+    suspend fun ensureSpatialOcr(documentId: String) =
+        withContext(Dispatchers.IO) {
+            val document = dao.getDocument(documentId) ?: return@withContext
+            if (document.trashedAt != null || document.processing) return@withContext
+
+            val script = OcrScript.fromStored(document.ocrScript)
+            val stalePages = orderedPages(dao.getPages(documentId)).filter { page ->
+                page.ocrLayout.isNullOrBlank() ||
+                    page.ocrFingerprint.isNullOrBlank() ||
+                    page.ocrScript != script.name
+            }
+            if (stalePages.isEmpty()) return@withContext
+
+            dao.setProcessing(documentId, true, System.currentTimeMillis())
+            appScope.launch(Dispatchers.IO) {
+                recognizePagesAndRefresh(documentId, stalePages.map { it.id })
+            }
+        }
+
     suspend fun setOcrScript(documentId: String, script: OcrScript) =
         withContext(Dispatchers.IO) {
             val document = requireEditableDocument(documentId)
