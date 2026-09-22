@@ -55,7 +55,7 @@ class PdfEngine(
                 val imageHeight = pageEntity.height.coerceAtLeast(1)
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
                 val page = PDPage(PDRectangle(pdfWidth, pdfHeight)).apply {
-                    rotation = normalizeRotation(pageEntity.rotationDegrees)
+                    rotation = PageRotation.normalize(pageEntity.rotationDegrees)
                 }
                 document.addPage(page)
 
@@ -138,7 +138,7 @@ class PdfEngine(
                     }
                     val imported = output.importPage(sourceDocument.getPage(index))
                     val delta = rotationDeltas?.getOrNull(outputIndex) ?: 0
-                    imported.rotation = normalizeRotation(imported.rotation + delta)
+                    imported.rotation = PageRotation.normalize(imported.rotation + delta)
                 }
                 if (!password.isNullOrBlank()) {
                     protect(output, password)
@@ -247,9 +247,6 @@ class PdfEngine(
             pageWidth to pageHeight
         }
     }
-
-    private fun normalizeRotation(degrees: Int): Int =
-        ((degrees % 360) + 360) % 360
 
     private fun protect(document: PDDocument, userPassword: String) {
         val permission = AccessPermission()
