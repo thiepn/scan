@@ -30,7 +30,7 @@ abstract class ScanDatabase : RoomDatabase() {
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE documents ADD COLUMN trashedAt INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE documents ADD COLUMN trashedAt INTEGER")
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_documents_trashedAt " +
                         "ON documents(trashedAt)"
