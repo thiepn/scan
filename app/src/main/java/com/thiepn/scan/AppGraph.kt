@@ -3,6 +3,7 @@ package com.thiepn.scan
 import android.content.Context
 import com.thiepn.scan.data.FileStore
 import com.thiepn.scan.data.OcrEngine
+import com.thiepn.scan.data.OcrSearchIndex
 import com.thiepn.scan.data.PdfEngine
 import com.thiepn.scan.data.PdfPageRasterizer
 import com.thiepn.scan.data.ScanDatabase
@@ -17,6 +18,7 @@ class AppGraph(context: Context) {
     private val database = ScanDatabase.create(appContext)
     private val files = FileStore(appContext)
     private val ocr = OcrEngine(appContext)
+    private val searchIndex = OcrSearchIndex(database)
 
     val repository = ScanRepository(
         context = appContext,
@@ -25,6 +27,7 @@ class AppGraph(context: Context) {
         ocr = ocr,
         rasterizer = PdfPageRasterizer(),
         pdfEngine = PdfEngine(appContext, ocr),
+        searchIndex = searchIndex,
         appScope = scope
     )
 }
