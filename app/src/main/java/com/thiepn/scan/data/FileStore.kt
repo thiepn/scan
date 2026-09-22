@@ -28,13 +28,24 @@ class FileStore(private val context: Context) {
         return destination
     }
 
-    fun createPdfExport(documentId: String, title: String, source: File): File {
+    fun pdfExportFile(documentId: String, title: String, protected: Boolean): File {
+        val suffix = if (protected) "-protected" else ""
+        return File(exports, "${safeName(title)}-${documentId.take(8)}$suffix.pdf")
+    }
+
+    fun temporaryExport(destination: File): File =
+        File(destination.parentFile, destination.name + ".tmp").also { it.delete() }
+
+    fun copyToExport(source: File, destination: File): File {
         require(source.isFile) { "PDF source is unavailable" }
-        val destination = File(exports, "${safeName(title)}-${documentId.take(8)}.pdf")
-        val temporary = File(exports, destination.name + ".tmp")
+        val temporary = temporaryExport(destination)
         source.inputStream().use { input ->
             temporary.outputStream().use { output -> input.copyTo(output) }
         }
+        return commitGeneratedExport(temporary, destination)
+    }
+
+    fun commitGeneratedExport(temporary: File, destination: File): File {
         commitTemporary(temporary, destination)
         return destination
     }
