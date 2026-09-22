@@ -1,5 +1,7 @@
 package com.thiepn.scan.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -52,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +69,7 @@ import com.thiepn.scan.data.PdfQuality
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +84,36 @@ fun DocumentScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingPdfSavePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingTextSavePath by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val savePdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        val path = pendingPdfSavePath
+        pendingPdfSavePath = null
+        if (uri != null && path != null) {
+            scope.launch {
+                runCatching { repository.saveExportToUri(File(path), uri) }
+                    .onSuccess { onMessage("PDF saved") }
+                    .onFailure { onMessage(it.message ?: "Could not save PDF") }
+            }
+        }
+    }
+
+    val saveTextLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val path = pendingTextSavePath
+        pendingTextSavePath = null
+        if (uri != null && path != null) {
+            scope.launch {
+                runCatching { repository.saveExportToUri(File(path), uri) }
+                    .onSuccess { onMessage("Text saved") }
+                    .onFailure { onMessage(it.message ?: "Could not save text") }
+            }
+        }
+    }
     val document by repository.observeDocument(documentId).collectAsStateWithLifecycle(initialValue = null)
     val pages by repository.observePages(documentId).collectAsStateWithLifecycle(initialValue = emptyList())
     val deletedPages by repository.observeDeletedPages(documentId)
@@ -89,6 +123,7 @@ fun DocumentScreen(
     var protectOpen by remember { mutableStateOf(false) }
     var extractOpen by remember { mutableStateOf(false) }
     var exportOpen by remember { mutableStateOf(false) }
+    var textExportOpen by remember { mutableStateOf(false) }
     var deletedPagesOpen by remember { mutableStateOf(false) }
     var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
 
@@ -174,13 +209,9 @@ fun DocumentScreen(
                             Spacer(Modifier.height(12.dp))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = {
-                                scope.launch {
-                                    val file = repository.createTextExport(doc.id)
-                                    if (file != null) shareFile(context, file, "text/plain")
-                                    else onMessage("No text export available")
-                                }
-                            }) { Text("Share text") }
+                            OutlinedButton(onClick = { textExportOpen = true }) {
+                                Text("Text")
+                            }
                             OutlinedButton(onClick = {
                                 scope.launch { repository.setArchived(doc.id, !doc.archived) }
                             }) {
@@ -288,7 +319,7 @@ fun DocumentScreen(
     if (exportOpen) {
         ExportPdfDialog(
             onDismiss = { exportOpen = false },
-            onExport = { quality ->
+            onShare = { quality ->
                 exportOpen = false
                 scope.launch {
                     runCatching { repository.createPdfExport(doc.id, quality = quality) }
@@ -298,6 +329,53 @@ fun DocumentScreen(
                         }
                         .onFailure { onMessage(it.message ?: "Could not create PDF") }
                 }
+            },
+            onSave = { quality ->
+                exportOpen = false
+                scope.launch {
+                    runCatching { repository.createPdfExport(doc.id, quality = quality) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingPdfSavePath = file.absolutePath
+                                savePdfLauncher.launch(file.name)
+                            } else {
+                                onMessage("PDF is not available yet")
+                            }
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not create PDF") }
+                }
+            }
+        )
+    }
+
+    if (textExportOpen) {
+        TextExportDialog(
+            onDismiss = { textExportOpen = false },
+            onShare = {
+                textExportOpen = false
+                scope.launch {
+                    runCatching { repository.createTextExport(doc.id) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "text/plain")
+                            else onMessage("No text export available")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not create text export") }
+                }
+            },
+            onSave = {
+                textExportOpen = false
+                scope.launch {
+                    runCatching { repository.createTextExport(doc.id) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingTextSavePath = file.absolutePath
+                                saveTextLauncher.launch(file.name)
+                            } else {
+                                onMessage("No text export available")
+                            }
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not create text export") }
+                }
             }
         )
     }
@@ -305,13 +383,28 @@ fun DocumentScreen(
     if (protectOpen) {
         ProtectPdfDialog(
             onDismiss = { protectOpen = false },
-            onProtect = { password ->
+            onShare = { password ->
                 protectOpen = false
                 scope.launch {
                     runCatching { repository.createPdfExport(doc.id, password) }
                         .onSuccess { file ->
                             if (file != null) shareFile(context, file, "application/pdf")
                             else onMessage("PDF is not available yet")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not protect PDF") }
+                }
+            },
+            onSave = { password ->
+                protectOpen = false
+                scope.launch {
+                    runCatching { repository.createPdfExport(doc.id, password) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingPdfSavePath = file.absolutePath
+                                savePdfLauncher.launch(file.name)
+                            } else {
+                                onMessage("PDF is not available yet")
+                            }
                         }
                         .onFailure { onMessage(it.message ?: "Could not protect PDF") }
                 }
@@ -323,13 +416,28 @@ fun DocumentScreen(
         ExtractPagesDialog(
             pageCount = pages.size,
             onDismiss = { extractOpen = false },
-            onExtract = { range ->
+            onShare = { range ->
                 extractOpen = false
                 scope.launch {
                     runCatching { repository.extractPages(doc.id, range) }
                         .onSuccess { file ->
                             if (file != null) shareFile(context, file, "application/pdf")
                             else onMessage("Could not create extracted PDF")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not extract pages") }
+                }
+            },
+            onSave = { range ->
+                extractOpen = false
+                scope.launch {
+                    runCatching { repository.extractPages(doc.id, range) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingPdfSavePath = file.absolutePath
+                                savePdfLauncher.launch(file.name)
+                            } else {
+                                onMessage("Could not create extracted PDF")
+                            }
                         }
                         .onFailure { onMessage(it.message ?: "Could not extract pages") }
                 }
