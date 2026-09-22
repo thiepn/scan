@@ -152,7 +152,7 @@ class ScanRepository(
 
         val page = dao.getPages(documentId).firstOrNull { it.id == pageId }
             ?: throw IllegalArgumentException("Page not found")
-        val nextRotation = normalizeRotation(page.rotationDegrees + 90)
+        val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
         dao.touchDocument(documentId, System.currentTimeMillis())
     }
@@ -540,9 +540,6 @@ class ScanRepository(
             updatedAt = System.currentTimeMillis()
         )
     }
-
-    private fun normalizeRotation(degrees: Int): Int =
-        ((degrees % 360) + 360) % 360
 
     private fun nativePdfSource(
         document: DocumentEntity,
