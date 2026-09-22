@@ -78,6 +78,9 @@ interface DocumentDao {
     @Query("UPDATE pages SET deleted = :deleted WHERE id = :pageId")
     suspend fun setPageDeleted(pageId: String, deleted: Boolean)
 
+    @Query("UPDATE pages SET rotationDegrees = :rotationDegrees WHERE id = :pageId")
+    suspend fun setPageRotation(pageId: String, rotationDegrees: Int)
+
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
 
