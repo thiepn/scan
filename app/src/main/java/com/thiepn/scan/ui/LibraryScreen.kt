@@ -1,5 +1,7 @@
 package com.thiepn.scan.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +61,7 @@ import com.thiepn.scan.data.LibraryFilter
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -75,6 +79,21 @@ fun LibraryScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingMergedSavePath by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val saveMergedPdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        val path = pendingMergedSavePath
+        pendingMergedSavePath = null
+        if (uri != null && path != null) {
+            scope.launch {
+                runCatching { repository.saveExportToUri(File(path), uri) }
+                    .onSuccess { onMessage("Merged PDF saved") }
+                    .onFailure { onMessage(it.message ?: "Could not save merged PDF") }
+            }
+        }
+    }
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(LibraryFilter.ACTIVE) }
     var mergeOpen by remember { mutableStateOf(false) }
@@ -188,7 +207,7 @@ fun LibraryScreen(
         MergeDocumentsDialog(
             documents = mergeCandidates,
             onDismiss = { mergeOpen = false },
-            onMerge = { ids ->
+            onShare = { ids ->
                 mergeOpen = false
                 scope.launch {
                     mergeBusy = true
@@ -196,6 +215,23 @@ fun LibraryScreen(
                         .onSuccess { file ->
                             if (file != null) shareFile(context, file, "application/pdf")
                             else onMessage("Could not create merged PDF")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not merge PDFs") }
+                    mergeBusy = false
+                }
+            },
+            onSave = { ids ->
+                mergeOpen = false
+                scope.launch {
+                    mergeBusy = true
+                    runCatching { repository.mergeDocuments(ids) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                pendingMergedSavePath = file.absolutePath
+                                saveMergedPdfLauncher.launch(file.name)
+                            } else {
+                                onMessage("Could not create merged PDF")
+                            }
                         }
                         .onFailure { onMessage(it.message ?: "Could not merge PDFs") }
                     mergeBusy = false
@@ -209,7 +245,8 @@ fun LibraryScreen(
 private fun MergeDocumentsDialog(
     documents: List<DocumentEntity>,
     onDismiss: () -> Unit,
-    onMerge: (List<String>) -> Unit
+    onShare: (List<String>) -> Unit,
+    onSave: (List<String>) -> Unit
 ) {
     var selected by remember(documents) { mutableStateOf<Set<String>>(emptySet()) }
     val toggle: (String) -> Unit = { id ->
@@ -262,12 +299,17 @@ private fun MergeDocumentsDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    onMerge(documents.filter { it.id in selected }.map { it.id })
-                },
-                enabled = selected.size >= 2
-            ) { Text("Merge") }
+            val selectedIds = documents.filter { it.id in selected }.map { it.id }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(
+                    onClick = { onSave(selectedIds) },
+                    enabled = selected.size >= 2
+                ) { Text("Save") }
+                TextButton(
+                    onClick = { onShare(selectedIds) },
+                    enabled = selected.size >= 2
+                ) { Text("Share") }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
