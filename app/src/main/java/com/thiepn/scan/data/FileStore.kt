@@ -33,6 +33,17 @@ class FileStore(private val context: Context) {
         return File(exports, "${safeName(title)}-${documentId.take(8)}$suffix.pdf")
     }
 
+    fun extractedPdfExportFile(documentId: String, title: String): File =
+        File(exports, "${safeName(title)}-${documentId.take(8)}-extract.pdf")
+
+    fun mergedPdfExportFile(): File =
+        File(exports, "Merged-${System.currentTimeMillis()}.pdf")
+
+    fun temporaryWorkingPdf(prefix: String = "scan-work"): File {
+        context.cacheDir.mkdirs()
+        return File.createTempFile(prefix.take(24).padEnd(3, '_'), ".pdf", context.cacheDir)
+    }
+
     fun temporaryExport(destination: File): File =
         File(destination.parentFile, destination.name + ".tmp").also { it.delete() }
 
