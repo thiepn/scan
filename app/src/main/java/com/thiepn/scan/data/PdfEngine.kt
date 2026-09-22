@@ -51,47 +51,72 @@ class PdfEngine(
                 val imageFile = File(pageEntity.imagePath)
                 require(imageFile.isFile) { "Missing page image" }
 
-                val imageWidth = pageEntity.width.coerceAtLeast(1)
-                val imageHeight = pageEntity.height.coerceAtLeast(1)
+                val cropQuad = CropQuadCodec.decode(pageEntity.cropQuad)
+                val geometryEdited = !cropQuad.isFullFrame()
+                val directJpeg = quality == PdfQuality.ORIGINAL && !geometryEdited
+
+                var renderedBitmap: Bitmap? = null
+                val imageWidth: Int
+                val imageHeight: Int
+
+                if (directJpeg) {
+                    imageWidth = pageEntity.width.coerceAtLeast(1)
+                    imageHeight = pageEntity.height.coerceAtLeast(1)
+                } else {
+                    renderedBitmap = PageGeometryRenderer.renderUnrotatedForPdf(
+                        file = imageFile,
+                        cropQuad = cropQuad,
+                        maxLongEdge = quality.maxLongEdge
+                    )
+                    imageWidth = renderedBitmap.width
+                    imageHeight = renderedBitmap.height
+                }
+
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
                 val page = PDPage(PDRectangle(pdfWidth, pdfHeight)).apply {
                     rotation = PageRotation.normalize(pageEntity.rotationDegrees)
                 }
                 document.addPage(page)
 
-                PDPageContentStream(document, page).use { stream ->
-                    if (quality == PdfQuality.ORIGINAL) {
-                        imageFile.inputStream().use { input ->
-                            val image = JPEGFactory.createFromStream(document, input)
-                            stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
-                        }
-                    } else {
-                        val targetEdge = requireNotNull(quality.maxLongEdge)
-                        val bitmap = decodeScaled(imageFile, targetEdge)
-                        try {
+                try {
+                    PDPageContentStream(document, page).use { stream ->
+                        if (directJpeg) {
+                            imageFile.inputStream().use { input ->
+                                val image = JPEGFactory.createFromStream(document, input)
+                                stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
+                            }
+                        } else {
+                            val bitmap = requireNotNull(renderedBitmap)
                             val image = JPEGFactory.createFromImage(
                                 document,
                                 bitmap,
-                                quality.jpegQuality
+                                if (quality == PdfQuality.ORIGINAL) 0.94f else quality.jpegQuality
                             )
                             stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
-                        } finally {
-                            bitmap.recycle()
+                        }
+
+                        val recognition = runCatching {
+                            if (renderedBitmap != null) {
+                                ocr.recognizeDetailed(requireNotNull(renderedBitmap))
+                            } else {
+                                ocr.recognizeDetailed(imageFile)
+                            }
+                        }.getOrNull()
+
+                        recognition?.words?.forEach { word ->
+                            addInvisibleWord(
+                                stream = stream,
+                                font = font,
+                                word = word,
+                                sourceWidth = imageWidth,
+                                sourceHeight = imageHeight,
+                                pageWidth = pdfWidth,
+                                pageHeight = pdfHeight
+                            )
                         }
                     }
-
-                    val recognition = runCatching { ocr.recognizeDetailed(imageFile) }.getOrNull()
-                    recognition?.words?.forEach { word ->
-                        addInvisibleWord(
-                            stream = stream,
-                            font = font,
-                            word = word,
-                            sourceWidth = imageWidth,
-                            sourceHeight = imageHeight,
-                            pageWidth = pdfWidth,
-                            pageHeight = pdfHeight
-                        )
-                    }
+                } finally {
+                    renderedBitmap?.recycle()
                 }
             }
 
@@ -162,38 +187,6 @@ class PdfEngine(
             destinationFileName = destination.absolutePath
             mergeDocuments(MemoryUsageSetting.setupTempFileOnly())
         }
-    }
-
-    private fun decodeScaled(file: File, maxLongEdge: Int): Bitmap {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(file.absolutePath, bounds)
-        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Unreadable page image" }
-
-        var sample = 1
-        while (
-            max(bounds.outWidth / sample, bounds.outHeight / sample) > maxLongEdge * 2 &&
-            sample < 32
-        ) {
-            sample *= 2
-        }
-
-        val decoded = BitmapFactory.decodeFile(
-            file.absolutePath,
-            BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            }
-        ) ?: error("Unable to decode page image")
-
-        val currentLongEdge = max(decoded.width, decoded.height)
-        if (currentLongEdge <= maxLongEdge) return decoded
-
-        val scale = maxLongEdge.toFloat() / currentLongEdge
-        val width = max(1, (decoded.width * scale).toInt())
-        val height = max(1, (decoded.height * scale).toInt())
-        val scaled = Bitmap.createScaledBitmap(decoded, width, height, true)
-        if (scaled !== decoded) decoded.recycle()
-        return scaled
     }
 
     private fun addInvisibleWord(
