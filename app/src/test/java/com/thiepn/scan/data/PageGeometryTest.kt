@@ -52,6 +52,13 @@ class PageGeometryTest {
     }
 
     @Test
+    fun nearEdgePointsSnapCleanly() {
+        val snapped = NormalizedPoint(0.01f, 0.992f).snappedToEdges()
+        assertEquals(0f, snapped.x)
+        assertEquals(1f, snapped.y)
+    }
+
+    @Test
     fun cornerMoveCannotCollapsePage() {
         val result = CropQuad.FULL.withCorner(
             index = 0,
