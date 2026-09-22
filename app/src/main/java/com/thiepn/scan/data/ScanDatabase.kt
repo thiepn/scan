@@ -11,8 +11,14 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
 
 @Database(
-    entities = [DocumentEntity::class, PageEntity::class],
-    version = 7,
+    entities = [
+        DocumentEntity::class,
+        FolderEntity::class,
+        TagEntity::class,
+        DocumentTagCrossRef::class,
+        PageEntity::class
+    ],
+    version = 8,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -129,6 +135,85 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE documents ADD COLUMN folderId TEXT")
+                connection.execSQL(
+                    "ALTER TABLE documents ADD COLUMN documentType TEXT NOT NULL DEFAULT 'UNSPECIFIED'"
+                )
+                connection.execSQL("ALTER TABLE documents ADD COLUMN suggestedType TEXT")
+                connection.execSQL(
+                    "ALTER TABLE documents ADD COLUMN needsReview INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_documents_folderId ON documents(folderId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_documents_documentType ON documents(documentType)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_documents_needsReview ON documents(needsReview)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS folders (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        normalizedName TEXT NOT NULL,
+                        parentId TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_folders_parentId ON folders(parentId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_folders_parentId_normalizedName " +
+                        "ON folders(parentId, normalizedName)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS tags (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        normalizedName TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_tags_normalizedName " +
+                        "ON tags(normalizedName)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS document_tags (
+                        documentId TEXT NOT NULL,
+                        tagId TEXT NOT NULL,
+                        PRIMARY KEY(documentId, tagId),
+                        FOREIGN KEY(documentId) REFERENCES documents(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(tagId) REFERENCES tags(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_document_tags_documentId " +
+                        "ON document_tags(documentId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_document_tags_tagId " +
+                        "ON document_tags(tagId)"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -140,7 +225,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_3_4,
                 MIGRATION_4_5,
                 MIGRATION_5_6,
-                MIGRATION_6_7
+                MIGRATION_6_7,
+                MIGRATION_7_8
             )
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
