@@ -51,6 +51,9 @@ interface DocumentDao {
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 0 ORDER BY sortKey, position")
     suspend fun getPages(documentId: String): List<PageEntity>
 
+    @Query("SELECT * FROM pages WHERE id = :pageId LIMIT 1")
+    suspend fun getPage(pageId: String): PageEntity?
+
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 1 ORDER BY sortKey, position")
     fun observeDeletedPages(documentId: String): Flow<List<PageEntity>>
 
@@ -83,6 +86,9 @@ interface DocumentDao {
 
     @Query("UPDATE pages SET rotationDegrees = :rotationDegrees WHERE id = :pageId")
     suspend fun setPageRotation(pageId: String, rotationDegrees: Int)
+
+    @Query("UPDATE pages SET cropQuad = :cropQuad WHERE id = :pageId")
+    suspend fun setPageCropQuad(pageId: String, cropQuad: String?)
 
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)

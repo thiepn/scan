@@ -151,11 +151,43 @@ class ScanRepository(
         val document = requireEditableDocument(documentId)
         require(!document.processing) { "Document is still processing" }
 
-        val page = dao.getPages(documentId).firstOrNull { it.id == pageId }
+        val page = dao.getPage(pageId)
             ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId) { "Page does not belong to this document" }
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
         dao.touchDocument(documentId, System.currentTimeMillis())
+    }
+
+    suspend fun detectPageCrop(documentId: String, pageId: String): CropQuad? =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            val page = dao.getPage(pageId)
+                ?: throw IllegalArgumentException("Page not found")
+            require(page.documentId == documentId) { "Page does not belong to this document" }
+            PageBoundaryDetector.detect(File(page.imagePath))
+        }
+
+    suspend fun updatePageCrop(
+        documentId: String,
+        pageId: String,
+        cropQuad: CropQuad?
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId) { "Page does not belong to this document" }
+
+        val encoded = CropQuadCodec.encode(cropQuad)
+        dao.setPageCropQuad(pageId, encoded)
+        dao.updatePageOcr(pageId, "")
+        refreshDocumentSummary(documentId, processing = true)
+
+        appScope.launch(Dispatchers.IO) {
+            recognizePageAndRefresh(documentId, pageId)
+        }
     }
 
     suspend fun duplicatePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
@@ -221,8 +253,13 @@ class ScanRepository(
             }
             rendered.forEachIndexed { index, renderedPage ->
                 val pageId = deterministicPageId(documentId, index)
+                val existing = dao.getPage(pageId)
                 dao.insertPage(
-                    PageEntity(
+                    existing?.copy(
+                        imagePath = renderedPage.file.absolutePath,
+                        width = renderedPage.width,
+                        height = renderedPage.height
+                    ) ?: PageEntity(
                         id = pageId,
                         documentId = documentId,
                         position = index,
@@ -251,7 +288,7 @@ class ScanRepository(
         val pages = dao.getPages(documentId)
         val recognized = mutableListOf<String>()
         pages.forEach { page ->
-            val text = runCatching { ocr.recognize(File(page.imagePath)) }.getOrDefault("")
+            val text = recognizePage(page)
             dao.updatePageOcr(page.id, text)
             if (text.isNotBlank()) recognized += text
         }
@@ -262,6 +299,40 @@ class ScanRepository(
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
         )
+    }
+
+    private suspend fun recognizePageAndRefresh(documentId: String, pageId: String) {
+        try {
+            val page = dao.getPage(pageId)
+                ?: throw IllegalArgumentException("Page not found")
+            val text = recognizePage(page)
+            dao.updatePageOcr(pageId, text)
+            refreshDocumentSummary(documentId)
+        } catch (_: Throwable) {
+            refreshDocumentSummary(documentId)
+        }
+    }
+
+    private suspend fun recognizePage(page: PageEntity): String {
+        val quad = CropQuadCodec.decode(page.cropQuad)
+        if (quad.isFullFrame() && PageRotation.normalize(page.rotationDegrees) == 0) {
+            return runCatching { ocr.recognize(File(page.imagePath)) }.getOrDefault("")
+        }
+
+        val bitmap = runCatching {
+            PageGeometryRenderer.renderFile(
+                file = File(page.imagePath),
+                cropQuad = quad,
+                rotationDegrees = page.rotationDegrees,
+                maxLongEdge = 2800
+            )
+        }.getOrNull() ?: return ""
+
+        return try {
+            runCatching { ocr.recognize(bitmap) }.getOrDefault("")
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     suspend fun rename(id: String, title: String) {
@@ -361,7 +432,9 @@ class ScanRepository(
             protected = !password.isNullOrBlank()
         )
 
-        if (source != null && quality == PdfQuality.ORIGINAL) {
+        val hasGeometryEdits = pages.any { !CropQuadCodec.decode(it.cropQuad).isFullFrame() }
+
+        if (source != null && quality == PdfQuality.ORIGINAL && !hasGeometryEdits) {
             val nativeOrder = pages.map { it.position }
             val rotations = pages.map { it.rotationDegrees }
             val unchanged = deletedPages.isEmpty() &&
@@ -429,7 +502,10 @@ class ScanRepository(
         val source = nativePdfSource(document, pages)
 
         runCatching {
-            if (source != null) {
+            val hasGeometryEdits = selectedPages.any {
+                !CropQuadCodec.decode(it.cropQuad).isFullFrame()
+            }
+            if (source != null && !hasGeometryEdits) {
                 pdfEngine.extractPages(
                     source = source,
                     pageIndices = selectedPages.map { it.position },
@@ -468,13 +544,17 @@ class ScanRepository(
                 if (nativeSource != null) {
                     val nativeOrder = pages.map { it.position }
                     val rotations = pages.map { it.rotationDegrees }
+                    val hasGeometryEdits = pages.any {
+                        !CropQuadCodec.decode(it.cropQuad).isFullFrame()
+                    }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
-                        rotations.all { it == 0 }
+                        rotations.all { it == 0 } &&
+                        !hasGeometryEdits
 
                     if (unchanged) {
                         mergeInputs += nativeSource
-                    } else {
+                    } else if (!hasGeometryEdits) {
                         val working = files.temporaryWorkingPdf("scan-native-edit")
                         pdfEngine.extractPages(
                             source = nativeSource,
@@ -482,6 +562,11 @@ class ScanRepository(
                             destination = working,
                             rotationDeltas = rotations
                         )
+                        mergeInputs += working
+                        temporaryInputs += working
+                    } else {
+                        val working = files.temporaryWorkingPdf("scan-geometry")
+                        pdfEngine.createSearchablePdf(pages, working)
                         mergeInputs += working
                         temporaryInputs += working
                     }
@@ -542,12 +627,15 @@ class ScanRepository(
         return document
     }
 
-    private suspend fun refreshDocumentSummary(documentId: String) {
+    private suspend fun refreshDocumentSummary(
+        documentId: String,
+        processing: Boolean = false
+    ) {
         val pages = orderedPages(dao.getPages(documentId))
         dao.finishProcessing(
             id = documentId,
             text = pages.map { it.ocrText }.filter { it.isNotBlank() }.joinToString("\n\n"),
-            processing = false,
+            processing = processing,
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
         )

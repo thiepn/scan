@@ -3,6 +3,7 @@ package com.thiepn.scan.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -126,6 +128,7 @@ fun DocumentScreen(
     var textExportOpen by remember { mutableStateOf(false) }
     var deletedPagesOpen by remember { mutableStateOf(false) }
     var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
+    var cropPageId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val doc = document
     if (doc == null) {
@@ -262,6 +265,7 @@ fun DocumentScreen(
                     canMoveUp = doc.trashedAt == null && !doc.processing && index > 0,
                     canMoveDown = doc.trashedAt == null && !doc.processing && index < pages.lastIndex,
                     canRotate = doc.trashedAt == null && !doc.processing,
+                    canCrop = doc.trashedAt == null && !doc.processing,
                     canDuplicate = doc.trashedAt == null && !doc.processing,
                     canDelete = doc.trashedAt == null && !doc.processing && pages.size > 1,
                     onMoveUp = {
@@ -282,6 +286,7 @@ fun DocumentScreen(
                                 .onFailure { onMessage(it.message ?: "Could not rotate page") }
                         }
                     },
+                    onCrop = { cropPageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -303,6 +308,27 @@ fun DocumentScreen(
                 }
             }
         }
+    }
+
+    val cropPage = cropPageId?.let { id -> pages.firstOrNull { it.id == id } }
+    if (cropPage != null) {
+        CropEditorDialog(
+            page = cropPage,
+            onDismiss = { cropPageId = null },
+            onAutoDetect = {
+                repository.detectPageCrop(doc.id, cropPage.id)
+            },
+            onSave = { quad ->
+                cropPageId = null
+                scope.launch {
+                    runCatching {
+                        repository.updatePageCrop(doc.id, cropPage.id, quad)
+                    }
+                        .onSuccess { onMessage("Crop updated; refreshing OCR") }
+                        .onFailure { onMessage(it.message ?: "Could not update crop") }
+                }
+            }
+        )
     }
 
     if (renameOpen) {
@@ -528,11 +554,13 @@ private fun PageCard(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     canRotate: Boolean,
+    canCrop: Boolean,
     canDuplicate: Boolean,
     canDelete: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRotate: () -> Unit,
+    onCrop: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -548,26 +576,34 @@ private fun PageCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onMoveUp, enabled = canMoveUp) {
-                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move page up")
-                }
-                IconButton(onClick = onMoveDown, enabled = canMoveDown) {
-                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
-                }
-                IconButton(onClick = onRotate, enabled = canRotate) {
-                    Icon(Icons.Default.RotateRight, contentDescription = "Rotate page clockwise")
-                }
-                IconButton(onClick = onDuplicate, enabled = canDuplicate) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
-                }
-                IconButton(onClick = onDelete, enabled = canDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete page")
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move page up")
+                    }
+                    IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
+                    }
+                    IconButton(onClick = onRotate, enabled = canRotate) {
+                        Icon(Icons.Default.RotateRight, contentDescription = "Rotate page clockwise")
+                    }
+                    IconButton(onClick = onCrop, enabled = canCrop) {
+                        Icon(Icons.Default.CropFree, contentDescription = "Crop and perspective")
+                    }
+                    IconButton(onClick = onDuplicate, enabled = canDuplicate) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
+                    }
+                    IconButton(onClick = onDelete, enabled = canDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete page")
+                    }
                 }
             }
             FileImage(
                 path = page.imagePath,
                 modifier = Modifier.fillMaxWidth().height(460.dp),
                 rotationDegrees = page.rotationDegrees,
+                cropQuad = page.cropQuad,
                 contentDescription = "Page $displayNumber"
             )
             if (page.ocrText.isNotBlank()) {

@@ -2,6 +2,7 @@ package com.thiepn.scan.data
 
 import android.content.Context
 import android.net.Uri
+import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -28,8 +29,17 @@ class OcrEngine(private val context: Context) {
 
     suspend fun recognize(file: File): String = recognizeDetailed(file).text
 
+    suspend fun recognize(bitmap: Bitmap): String = recognizeDetailed(bitmap).text
+
     suspend fun recognizeDetailed(file: File): OcrPageResult {
         val image = InputImage.fromFilePath(context, Uri.fromFile(file))
+        return recognizeInput(image)
+    }
+
+    suspend fun recognizeDetailed(bitmap: Bitmap): OcrPageResult =
+        recognizeInput(InputImage.fromBitmap(bitmap, 0))
+
+    private suspend fun recognizeInput(image: InputImage): OcrPageResult {
         val result = recognizer.process(image).await()
         val words = buildList {
             result.textBlocks.forEach { block ->
