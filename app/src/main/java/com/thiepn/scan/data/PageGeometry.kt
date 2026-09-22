@@ -11,6 +11,15 @@ data class NormalizedPoint(
         x = x.coerceIn(0f, 1f),
         y = y.coerceIn(0f, 1f)
     )
+
+    fun snappedToEdges(threshold: Float = 0.018f): NormalizedPoint {
+        fun snap(value: Float): Float = when {
+            value <= threshold -> 0f
+            value >= 1f - threshold -> 1f
+            else -> value
+        }
+        return NormalizedPoint(snap(x), snap(y))
+    }
 }
 
 data class CropQuad(
