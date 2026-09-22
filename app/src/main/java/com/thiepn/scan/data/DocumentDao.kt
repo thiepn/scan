@@ -9,25 +9,31 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DocumentDao {
-    @Query("SELECT * FROM documents WHERE archived = 0 ORDER BY favorite DESC, updatedAt DESC")
+    @Query("SELECT * FROM documents WHERE archived = 0 AND trashedAt IS NULL ORDER BY favorite DESC, updatedAt DESC")
     fun observeActive(): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents WHERE archived = 0 AND favorite = 1 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM documents WHERE archived = 0 AND favorite = 1 AND trashedAt IS NULL ORDER BY updatedAt DESC")
     fun observeFavorites(): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents WHERE archived = 1 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM documents WHERE archived = 1 AND trashedAt IS NULL ORDER BY updatedAt DESC")
     fun observeArchived(): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents WHERE archived = 0 AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY favorite DESC, updatedAt DESC")
+    @Query("SELECT * FROM documents WHERE trashedAt IS NOT NULL ORDER BY trashedAt DESC")
+    fun observeTrash(): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE archived = 0 AND trashedAt IS NULL AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY favorite DESC, updatedAt DESC")
     fun searchActive(query: String): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents WHERE archived = 0 AND favorite = 1 AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM documents WHERE archived = 0 AND favorite = 1 AND trashedAt IS NULL AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY updatedAt DESC")
     fun searchFavorites(query: String): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents WHERE archived = 1 AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM documents WHERE archived = 1 AND trashedAt IS NULL AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY updatedAt DESC")
     fun searchArchived(query: String): Flow<List<DocumentEntity>>
 
-    @Query("SELECT * FROM documents WHERE processing = 1 ORDER BY createdAt")
+    @Query("SELECT * FROM documents WHERE trashedAt IS NOT NULL AND (title LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY trashedAt DESC")
+    fun searchTrash(query: String): Flow<List<DocumentEntity>>
+
+    @Query("SELECT * FROM documents WHERE processing = 1 AND trashedAt IS NULL ORDER BY createdAt")
     suspend fun getProcessingDocuments(): List<DocumentEntity>
 
     @Query("SELECT * FROM documents WHERE id = :id LIMIT 1")
@@ -71,6 +77,9 @@ interface DocumentDao {
 
     @Query("UPDATE documents SET archived = :archived, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setArchived(id: String, archived: Boolean, updatedAt: Long)
+
+    @Query("UPDATE documents SET trashedAt = :trashedAt, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setTrashed(id: String, trashedAt: Long?, updatedAt: Long)
 
     @Query("UPDATE documents SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touchDocument(id: String, updatedAt: Long)

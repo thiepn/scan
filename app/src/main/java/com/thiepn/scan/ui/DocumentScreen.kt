@@ -108,22 +108,24 @@ fun DocumentScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        scope.launch { repository.setFavorite(doc.id, !doc.favorite) }
-                    }) {
-                        Icon(
-                            if (doc.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (doc.favorite) "Remove favorite" else "Favorite"
-                        )
-                    }
-                    IconButton(onClick = { renameOpen = true }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Rename")
-                    }
-                    IconButton(onClick = { protectOpen = true }) {
-                        Icon(Icons.Default.Lock, contentDescription = "Protect PDF")
-                    }
-                    IconButton(onClick = { exportOpen = true }) {
-                        Icon(Icons.Default.Share, contentDescription = "Export PDF")
+                    if (doc.trashedAt == null) {
+                        IconButton(onClick = {
+                            scope.launch { repository.setFavorite(doc.id, !doc.favorite) }
+                        }) {
+                            Icon(
+                                if (doc.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = if (doc.favorite) "Remove favorite" else "Favorite"
+                            )
+                        }
+                        IconButton(onClick = { renameOpen = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Rename")
+                        }
+                        IconButton(onClick = { protectOpen = true }) {
+                            Icon(Icons.Default.Lock, contentDescription = "Protect PDF")
+                        }
+                        IconButton(onClick = { exportOpen = true }) {
+                            Icon(Icons.Default.Share, contentDescription = "Export PDF")
+                        }
                     }
                 }
             )
@@ -136,47 +138,75 @@ fun DocumentScreen(
         ) {
             item {
                 Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    if (doc.processing) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            CircularProgressIndicator(modifier = Modifier.height(20.dp))
-                            Text("Recognizing text…", style = MaterialTheme.typography.bodyMedium)
-                        }
+                    if (doc.trashedAt != null) {
+                        Text(
+                            "This document is in Trash. Restore it to edit, export, or change its pages.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(Modifier.height(12.dp))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            scope.launch {
-                                val file = repository.createTextExport(doc.id)
-                                if (file != null) shareFile(context, file, "text/plain")
-                                else onMessage("No text export available")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                scope.launch {
+                                    runCatching { repository.restoreDocument(doc.id) }
+                                        .onSuccess { onDeleted() }
+                                        .onFailure { onMessage(it.message ?: "Could not restore document") }
+                                }
+                            }) {
+                                Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
+                                Text(" Restore")
                             }
-                        }) { Text("Share text") }
-                        OutlinedButton(onClick = {
-                            scope.launch { repository.setArchived(doc.id, !doc.archived) }
-                        }) {
-                            Icon(
-                                if (doc.archived) Icons.Default.Restore else Icons.Default.Archive,
-                                contentDescription = null
-                            )
-                            Text(if (doc.archived) " Restore" else " Archive")
+                            OutlinedButton(onClick = { deleteOpen = true }) {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                                Text(" Delete forever")
+                            }
                         }
-                        OutlinedButton(onClick = { deleteOpen = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = null)
-                            Text(" Delete")
+                    } else {
+                        if (doc.processing) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                                Text("Recognizing text…", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Spacer(Modifier.height(12.dp))
                         }
-                    }
-                    if (pages.size > 1) {
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = { extractOpen = true }) {
-                            Icon(Icons.Default.ContentCut, contentDescription = null)
-                            Text(" Extract pages")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = {
+                                scope.launch {
+                                    val file = repository.createTextExport(doc.id)
+                                    if (file != null) shareFile(context, file, "text/plain")
+                                    else onMessage("No text export available")
+                                }
+                            }) { Text("Share text") }
+                            OutlinedButton(onClick = {
+                                scope.launch { repository.setArchived(doc.id, !doc.archived) }
+                            }) {
+                                Icon(
+                                    if (doc.archived) Icons.Default.Restore else Icons.Default.Archive,
+                                    contentDescription = null
+                                )
+                                Text(if (doc.archived) " Restore" else " Archive")
+                            }
+                            OutlinedButton(
+                                onClick = { deleteOpen = true },
+                                enabled = !doc.processing
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                                Text(" Trash")
+                            }
                         }
-                    }
-                    if (deletedPages.isNotEmpty() && !doc.processing) {
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = { deletedPagesOpen = true }) {
-                            Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
-                            Text(" Deleted pages (${deletedPages.size})")
+                        if (pages.size > 1) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(onClick = { extractOpen = true }) {
+                                Icon(Icons.Default.ContentCut, contentDescription = null)
+                                Text(" Extract pages")
+                            }
+                        }
+                        if (deletedPages.isNotEmpty() && !doc.processing) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(onClick = { deletedPagesOpen = true }) {
+                                Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
+                                Text(" Deleted pages (${deletedPages.size})")
+                            }
                         }
                     }
                 }
@@ -186,9 +216,9 @@ fun DocumentScreen(
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
-                    canMoveUp = !doc.processing && index > 0,
-                    canMoveDown = !doc.processing && index < pages.lastIndex,
-                    canDelete = !doc.processing && pages.size > 1,
+                    canMoveUp = doc.trashedAt == null && !doc.processing && index > 0,
+                    canMoveDown = doc.trashedAt == null && !doc.processing && index < pages.lastIndex,
+                    canDelete = doc.trashedAt == null && !doc.processing && pages.size > 1,
                     onMoveUp = {
                         scope.launch {
                             runCatching { repository.movePage(doc.id, page.id, -1) }
@@ -317,18 +347,39 @@ fun DocumentScreen(
     }
 
     if (deleteOpen) {
+        val permanent = doc.trashedAt != null
         AlertDialog(
             onDismissRequest = { deleteOpen = false },
-            title = { Text("Delete document?") },
-            text = { Text("This removes the local document and its stored page images.") },
+            title = {
+                Text(if (permanent) "Delete forever?" else "Move document to Trash?")
+            },
+            text = {
+                Text(
+                    if (permanent) {
+                        "This permanently removes the document, its source PDF and page images, OCR data, metadata, and direct export copies created for this document. This cannot be undone. Previously shared, saved, or merged PDF copies are not affected."
+                    } else {
+                        "The document will move to Trash and can be restored later. Its files are not deleted yet."
+                    }
+                )
+            },
             confirmButton = {
                 Button(onClick = {
                     deleteOpen = false
                     scope.launch {
-                        repository.delete(doc.id)
-                        onDeleted()
+                        runCatching {
+                            if (permanent) repository.deleteForever(doc.id)
+                            else repository.trashDocument(doc.id)
+                        }
+                            .onSuccess { onDeleted() }
+                            .onFailure {
+                                onMessage(
+                                    it.message ?: if (permanent) "Could not delete document" else "Could not move document to Trash"
+                                )
+                            }
                     }
-                }) { Text("Delete") }
+                }) {
+                    Text(if (permanent) "Delete forever" else "Move to Trash")
+                }
             },
             dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text("Cancel") } }
         )

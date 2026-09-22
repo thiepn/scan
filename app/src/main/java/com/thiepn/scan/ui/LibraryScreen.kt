@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -77,7 +78,7 @@ fun LibraryScreen(
     var mergeBusy by remember { mutableStateOf(false) }
     val documentsFlow = remember(query, filter) { repository.observeDocuments(filter, query) }
     val documents by documentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val mergeCandidates = documents.filter { !it.processing }
+    val mergeCandidates = if (filter == LibraryFilter.TRASH) emptyList() else documents.filter { !it.processing }
 
     Scaffold(
         modifier = Modifier.padding(contentPadding),
@@ -126,7 +127,10 @@ fun LibraryScreen(
                 )
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
@@ -144,12 +148,17 @@ fun LibraryScreen(
                         onClick = { filter = LibraryFilter.ARCHIVED },
                         label = { Text("Archive") }
                     )
+                    FilterChip(
+                        selected = filter == LibraryFilter.TRASH,
+                        onClick = { filter = LibraryFilter.TRASH },
+                        label = { Text("Trash") }
+                    )
                 }
 
                 Spacer(Modifier.height(8.dp))
 
                 if (documents.isEmpty()) {
-                    EmptyLibrary(query = query)
+                    EmptyLibrary(query = query, filter = filter)
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 104.dp),
@@ -258,7 +267,7 @@ private fun MergeDocumentsDialog(
 }
 
 @Composable
-private fun EmptyLibrary(query: String) {
+private fun EmptyLibrary(query: String, filter: LibraryFilter) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
@@ -268,11 +277,15 @@ private fun EmptyLibrary(query: String) {
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                if (query.isBlank()) "No documents yet" else "No matches",
+                if (query.isNotBlank()) "No matches"
+                else if (filter == LibraryFilter.TRASH) "Trash is empty"
+                else "No documents yet",
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
-                if (query.isBlank()) "Tap Scan to create your first searchable document." else "Try a different search term.",
+                if (query.isNotBlank()) "Try a different search term."
+                else if (filter == LibraryFilter.TRASH) "Documents you move to Trash can be restored from here."
+                else "Tap Scan to create your first searchable document.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp)
@@ -308,6 +321,7 @@ private fun DocumentCard(document: DocumentEntity, onClick: () -> Unit) {
                         append(" · ")
                         append(formatDate(document.updatedAt))
                         if (document.processing) append(" · Processing")
+                        if (document.trashedAt != null) append(" · In Trash")
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

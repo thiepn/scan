@@ -30,12 +30,14 @@ class ScanRepository(
                 LibraryFilter.ACTIVE -> dao.searchActive(normalized)
                 LibraryFilter.FAVORITES -> dao.searchFavorites(normalized)
                 LibraryFilter.ARCHIVED -> dao.searchArchived(normalized)
+                LibraryFilter.TRASH -> dao.searchTrash(normalized)
             }
         }
         return when (filter) {
             LibraryFilter.ACTIVE -> dao.observeActive()
             LibraryFilter.FAVORITES -> dao.observeFavorites()
             LibraryFilter.ARCHIVED -> dao.observeArchived()
+            LibraryFilter.TRASH -> dao.observeTrash()
         }
     }
 
@@ -176,25 +178,46 @@ class ScanRepository(
     }
 
     suspend fun rename(id: String, title: String) {
+        requireEditableDocument(id)
         dao.rename(id, title.trim().ifBlank { "Scan" }, System.currentTimeMillis())
     }
 
     suspend fun setFavorite(id: String, value: Boolean) {
+        requireEditableDocument(id)
         dao.setFavorite(id, value, System.currentTimeMillis())
     }
 
     suspend fun setArchived(id: String, value: Boolean) {
+        requireEditableDocument(id)
         dao.setArchived(id, value, System.currentTimeMillis())
     }
 
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
+    suspend fun trashDocument(id: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext
+        if (document.trashedAt != null) return@withContext
+        require(!document.processing) { "Wait for document processing to finish before moving it to Trash" }
+        val now = System.currentTimeMillis()
+        dao.setTrashed(id, now, now)
+    }
+
+    suspend fun restoreDocument(id: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext
+        if (document.trashedAt == null) return@withContext
+        dao.setTrashed(id, null, System.currentTimeMillis())
+    }
+
+    suspend fun deleteForever(id: String) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext
+        require(document.trashedAt != null) { "Move the document to Trash before deleting it forever" }
         dao.deleteDocument(id)
         files.deleteDocument(id)
+        files.deleteExportsForDocument(id)
     }
 
     suspend fun movePage(documentId: String, pageId: String, direction: Int) = withContext(Dispatchers.IO) {
         require(direction == -1 || direction == 1) { "Invalid page move" }
         val document = dao.getDocument(documentId) ?: return@withContext
+        require(document.trashedAt == null) { "Restore the document before editing it" }
         require(!document.processing) { "Document is still processing" }
 
         val pages = dao.getPages(documentId).toMutableList()
@@ -211,6 +234,7 @@ class ScanRepository(
 
     suspend fun softDeletePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
         val document = dao.getDocument(documentId) ?: return@withContext
+        require(document.trashedAt == null) { "Restore the document before editing it" }
         require(!document.processing) { "Document is still processing" }
         val pages = dao.getPages(documentId)
         require(pages.size > 1) { "A document must keep at least one page" }
@@ -222,6 +246,7 @@ class ScanRepository(
 
     suspend fun restorePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
         val document = dao.getDocument(documentId) ?: return@withContext
+        require(document.trashedAt == null) { "Restore the document before editing it" }
         require(!document.processing) { "Document is still processing" }
         val deleted = dao.getDeletedPages(documentId)
         require(deleted.any { it.id == pageId }) { "Deleted page not found" }
@@ -238,6 +263,7 @@ class ScanRepository(
         quality: PdfQuality = PdfQuality.ORIGINAL
     ): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
+        require(document.trashedAt == null) { "Restore the document before exporting it" }
         val pages = orderedPages(dao.getPages(id))
         val deletedPages = dao.getDeletedPages(id)
         val source = nativePdfSource(document, pages)
@@ -301,6 +327,7 @@ class ScanRepository(
 
     suspend fun extractPages(id: String, rangeSpec: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
+        require(document.trashedAt == null) { "Restore the document before exporting it" }
         require(!document.processing) { "Document is still processing" }
         val pages = orderedPages(dao.getPages(id))
         if (pages.isEmpty()) return@withContext null
@@ -341,6 +368,7 @@ class ScanRepository(
             orderedIds.forEach { id ->
                 val document = dao.getDocument(id)
                     ?: throw IllegalArgumentException("A selected document no longer exists")
+                require(document.trashedAt == null) { "${document.title} is in Trash" }
                 require(!document.processing) { "${document.title} is still processing" }
                 val pages = orderedPages(dao.getPages(id))
                 val deleted = dao.getDeletedPages(id)
@@ -384,6 +412,7 @@ class ScanRepository(
 
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
+        require(document.trashedAt == null) { "Restore the document before exporting it" }
         val pages = orderedPages(dao.getPages(id))
         val output = files.textExportFile(id, document.title)
         output.parentFile?.mkdirs()
@@ -396,6 +425,12 @@ class ScanRepository(
             }.joinToString("\n\n──────────\n\n")
         )
         output
+    }
+
+    private suspend fun requireEditableDocument(id: String): DocumentEntity {
+        val document = dao.getDocument(id) ?: throw IllegalArgumentException("Document not found")
+        require(document.trashedAt == null) { "Restore the document before editing it" }
+        return document
     }
 
     private suspend fun refreshDocumentSummary(documentId: String) {

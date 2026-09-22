@@ -21,6 +21,7 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Extract page ranges such as `1-3,5,8` into a new PDF.
 - Searchable PDF size presets: Original, High, Balanced, and Small, with bounded page-by-page recompression.
 - Post-capture page reordering plus recoverable soft-deletion/restoration; current page order is reflected in search, text export, merged PDFs, and native-PDF exports.
+- Document Trash with restore and separately confirmed Delete forever; normal search/merge/background processing excludes trashed items.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Plain-text export of recognized pages.
 - No account, no mandatory cloud, no analytics SDK, and no broad storage permission.

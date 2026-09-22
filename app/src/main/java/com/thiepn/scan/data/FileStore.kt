@@ -68,6 +68,13 @@ class FileStore(private val context: Context) {
         File(root, documentId).deleteRecursively()
     }
 
+    fun deleteExportsForDocument(documentId: String) {
+        val marker = "-${documentId.take(8)}"
+        exports.listFiles()
+            ?.filter { it.isFile && marker in it.name }
+            ?.forEach { it.delete() }
+    }
+
     private fun safeName(title: String): String =
         title.replace(Regex("[\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "Scan" }
 
