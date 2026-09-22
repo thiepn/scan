@@ -42,6 +42,7 @@ data class PageEntity(
     val position: Int,
     val sortKey: Long = (position + 1L) * 1000L,
     val deleted: Boolean = false,
+    val rotationDegrees: Int = 0,
     val imagePath: String,
     val width: Int,
     val height: Int,
