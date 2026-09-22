@@ -263,6 +263,18 @@ fun DocumentScreen(
                             Icon(Icons.Default.SelectAll, contentDescription = "Select all pages")
                         }
                     } else if (doc.trashedAt == null) {
+                        IconButton(
+                            onClick = { documentSearchOpen = true },
+                            enabled = !doc.processing && pages.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = "Find in document")
+                        }
+                        IconButton(
+                            onClick = { ocrScriptOpen = true },
+                            enabled = !doc.processing
+                        ) {
+                            Icon(Icons.Default.Language, contentDescription = "OCR language model")
+                        }
                         IconButton(onClick = {
                             scope.launch { repository.setFavorite(doc.id, !doc.favorite) }
                         }) {
@@ -453,6 +465,9 @@ fun DocumentScreen(
                     displayNumber = index + 1,
                     selectionMode = selectionMode,
                     selected = page.id in selectedPageIds,
+                    highlightQuery = documentSearchQuery.takeIf {
+                        page.id in documentSearchHits.map { hit -> hit.pageId }
+                    },
                     canMoveUp = editable && index > 0,
                     canMoveDown = editable && index < pages.lastIndex,
                     canRotate = editable,
@@ -573,6 +588,47 @@ fun DocumentScreen(
                     }
                         .onSuccess { onMessage("Crop updated; refreshing OCR") }
                         .onFailure { onMessage(it.message ?: "Could not update crop") }
+                }
+            }
+        )
+    }
+
+    if (documentSearchOpen) {
+        DocumentSearchDialog(
+            query = documentSearchQuery,
+            hits = documentSearchHits,
+            searching = documentSearchBusy,
+            onQueryChange = { documentSearchQuery = it },
+            onDismiss = { documentSearchOpen = false },
+            onOpenHit = { hit ->
+                documentSearchOpen = false
+                val pageIndex = pages.indexOfFirst { it.id == hit.pageId }
+                if (pageIndex >= 0) {
+                    scope.launch {
+                        pageListState.animateScrollToItem(pageIndex + 1)
+                    }
+                }
+            }
+        )
+    }
+
+    if (ocrScriptOpen) {
+        OcrScriptDialog(
+            current = OcrScript.fromStored(doc.ocrScript),
+            onDismiss = { ocrScriptOpen = false },
+            onApply = { script ->
+                ocrScriptOpen = false
+                if (script.name != doc.ocrScript) {
+                    scope.launch {
+                        runCatching { repository.setOcrScript(doc.id, script) }
+                            .onSuccess {
+                                documentSearchHits = emptyList()
+                                onMessage("OCR model changed to ${script.label}; recognizing pages…")
+                            }
+                            .onFailure {
+                                onMessage(it.message ?: "Could not change OCR model")
+                            }
+                    }
                 }
             }
         )
@@ -973,6 +1029,7 @@ private fun PageCard(
     displayNumber: Int,
     selectionMode: Boolean,
     selected: Boolean,
+    highlightQuery: String?,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     canRotate: Boolean,
@@ -1110,8 +1167,9 @@ private fun PageCard(
                         color = MaterialTheme.colorScheme.primary
                     )
                     SelectionContainer {
-                        Text(
-                            page.ocrText,
+                        HighlightedOcrText(
+                            page = page,
+                            query = highlightQuery.orEmpty(),
                             modifier = Modifier.padding(top = 6.dp),
                             style = MaterialTheme.typography.bodySmall
                         )
