@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -71,6 +72,7 @@ fun DocumentScreen(
     var renameOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var protectOpen by remember { mutableStateOf(false) }
+    var extractOpen by remember { mutableStateOf(false) }
 
     val doc = document
     if (doc == null) {
@@ -158,6 +160,13 @@ fun DocumentScreen(
                             Text(" Delete")
                         }
                     }
+                    if (pages.size > 1) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = { extractOpen = true }) {
+                            Icon(Icons.Default.ContentCut, contentDescription = null)
+                            Text(" Extract pages")
+                        }
+                    }
                 }
             }
 
@@ -200,6 +209,24 @@ fun DocumentScreen(
                             else onMessage("PDF is not available yet")
                         }
                         .onFailure { onMessage(it.message ?: "Could not protect PDF") }
+                }
+            }
+        )
+    }
+
+    if (extractOpen) {
+        ExtractPagesDialog(
+            pageCount = pages.size,
+            onDismiss = { extractOpen = false },
+            onExtract = { range ->
+                extractOpen = false
+                scope.launch {
+                    runCatching { repository.extractPages(doc.id, range) }
+                        .onSuccess { file ->
+                            if (file != null) shareFile(context, file, "application/pdf")
+                            else onMessage("Could not create extracted PDF")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not extract pages") }
                 }
             }
         )
@@ -327,6 +354,45 @@ private fun ProtectPdfDialog(
                 onClick = { onProtect(password) },
                 enabled = valid
             ) { Text("Create protected PDF") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+
+@Composable
+private fun ExtractPagesDialog(
+    pageCount: Int,
+    onDismiss: () -> Unit,
+    onExtract: (String) -> Unit
+) {
+    var range by remember(pageCount) {
+        mutableStateOf(if (pageCount > 1) "1-$pageCount" else "1")
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Extract pages") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Create a new PDF from selected pages. Use ranges such as 1-3,5,8.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = range,
+                    onValueChange = { range = it },
+                    singleLine = true,
+                    label = { Text("Pages") },
+                    supportingText = { Text("Available pages: 1-$pageCount") }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onExtract(range) },
+                enabled = range.isNotBlank()
+            ) { Text("Extract PDF") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
