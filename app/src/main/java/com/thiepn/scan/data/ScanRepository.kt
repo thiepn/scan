@@ -342,7 +342,7 @@ class ScanRepository(
                 val newOrder = buildList {
                     pages.forEach { page ->
                         add(page.id)
-                        duplicateBySource[page.id]?.let(::add)
+                        duplicateBySource[page.id]?.let { add(it) }
                     }
                 }
                 dao.insertPagesWithOrder(duplicates, newOrder)
