@@ -51,6 +51,7 @@ private fun ScanApp(repository: ScanRepository) {
     val snackbar = remember { SnackbarHostState() }
     var selectedDocumentId by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var scanDestinationDocumentId by remember { mutableStateOf<String?>(null) }
 
     val scannerOptions = remember {
         GmsDocumentScannerOptions.Builder()
@@ -67,18 +68,37 @@ private fun ScanApp(repository: ScanRepository) {
     val scannerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
+        val destinationDocumentId = scanDestinationDocumentId
+        scanDestinationDocumentId = null
+
         if (result.resultCode == Activity.RESULT_OK) {
             val scan = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
             val pages = scan?.pages?.map { it.imageUri }.orEmpty()
             val pdf = scan?.pdf?.uri
-            if (pages.isNotEmpty() || pdf != null) {
-                scope.launch {
-                    busy = true
-                    runCatching { repository.ingestScan(pages, pdf) }
-                        .onSuccess { selectedDocumentId = it }
-                        .onFailure { snackbar.showSnackbar(it.message ?: "Could not save scan") }
-                    busy = false
+
+            scope.launch {
+                busy = true
+                if (destinationDocumentId == null) {
+                    if (pages.isNotEmpty() || pdf != null) {
+                        runCatching { repository.ingestScan(pages, pdf) }
+                            .onSuccess { selectedDocumentId = it }
+                            .onFailure { snackbar.showSnackbar(it.message ?: "Could not save scan") }
+                    }
+                } else {
+                    if (pages.isEmpty()) {
+                        snackbar.showSnackbar("No page images were returned by the scanner")
+                    } else {
+                        runCatching { repository.appendScan(destinationDocumentId, pages) }
+                            .onSuccess { count ->
+                                selectedDocumentId = destinationDocumentId
+                                snackbar.showSnackbar(
+                                    "$count page${if (count == 1) "" else "s"} added"
+                                )
+                            }
+                            .onFailure { snackbar.showSnackbar(it.message ?: "Could not add pages") }
+                    }
                 }
+                busy = false
             }
         }
     }
@@ -106,6 +126,7 @@ private fun ScanApp(repository: ScanRepository) {
                 busy = busy,
                 onOpenDocument = { selectedDocumentId = it },
                 onScan = {
+                    scanDestinationDocumentId = null
                     scanner.getStartScanIntent(activity)
                         .addOnSuccessListener { sender ->
                             scannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
@@ -124,6 +145,19 @@ private fun ScanApp(repository: ScanRepository) {
                 contentPadding = padding,
                 onBack = { selectedDocumentId = null },
                 onDeleted = { selectedDocumentId = null },
+                onAddPages = {
+                    scanDestinationDocumentId = id
+                    scanner.getStartScanIntent(activity)
+                        .addOnSuccessListener { sender ->
+                            scannerLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                        }
+                        .addOnFailureListener { error ->
+                            scanDestinationDocumentId = null
+                            scope.launch {
+                                snackbar.showSnackbar(error.message ?: "Scanner unavailable")
+                            }
+                        }
+                },
                 onMessage = { message -> scope.launch { snackbar.showSnackbar(message) } }
             )
         }
