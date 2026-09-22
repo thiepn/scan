@@ -28,6 +28,10 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Full-screen post-capture crop/perspective editor with four draggable corners, live magnifier, conservative auto-detect, reset, non-destructive geometry metadata, geometry-aware OCR, thumbnails, and PDF export.
 - Non-destructive scan enhancement editor with Original, Auto, Clean, Color, Grayscale, B&W, Notes, Receipt, and Whiteboard presets plus brightness, contrast, highlights, shadows, black/white point, warmth, saturation, sharpness, background whitening, and shadow normalization controls.
 - Cosmetic enhancement is intentionally separate from OCR truth: OCR/search use the geometry-corrected source while previews and visible PDF output use the visual recipe.
+- OCR V2 persists block/line/word reading order, bounding geometry, corner polygons, confidence, angle, language tags, and a SHA-256 source/geometry/model fingerprint for stale-result detection.
+- Per-document offline OCR models are bundled for Latin, Chinese, Devanagari, Japanese, and Korean scripts; switching the model triggers a controlled re-recognition pass.
+- Ranked local FTS5 search supports exact quoted phrases, prefix queries such as `acc*`, highlighted snippets, document-level page hits, jump-to-page navigation, exact recognized-word copying, and on-page word-box overlays.
+- Room uses AndroidX Bundled SQLite for deterministic FTS5 availability, with migration-safe indexing and lazy spatial-OCR upgrades for documents created before OCR V2.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
