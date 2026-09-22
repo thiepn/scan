@@ -107,15 +107,24 @@ class ScanRepository(
         id
     }
 
-    suspend fun appendScan(documentId: String, pageUris: List<Uri>): Int = withContext(Dispatchers.IO) {
+    suspend fun appendScan(documentId: String, pageUris: List<Uri>): Int =
+        insertScan(documentId, pageUris, Int.MAX_VALUE)
+
+    suspend fun insertScan(
+        documentId: String,
+        pageUris: List<Uri>,
+        insertIndex: Int
+    ): Int = withContext(Dispatchers.IO) {
         require(pageUris.isNotEmpty()) { "No pages were captured" }
         val document = requireEditableDocument(documentId)
         require(!document.processing) { "Document is still processing" }
 
+        val currentPages = orderedPages(dao.getPages(documentId))
+        val targetIndex = insertIndex.coerceIn(0, currentPages.size)
         val nextPosition = dao.getMaxPagePosition(documentId) + 1
         val nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
         val copiedFiles = mutableListOf<File>()
-        val pages = mutableListOf<PageEntity>()
+        val insertedPages = mutableListOf<PageEntity>()
 
         dao.setProcessing(documentId, true, System.currentTimeMillis())
         try {
@@ -124,7 +133,7 @@ class ScanRepository(
                 val file = files.copyUri(uri, files.pageFile(documentId, pageId))
                 copiedFiles += file
                 val size = imageSize(file)
-                pages += PageEntity(
+                insertedPages += PageEntity(
                     id = pageId,
                     documentId = documentId,
                     position = nextPosition + index,
@@ -135,13 +144,67 @@ class ScanRepository(
                 )
             }
 
-            dao.insertPages(pages)
-            appScope.launch(Dispatchers.IO) {
-                recognizeDocument(documentId)
+            val newOrder = currentPages.map { it.id }.toMutableList().apply {
+                addAll(targetIndex, insertedPages.map { it.id })
             }
-            pages.size
+            dao.insertPagesWithOrder(insertedPages, newOrder)
+            appScope.launch(Dispatchers.IO) {
+                recognizePagesAndRefresh(documentId, insertedPages.map { it.id })
+            }
+            insertedPages.size
         } catch (error: Throwable) {
             copiedFiles.forEach { it.delete() }
+            dao.setProcessing(documentId, false, System.currentTimeMillis())
+            throw error
+        }
+    }
+
+    suspend fun replacePageFromUri(
+        documentId: String,
+        pageId: String,
+        uri: Uri
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+
+        val currentPages = orderedPages(dao.getPages(documentId))
+        val sourceIndex = currentPages.indexOfFirst { it.id == pageId }
+        require(sourceIndex >= 0) { "Page not found" }
+        val source = currentPages[sourceIndex]
+
+        val replacementId = UUID.randomUUID().toString()
+        val replacementFile = files.copyUri(
+            uri,
+            files.pageFile(documentId, replacementId)
+        )
+
+        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        try {
+            val size = imageSize(replacementFile)
+            val replacement = source.copy(
+                id = replacementId,
+                rotationDegrees = 0,
+                cropQuad = null,
+                visualRecipe = null,
+                imagePath = replacementFile.absolutePath,
+                width = size.first,
+                height = size.second,
+                ocrText = ""
+            )
+            val newOrder = currentPages.map { it.id }.toMutableList().apply {
+                this[sourceIndex] = replacementId
+            }
+            dao.replacePageRecord(
+                oldPageId = source.id,
+                newPage = replacement,
+                orderedPageIds = newOrder
+            )
+            File(source.imagePath).takeIf { it.absolutePath != replacementFile.absolutePath }?.delete()
+            appScope.launch(Dispatchers.IO) {
+                recognizePageAndRefresh(documentId, replacementId)
+            }
+        } catch (error: Throwable) {
+            replacementFile.delete()
             dao.setProcessing(documentId, false, System.currentTimeMillis())
             throw error
         }
@@ -153,11 +216,38 @@ class ScanRepository(
 
         val page = dao.getPage(pageId)
             ?: throw IllegalArgumentException("Page not found")
-        require(page.documentId == documentId) { "Page does not belong to this document" }
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
-        dao.touchDocument(documentId, System.currentTimeMillis())
+        dao.updatePageOcr(pageId, "")
+        refreshDocumentSummary(documentId, processing = true)
+        appScope.launch(Dispatchers.IO) {
+            recognizePageAndRefresh(documentId, pageId)
+        }
     }
+
+    suspend fun rotatePages(documentId: String, pageIds: List<String>) =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            val requested = pageIds.distinct()
+            require(requested.isNotEmpty()) { "Select at least one page" }
+
+            val pages = orderedPages(dao.getPages(documentId))
+            val selected = pages.filter { it.id in requested }
+            require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+
+            selected.forEach { page ->
+                dao.setPageRotation(page.id, PageRotation.clockwise(page.rotationDegrees))
+                dao.updatePageOcr(page.id, "")
+            }
+            refreshDocumentSummary(documentId, processing = true)
+            appScope.launch(Dispatchers.IO) {
+                recognizePagesAndRefresh(documentId, selected.map { it.id })
+            }
+        }
 
     suspend fun detectPageCrop(documentId: String, pageId: String): CropQuad? =
         withContext(Dispatchers.IO) {
@@ -208,39 +298,139 @@ class ScanRepository(
         dao.touchDocument(documentId, System.currentTimeMillis())
     }
 
-    suspend fun duplicatePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
+    suspend fun duplicatePage(documentId: String, pageId: String) {
+        duplicatePages(documentId, listOf(pageId))
+    }
+
+    suspend fun duplicatePages(documentId: String, pageIds: List<String>): Int =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+
+            val requested = pageIds.distinct()
+            require(requested.isNotEmpty()) { "Select at least one page" }
+            val pages = orderedPages(dao.getPages(documentId))
+            val selected = pages.filter { it.id in requested }
+            require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+
+            var nextPosition = dao.getMaxPagePosition(documentId) + 1
+            var nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
+            val copiedFiles = mutableListOf<File>()
+            val duplicates = mutableListOf<PageEntity>()
+            val duplicateBySource = mutableMapOf<String, String>()
+
+            try {
+                selected.forEach { source ->
+                    val duplicateId = UUID.randomUUID().toString()
+                    val file = files.copyPageFile(
+                        documentId = documentId,
+                        source = File(source.imagePath),
+                        newPageId = duplicateId
+                    )
+                    copiedFiles += file
+                    duplicates += source.copy(
+                        id = duplicateId,
+                        position = nextPosition++,
+                        sortKey = nextSortKey,
+                        deleted = false,
+                        imagePath = file.absolutePath
+                    )
+                    nextSortKey += 1000L
+                    duplicateBySource[source.id] = duplicateId
+                }
+
+                val newOrder = buildList {
+                    pages.forEach { page ->
+                        add(page.id)
+                        duplicateBySource[page.id]?.let(::add)
+                    }
+                }
+                dao.insertPagesWithOrder(duplicates, newOrder)
+                refreshDocumentSummary(documentId)
+                duplicates.size
+            } catch (error: Throwable) {
+                copiedFiles.forEach { it.delete() }
+                throw error
+            }
+        }
+
+    suspend fun movePages(
+        documentId: String,
+        pageIds: List<String>,
+        targetIndex: Int
+    ) = withContext(Dispatchers.IO) {
         val document = requireEditableDocument(documentId)
         require(!document.processing) { "Document is still processing" }
+        val requested = pageIds.distinct()
+        require(requested.isNotEmpty()) { "Select at least one page" }
 
         val pages = orderedPages(dao.getPages(documentId))
-        val sourceIndex = pages.indexOfFirst { it.id == pageId }
-        require(sourceIndex >= 0) { "Page not found" }
-        val source = pages[sourceIndex]
+        val selectedSet = requested.toSet()
+        val moving = pages.filter { it.id in selectedSet }
+        require(moving.size == requested.size) { "One or more selected pages are unavailable" }
 
-        val duplicateId = UUID.randomUUID().toString()
-        val file = files.copyPageFile(
-            documentId = documentId,
-            source = File(source.imagePath),
-            newPageId = duplicateId
-        )
+        val remaining = pages.filterNot { it.id in selectedSet }.toMutableList()
+        val destination = targetIndex.coerceIn(0, remaining.size)
+        remaining.addAll(destination, moving)
+        dao.replacePageOrder(documentId, remaining.map { it.id })
+        refreshDocumentSummary(documentId)
+    }
 
-        try {
-            val duplicate = source.copy(
-                id = duplicateId,
-                position = dao.getMaxPagePosition(documentId) + 1,
-                sortKey = dao.getMaxPageSortKey(documentId) + 1000L,
-                deleted = false,
-                imagePath = file.absolutePath
-            )
-            val newOrder = pages.map { it.id }.toMutableList().apply {
-                add(sourceIndex + 1, duplicateId)
+    suspend fun applyPresetToPages(
+        documentId: String,
+        pageIds: List<String>,
+        preset: ScanPreset
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val requested = pageIds.distinct()
+        require(requested.isNotEmpty()) { "Select at least one page" }
+        val pages = orderedPages(dao.getPages(documentId))
+        val selected = pages.filter { it.id in requested }
+        require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+
+        val encoded = PageVisualRecipeCodec.encode(PageVisualRecipe.forPreset(preset))
+        selected.forEach { dao.setPageVisualRecipe(it.id, encoded) }
+        dao.touchDocument(documentId, System.currentTimeMillis())
+    }
+
+    suspend fun resetPageEdits(documentId: String, pageIds: List<String>) =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            val requested = pageIds.distinct()
+            require(requested.isNotEmpty()) { "Select at least one page" }
+            val pages = orderedPages(dao.getPages(documentId))
+            val selected = pages.filter { it.id in requested }
+            require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+
+            val requiresOcr = mutableListOf<String>()
+            selected.forEach { page ->
+                if (
+                    PageRotation.normalize(page.rotationDegrees) != 0 ||
+                    !CropQuadCodec.decode(page.cropQuad).isFullFrame()
+                ) {
+                    requiresOcr += page.id
+                    dao.updatePageOcr(page.id, "")
+                }
+                dao.setPageRotation(page.id, 0)
+                dao.setPageCropQuad(page.id, null)
+                dao.setPageVisualRecipe(page.id, null)
             }
-            dao.insertPageWithOrder(duplicate, newOrder)
-            refreshDocumentSummary(documentId)
-        } catch (error: Throwable) {
-            file.delete()
-            throw error
+
+            if (requiresOcr.isEmpty()) {
+                refreshDocumentSummary(documentId)
+            } else {
+                refreshDocumentSummary(documentId, processing = true)
+                appScope.launch(Dispatchers.IO) {
+                    recognizePagesAndRefresh(documentId, requiresOcr)
+                }
+            }
         }
+
+    suspend fun resetAllPageEdits(documentId: String) = withContext(Dispatchers.IO) {
+        val ids = orderedPages(dao.getPages(documentId)).map { it.id }
+        if (ids.isNotEmpty()) resetPageEdits(documentId, ids)
     }
 
     suspend fun importPdf(uri: Uri, displayName: String?): String = withContext(Dispatchers.IO) {
@@ -320,13 +510,21 @@ class ScanRepository(
     }
 
     private suspend fun recognizePageAndRefresh(documentId: String, pageId: String) {
+        recognizePagesAndRefresh(documentId, listOf(pageId))
+    }
+
+    private suspend fun recognizePagesAndRefresh(
+        documentId: String,
+        pageIds: List<String>
+    ) {
         try {
-            val page = dao.getPage(pageId)
-                ?: throw IllegalArgumentException("Page not found")
-            val text = recognizePage(page)
-            dao.updatePageOcr(pageId, text)
-            refreshDocumentSummary(documentId)
-        } catch (_: Throwable) {
+            pageIds.distinct().forEach { pageId ->
+                val page = dao.getPage(pageId) ?: return@forEach
+                if (page.deleted || page.documentId != documentId) return@forEach
+                val text = recognizePage(page)
+                dao.updatePageOcr(pageId, text)
+            }
+        } finally {
             refreshDocumentSummary(documentId)
         }
     }
@@ -408,28 +606,46 @@ class ScanRepository(
         refreshDocumentSummary(documentId)
     }
 
-    suspend fun softDeletePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
-        val document = dao.getDocument(documentId) ?: return@withContext
-        require(document.trashedAt == null) { "Restore the document before editing it" }
-        require(!document.processing) { "Document is still processing" }
-        val pages = dao.getPages(documentId)
-        require(pages.size > 1) { "A document must keep at least one page" }
-        require(pages.any { it.id == pageId }) { "Page not found" }
-
-        dao.setPageDeleted(pageId, true)
-        refreshDocumentSummary(documentId)
+    suspend fun softDeletePage(documentId: String, pageId: String) {
+        softDeletePages(documentId, listOf(pageId))
     }
 
-    suspend fun restorePage(documentId: String, pageId: String) = withContext(Dispatchers.IO) {
-        val document = dao.getDocument(documentId) ?: return@withContext
-        require(document.trashedAt == null) { "Restore the document before editing it" }
-        require(!document.processing) { "Document is still processing" }
-        val deleted = dao.getDeletedPages(documentId)
-        require(deleted.any { it.id == pageId }) { "Deleted page not found" }
+    suspend fun softDeletePages(documentId: String, pageIds: List<String>) =
+        withContext(Dispatchers.IO) {
+            val document = dao.getDocument(documentId) ?: return@withContext
+            require(document.trashedAt == null) { "Restore the document before editing it" }
+            require(!document.processing) { "Document is still processing" }
 
-        dao.setPageDeleted(pageId, false)
-        refreshDocumentSummary(documentId)
+            val requested = pageIds.distinct()
+            require(requested.isNotEmpty()) { "Select at least one page" }
+            val pages = orderedPages(dao.getPages(documentId))
+            val selected = pages.filter { it.id in requested }
+            require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+            require(pages.size - selected.size >= 1) { "A document must keep at least one page" }
+
+            dao.setPagesDeleted(selected.map { it.id }, true)
+            refreshDocumentSummary(documentId)
+        }
+
+    suspend fun restorePage(documentId: String, pageId: String) {
+        restorePages(documentId, listOf(pageId))
     }
+
+    suspend fun restorePages(documentId: String, pageIds: List<String>) =
+        withContext(Dispatchers.IO) {
+            val document = dao.getDocument(documentId) ?: return@withContext
+            require(document.trashedAt == null) { "Restore the document before editing it" }
+            require(!document.processing) { "Document is still processing" }
+
+            val requested = pageIds.distinct()
+            require(requested.isNotEmpty()) { "Select at least one page" }
+            val deleted = dao.getDeletedPages(documentId)
+            val selected = deleted.filter { it.id in requested }
+            require(selected.size == requested.size) { "One or more deleted pages are unavailable" }
+
+            dao.setPagesDeleted(selected.map { it.id }, false)
+            refreshDocumentSummary(documentId)
+        }
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
 
@@ -552,6 +768,83 @@ class ScanRepository(
             temporary.delete()
             throw it
         }
+    }
+
+    suspend fun createPdfExportForPages(
+        id: String,
+        pageIds: List<String>,
+        quality: PdfQuality = PdfQuality.ORIGINAL
+    ): File? = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext null
+        require(document.trashedAt == null) { "Restore the document before exporting it" }
+        require(!document.processing) { "Document is still processing" }
+
+        val requested = pageIds.distinct()
+        require(requested.isNotEmpty()) { "Select at least one page" }
+        val pages = orderedPages(dao.getPages(id))
+        val selected = pages.filter { it.id in requested }
+        require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+
+        val destination = files.selectedPdfExportFile(id, document.title)
+        val temporary = files.temporaryExport(destination)
+        val source = nativePdfSource(document, pages)
+        val hasGeometryEdits = selected.any {
+            !CropQuadCodec.decode(it.cropQuad).isFullFrame()
+        }
+        val hasVisualEdits = selected.any {
+            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+        }
+
+        runCatching {
+            if (
+                source != null &&
+                quality == PdfQuality.ORIGINAL &&
+                !hasGeometryEdits &&
+                !hasVisualEdits
+            ) {
+                pdfEngine.extractPages(
+                    source = source,
+                    pageIndices = selected.map { it.position },
+                    destination = temporary,
+                    rotationDeltas = selected.map { it.rotationDegrees }
+                )
+            } else {
+                pdfEngine.createSearchablePdf(
+                    pages = selected,
+                    destination = temporary,
+                    quality = quality
+                )
+            }
+            files.commitGeneratedExport(temporary, destination)
+        }.getOrElse {
+            temporary.delete()
+            throw it
+        }
+    }
+
+    suspend fun createTextExportForPages(
+        id: String,
+        pageIds: List<String>
+    ): File? = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(id) ?: return@withContext null
+        require(document.trashedAt == null) { "Restore the document before exporting it" }
+        val requested = pageIds.distinct()
+        require(requested.isNotEmpty()) { "Select at least one page" }
+        val pages = orderedPages(dao.getPages(id))
+        val selected = pages.filter { it.id in requested }
+        require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+
+        val output = files.selectedTextExportFile(id, document.title)
+        output.parentFile?.mkdirs()
+        output.writeText(
+            selected.mapIndexed { index, page ->
+                buildString {
+                    append("Page ${index + 1}\n\n")
+                    append(page.ocrText.ifBlank { "[No recognized text]" })
+                }
+            }.joinToString("\n\n──────────\n\n")
+        )
+        output
     }
 
     suspend fun mergeDocuments(ids: List<String>): File? = withContext(Dispatchers.IO) {
