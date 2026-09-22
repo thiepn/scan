@@ -20,6 +20,7 @@ class ScanRepository(
     private val files: FileStore,
     private val ocr: OcrEngine,
     private val rasterizer: PdfPageRasterizer,
+    private val pdfEngine: PdfEngine,
     private val appScope: CoroutineScope
 ) {
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
@@ -184,10 +185,47 @@ class ScanRepository(
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
 
-    suspend fun createPdfExport(id: String): File? = withContext(Dispatchers.IO) {
+    suspend fun createPdfExport(id: String, password: String? = null): File? = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext null
-        val source = document.pdfPath?.let(::File)?.takeIf { it.isFile } ?: return@withContext null
-        files.createPdfExport(id, document.title, source)
+        val pages = dao.getPages(id)
+        val source = document.pdfPath?.let(::File)?.takeIf { it.isFile }
+        val importedPdf = source != null && pages.isNotEmpty() &&
+            pages.all { page -> page.id == deterministicPageId(id, page.position) }
+
+        val destination = files.pdfExportFile(
+            documentId = id,
+            title = document.title,
+            protected = !password.isNullOrBlank()
+        )
+
+        if (importedPdf && source != null) {
+            if (password.isNullOrBlank()) {
+                return@withContext files.copyToExport(source, destination)
+            }
+            val temporary = files.temporaryExport(destination)
+            runCatching {
+                pdfEngine.protectExisting(source, temporary, password)
+                files.commitGeneratedExport(temporary, destination)
+            }.getOrElse {
+                temporary.delete()
+                throw it
+            }
+        } else if (pages.isNotEmpty()) {
+            val temporary = files.temporaryExport(destination)
+            runCatching {
+                pdfEngine.createSearchablePdf(
+                    pages = pages,
+                    destination = temporary,
+                    password = password
+                )
+                files.commitGeneratedExport(temporary, destination)
+            }.getOrElse {
+                temporary.delete()
+                throw it
+            }
+        } else {
+            null
+        }
     }
 
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
