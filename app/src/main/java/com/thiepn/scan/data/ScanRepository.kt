@@ -210,6 +210,7 @@ class ScanRepository(
         require(document.trashedAt != null) { "Move the document to Trash before deleting it forever" }
         dao.deleteDocument(id)
         files.deleteDocument(id)
+        files.deleteExportsForDocument(id)
     }
 
     suspend fun movePage(documentId: String, pageId: String, direction: Int) = withContext(Dispatchers.IO) {
