@@ -78,6 +78,24 @@ interface DocumentDao {
     @Query("UPDATE pages SET ocrText = :text WHERE id = :pageId")
     suspend fun updatePageOcr(pageId: String, text: String)
 
+    @Query(
+        "UPDATE pages SET ocrText = :text, ocrLayout = :layout, " +
+            "ocrFingerprint = :fingerprint, ocrScript = :script WHERE id = :pageId"
+    )
+    suspend fun updatePageOcrV2(
+        pageId: String,
+        text: String,
+        layout: String?,
+        fingerprint: String?,
+        script: String?
+    )
+
+    @Query(
+        "UPDATE pages SET ocrText = '', ocrLayout = NULL, " +
+            "ocrFingerprint = NULL, ocrScript = NULL WHERE id = :pageId"
+    )
+    suspend fun clearPageOcr(pageId: String)
+
     @Query("UPDATE pages SET sortKey = :sortKey WHERE id = :pageId")
     suspend fun updatePageSortKey(pageId: String, sortKey: Long)
 
@@ -98,6 +116,9 @@ interface DocumentDao {
 
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
+
+    @Query("UPDATE documents SET ocrScript = :script, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setDocumentOcrScript(id: String, script: String, updatedAt: Long)
 
     @Query("UPDATE documents SET favorite = :favorite, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setFavorite(id: String, favorite: Boolean, updatedAt: Long)
