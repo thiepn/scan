@@ -186,7 +186,10 @@ fun DocumentScreen(
                                 )
                                 Text(if (doc.archived) " Restore" else " Archive")
                             }
-                            OutlinedButton(onClick = { deleteOpen = true }) {
+                            OutlinedButton(
+                                onClick = { deleteOpen = true },
+                                enabled = !doc.processing
+                            ) {
                                 Icon(Icons.Default.Delete, contentDescription = null)
                                 Text(" Trash")
                             }
