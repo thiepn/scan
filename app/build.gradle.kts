@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.thiepn.scan"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.thiepn.scan"
