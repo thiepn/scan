@@ -21,6 +21,7 @@ class ScanRepository(
     private val ocr: OcrEngine,
     private val rasterizer: PdfPageRasterizer,
     private val pdfEngine: PdfEngine,
+    private val searchIndex: OcrSearchIndex,
     private val appScope: CoroutineScope
 ) {
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
@@ -48,6 +49,7 @@ class ScanRepository(
 
     fun resumePendingProcessing() {
         appScope.launch(Dispatchers.IO) {
+            searchIndex.rebuildAll()
             dao.getProcessingDocuments().forEach { document ->
                 val pages = dao.getPages(document.id)
                 val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
@@ -189,7 +191,10 @@ class ScanRepository(
                 imagePath = replacementFile.absolutePath,
                 width = size.first,
                 height = size.second,
-                ocrText = ""
+                ocrText = "",
+                ocrLayout = null,
+                ocrFingerprint = null,
+                ocrScript = null
             )
             val newOrder = currentPages.map { it.id }.toMutableList().apply {
                 this[sourceIndex] = replacementId
@@ -199,6 +204,7 @@ class ScanRepository(
                 newPage = replacement,
                 orderedPageIds = newOrder
             )
+            searchIndex.deletePage(source.id)
             File(source.imagePath).takeIf { it.absolutePath != replacementFile.absolutePath }?.delete()
             appScope.launch(Dispatchers.IO) {
                 recognizePageAndRefresh(documentId, replacementId)
@@ -221,7 +227,8 @@ class ScanRepository(
         }
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
-        dao.updatePageOcr(pageId, "")
+        dao.clearPageOcr(pageId)
+        searchIndex.deletePage(pageId)
         refreshDocumentSummary(documentId, processing = true)
         appScope.launch(Dispatchers.IO) {
             recognizePageAndRefresh(documentId, pageId)
@@ -241,7 +248,8 @@ class ScanRepository(
 
             selected.forEach { page ->
                 dao.setPageRotation(page.id, PageRotation.clockwise(page.rotationDegrees))
-                dao.updatePageOcr(page.id, "")
+                dao.clearPageOcr(page.id)
+                searchIndex.deletePage(page.id)
             }
             refreshDocumentSummary(documentId, processing = true)
             appScope.launch(Dispatchers.IO) {
@@ -272,7 +280,8 @@ class ScanRepository(
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
-        dao.updatePageOcr(pageId, "")
+        dao.clearPageOcr(pageId)
+        searchIndex.deletePage(pageId)
         refreshDocumentSummary(documentId, processing = true)
 
         appScope.launch(Dispatchers.IO) {
@@ -346,6 +355,14 @@ class ScanRepository(
                     }
                 }
                 dao.insertPagesWithOrder(duplicates, newOrder)
+                duplicates.forEach { duplicate ->
+                    searchIndex.upsertPage(
+                        documentId = documentId,
+                        pageId = duplicate.id,
+                        content = duplicate.ocrText,
+                        deleted = duplicate.deleted
+                    )
+                }
                 refreshDocumentSummary(documentId)
                 duplicates.size
             } catch (error: Throwable) {
@@ -411,7 +428,8 @@ class ScanRepository(
                     !CropQuadCodec.decode(page.cropQuad).isFullFrame()
                 ) {
                     requiresOcr += page.id
-                    dao.updatePageOcr(page.id, "")
+                    dao.clearPageOcr(page.id)
+                    searchIndex.deletePage(page.id)
                 }
                 dao.setPageRotation(page.id, 0)
                 dao.setPageCropQuad(page.id, null)
@@ -583,6 +601,7 @@ class ScanRepository(
     suspend fun deleteForever(id: String) = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext
         require(document.trashedAt != null) { "Move the document to Trash before deleting it forever" }
+        searchIndex.deleteDocument(id)
         dao.deleteDocument(id)
         files.deleteDocument(id)
         files.deleteExportsForDocument(id)
@@ -624,6 +643,7 @@ class ScanRepository(
             require(pages.size - selected.size >= 1) { "A document must keep at least one page" }
 
             dao.setPagesDeleted(selected.map { it.id }, true)
+            selected.forEach { searchIndex.deletePage(it.id) }
             refreshDocumentSummary(documentId)
         }
 
@@ -644,7 +664,24 @@ class ScanRepository(
             require(selected.size == requested.size) { "One or more deleted pages are unavailable" }
 
             dao.setPagesDeleted(selected.map { it.id }, false)
-            refreshDocumentSummary(documentId)
+            val activeScript = OcrScript.fromStored(document.ocrScript)
+            val stale = selected.filter { it.ocrScript != activeScript.name || it.ocrLayout.isNullOrBlank() }
+            val reusable = selected - stale.toSet()
+            reusable.forEach {
+                searchIndex.upsertPage(documentId, it.id, it.ocrText)
+            }
+            if (stale.isEmpty()) {
+                refreshDocumentSummary(documentId)
+            } else {
+                stale.forEach {
+                    dao.clearPageOcr(it.id)
+                    searchIndex.deletePage(it.id)
+                }
+                refreshDocumentSummary(documentId, processing = true)
+                appScope.launch(Dispatchers.IO) {
+                    recognizePagesAndRefresh(documentId, stale.map { it.id })
+                }
+            }
         }
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
