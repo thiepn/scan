@@ -234,10 +234,15 @@ object OcrLayoutCodec {
     }
 
     private fun encodeText(value: String): String =
-        Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray(Charsets.UTF_8))
+        if (value.isEmpty()) {
+            "~"
+        } else {
+            Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(value.toByteArray(Charsets.UTF_8))
+        }
 
     private fun decodeText(value: String): String {
-        if (value.isEmpty()) return ""
+        if (value == "~") return ""
         return Base64.getUrlDecoder().decode(value).toString(Charsets.UTF_8)
     }
 
@@ -337,7 +342,7 @@ object OcrSearchTerms {
     }
 
     private fun quote(value: String): String =
-        """ + value.replace(""", """") + """
+        "\"" + value.replace("\"", "\"\"") + "\""
 }
 
 fun Float.formatConfidence(): String = "${(this * 100f).roundToInt()}%"
