@@ -245,7 +245,7 @@ private fun GeometryCanvas(
                     val sourcePoint = GeometryRotation.displayToSource(
                         displayPoint,
                         rotationDegrees
-                    ).clamped()
+                    ).clamped().snappedToEdges()
 
                     sourceQuad.withCorner(index, sourcePoint)?.let(onQuadChanged)
                     change.consume()
