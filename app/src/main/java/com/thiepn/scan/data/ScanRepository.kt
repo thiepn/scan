@@ -195,6 +195,7 @@ class ScanRepository(
     suspend fun trashDocument(id: String) = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext
         if (document.trashedAt != null) return@withContext
+        require(!document.processing) { "Wait for document processing to finish before moving it to Trash" }
         val now = System.currentTimeMillis()
         dao.setTrashed(id, now, now)
     }
