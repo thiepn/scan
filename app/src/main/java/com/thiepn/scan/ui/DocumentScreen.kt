@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -229,6 +230,7 @@ fun DocumentScreen(
                     displayNumber = index + 1,
                     canMoveUp = doc.trashedAt == null && !doc.processing && index > 0,
                     canMoveDown = doc.trashedAt == null && !doc.processing && index < pages.lastIndex,
+                    canRotate = doc.trashedAt == null && !doc.processing,
                     canDuplicate = doc.trashedAt == null && !doc.processing,
                     canDelete = doc.trashedAt == null && !doc.processing && pages.size > 1,
                     onMoveUp = {
@@ -241,6 +243,12 @@ fun DocumentScreen(
                         scope.launch {
                             runCatching { repository.movePage(doc.id, page.id, 1) }
                                 .onFailure { onMessage(it.message ?: "Could not move page") }
+                        }
+                    },
+                    onRotate = {
+                        scope.launch {
+                            runCatching { repository.rotatePage(doc.id, page.id) }
+                                .onFailure { onMessage(it.message ?: "Could not rotate page") }
                         }
                     },
                     onDuplicate = {
@@ -411,10 +419,12 @@ private fun PageCard(
     displayNumber: Int,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    canRotate: Boolean,
     canDuplicate: Boolean,
     canDelete: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onRotate: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -436,6 +446,9 @@ private fun PageCard(
                 IconButton(onClick = onMoveDown, enabled = canMoveDown) {
                     Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
                 }
+                IconButton(onClick = onRotate, enabled = canRotate) {
+                    Icon(Icons.Default.RotateRight, contentDescription = "Rotate page clockwise")
+                }
                 IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
                 }
@@ -446,6 +459,7 @@ private fun PageCard(
             FileImage(
                 path = page.imagePath,
                 modifier = Modifier.fillMaxWidth().height(460.dp),
+                rotationDegrees = page.rotationDegrees,
                 contentDescription = "Page $displayNumber"
             )
             if (page.ocrText.isNotBlank()) {

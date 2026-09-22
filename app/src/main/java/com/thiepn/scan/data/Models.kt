@@ -1,5 +1,6 @@
 package com.thiepn.scan.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -40,8 +41,12 @@ data class PageEntity(
     @PrimaryKey val id: String,
     val documentId: String,
     val position: Int,
+    @ColumnInfo(defaultValue = "0")
     val sortKey: Long = (position + 1L) * 1000L,
+    @ColumnInfo(defaultValue = "0")
     val deleted: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val rotationDegrees: Int = 0,
     val imagePath: String,
     val width: Int,
     val height: Int,
