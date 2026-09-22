@@ -208,6 +208,17 @@ fun DocumentScreen(
     }
 
     val doc = document
+    LaunchedEffect(
+        doc?.id,
+        doc?.processing,
+        pages.map { it.ocrLayout to it.ocrScript }
+    ) {
+        if (doc != null && !doc.processing && pages.isNotEmpty()) {
+            runCatching { repository.ensureSpatialOcr(doc.id) }
+                .onFailure { onMessage(it.message ?: "Could not upgrade OCR data") }
+        }
+    }
+
     if (doc == null) {
         Column(Modifier.fillMaxSize().padding(contentPadding).padding(24.dp)) {
             Text("Document not found")
