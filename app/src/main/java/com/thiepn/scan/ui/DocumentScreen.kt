@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -129,6 +130,7 @@ fun DocumentScreen(
     var deletedPagesOpen by remember { mutableStateOf(false) }
     var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
     var cropPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var enhancePageId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val doc = document
     if (doc == null) {
@@ -266,6 +268,7 @@ fun DocumentScreen(
                     canMoveDown = doc.trashedAt == null && !doc.processing && index < pages.lastIndex,
                     canRotate = doc.trashedAt == null && !doc.processing,
                     canCrop = doc.trashedAt == null && !doc.processing,
+                    canEnhance = doc.trashedAt == null && !doc.processing,
                     canDuplicate = doc.trashedAt == null && !doc.processing,
                     canDelete = doc.trashedAt == null && !doc.processing && pages.size > 1,
                     onMoveUp = {
@@ -287,6 +290,7 @@ fun DocumentScreen(
                         }
                     },
                     onCrop = { cropPageId = page.id },
+                    onEnhance = { enhancePageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -308,6 +312,24 @@ fun DocumentScreen(
                 }
             }
         }
+    }
+
+    val enhancePage = enhancePageId?.let { id -> pages.firstOrNull { it.id == id } }
+    if (enhancePage != null) {
+        EnhancementEditorDialog(
+            page = enhancePage,
+            onDismiss = { enhancePageId = null },
+            onSave = { recipe ->
+                enhancePageId = null
+                scope.launch {
+                    runCatching {
+                        repository.updatePageVisualRecipe(doc.id, enhancePage.id, recipe)
+                    }
+                        .onSuccess { onMessage("Enhancement updated") }
+                        .onFailure { onMessage(it.message ?: "Could not update enhancement") }
+                }
+            }
+        )
     }
 
     val cropPage = cropPageId?.let { id -> pages.firstOrNull { it.id == id } }
@@ -555,12 +577,14 @@ private fun PageCard(
     canMoveDown: Boolean,
     canRotate: Boolean,
     canCrop: Boolean,
+    canEnhance: Boolean,
     canDuplicate: Boolean,
     canDelete: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRotate: () -> Unit,
     onCrop: () -> Unit,
+    onEnhance: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -591,6 +615,9 @@ private fun PageCard(
                     IconButton(onClick = onCrop, enabled = canCrop) {
                         Icon(Icons.Default.CropFree, contentDescription = "Crop and perspective")
                     }
+                    IconButton(onClick = onEnhance, enabled = canEnhance) {
+                        Icon(Icons.Default.Tune, contentDescription = "Enhance and filters")
+                    }
                     IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
                     }
@@ -604,6 +631,7 @@ private fun PageCard(
                 modifier = Modifier.fillMaxWidth().height(460.dp),
                 rotationDegrees = page.rotationDegrees,
                 cropQuad = page.cropQuad,
+                visualRecipe = page.visualRecipe,
                 contentDescription = "Page $displayNumber"
             )
             if (page.ocrText.isNotBlank()) {
