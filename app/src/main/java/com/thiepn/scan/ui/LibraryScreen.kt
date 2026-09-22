@@ -796,7 +796,7 @@ private fun DocumentCard(
                 }
 
                 val suggestion = document.suggestedType
-                    ?.let(DocumentType::fromStored)
+                    ?.let { DocumentType.fromStored(it) }
                     ?.takeIf { it != DocumentType.UNSPECIFIED }
                 if (suggestion != null && !selectionMode) {
                     Row(
