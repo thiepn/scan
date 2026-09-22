@@ -182,7 +182,8 @@ class ScanRepository(
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
-        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        dao.updatePageOcr(pageId, "")
+        refreshDocumentSummary(documentId, processing = true)
 
         appScope.launch(Dispatchers.IO) {
             recognizePageAndRefresh(documentId, pageId)
@@ -626,12 +627,15 @@ class ScanRepository(
         return document
     }
 
-    private suspend fun refreshDocumentSummary(documentId: String) {
+    private suspend fun refreshDocumentSummary(
+        documentId: String,
+        processing: Boolean = false
+    ) {
         val pages = orderedPages(dao.getPages(documentId))
         dao.finishProcessing(
             id = documentId,
             text = pages.map { it.ocrText }.filter { it.isNotBlank() }.joinToString("\n\n"),
-            processing = false,
+            processing = processing,
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
         )
