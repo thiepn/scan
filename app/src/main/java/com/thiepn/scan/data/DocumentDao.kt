@@ -730,6 +730,24 @@ interface DocumentDao {
     }
 
     @Transaction
+    suspend fun transferPagesAtomically(
+        targetPages: List<PageEntity>,
+        targetOrder: List<String>,
+        sourcePageIdsToDeactivate: List<String>
+    ) {
+        require(targetPages.isNotEmpty()) { "No pages to transfer" }
+        val targetDocumentId = targetPages.first().documentId
+        require(targetPages.all { it.documentId == targetDocumentId }) {
+            "Transferred pages belong to different target documents"
+        }
+        insertPages(targetPages)
+        replacePageOrder(targetDocumentId, targetOrder)
+        if (sourcePageIdsToDeactivate.isNotEmpty()) {
+            setPagesDeleted(sourcePageIdsToDeactivate, true)
+        }
+    }
+
+    @Transaction
     suspend fun replaceActivePageWithBookPages(
         sourcePageId: String,
         derivedPages: List<PageEntity>,
