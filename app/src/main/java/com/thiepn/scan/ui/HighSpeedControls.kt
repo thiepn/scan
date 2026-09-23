@@ -71,14 +71,14 @@ fun HighSpeedSessionCard(
                 if (session.duplicateCount > 0) {
                     add(
                         "${session.duplicateCount} duplicate" +
-                            if (session.duplicateCount == 1) "" else "s" +
+                            (if (session.duplicateCount == 1) "" else "s") +
                             " suppressed"
                     )
                 }
                 if (session.lowQualityCount > 0) {
                     add(
                         "${session.lowQualityCount} low-quality page" +
-                            if (session.lowQualityCount == 1) "" else "s" +
+                            (if (session.lowQualityCount == 1) "" else "s") +
                             " flagged"
                     )
                 }
