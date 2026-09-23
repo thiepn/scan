@@ -218,6 +218,8 @@ data class PageEntity(
     val height: Int,
     val ocrText: String = "",
     val ocrLayout: String? = null,
+    val ocrBaseLayout: String? = null,
+    val textEditRecipe: String? = null,
     val ocrFingerprint: String? = null,
     val ocrScript: String? = null,
     val sourceSpreadPageId: String? = null,
