@@ -1,0 +1,55 @@
+package com.thiepn.scan.data
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ScanModeProfilesTest {
+    @Test
+    fun everyModeHasAProfileForItself() {
+        ScanMode.entries.forEach { mode ->
+            assertEquals(mode, ScanModeProfiles.forMode(mode).mode)
+        }
+    }
+
+    @Test
+    fun idCardUsesTwoStepHighQualityIdentityDefaults() {
+        val profile = ScanModeProfiles.forMode(ScanMode.ID_CARD)
+
+        assertTrue(profile.requiresTwoSidedCapture)
+        assertEquals(1, profile.pageLimit)
+        assertEquals(DocumentType.ID, profile.defaultDocumentType)
+        assertEquals(ScanPreset.COLOR, profile.defaultPreset)
+        assertEquals(PdfQuality.HIGH, profile.defaultPdfQuality)
+    }
+
+    @Test
+    fun photoModeIsVisualFirstAndDoesNotRunOcr() {
+        val profile = ScanModeProfiles.forMode(ScanMode.PHOTO)
+
+        assertFalse(profile.ocrEnabled)
+        assertEquals(ScanPreset.ORIGINAL, profile.defaultPreset)
+        assertEquals(PdfQuality.HIGH, profile.defaultPdfQuality)
+    }
+
+    @Test
+    fun cardAspectValidationAcceptsNormalCardAndFlagsSquareCapture() {
+        assertNull(
+            ScanModeProfiles.aspectRatioWarning(
+                ScanMode.ID_CARD,
+                width = 1590,
+                height = 1000
+            )
+        )
+        assertNotNull(
+            ScanModeProfiles.aspectRatioWarning(
+                ScanMode.ID_CARD,
+                width = 1000,
+                height = 1000
+            )
+        )
+    }
+}
