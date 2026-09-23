@@ -2942,7 +2942,10 @@ class ScanRepository(
         val importedPdf = pages.all { page ->
             page.id == deterministicPageId(document.id, page.position)
         }
-        return source.takeIf { importedPdf }
+        val hasCleanup = pages.any {
+            !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty()
+        }
+        return source.takeIf { importedPdf && !hasCleanup }
     }
 
     private fun orderedPages(pages: List<PageEntity>): List<PageEntity> =
