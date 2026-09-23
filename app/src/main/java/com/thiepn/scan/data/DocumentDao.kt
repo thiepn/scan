@@ -36,6 +36,9 @@ interface DocumentDao {
     @Query("SELECT * FROM form_templates ORDER BY updatedAt DESC, name COLLATE NOCASE")
     fun observeFormTemplates(): Flow<List<FormTemplateEntity>>
 
+    @Query("SELECT * FROM extraction_schemas ORDER BY updatedAt DESC, name COLLATE NOCASE")
+    fun observeExtractionSchemas(): Flow<List<ExtractionSchemaEntity>>
+
     @Query(
         "SELECT * FROM capture_sessions WHERE documentId = :documentId " +
             "ORDER BY startedAt DESC LIMIT 1"
@@ -107,6 +110,15 @@ interface DocumentDao {
 
     @Query("SELECT * FROM form_templates WHERE normalizedName = :name LIMIT 1")
     suspend fun findFormTemplate(name: String): FormTemplateEntity?
+
+    @Query("SELECT * FROM extraction_schemas ORDER BY updatedAt DESC, name COLLATE NOCASE")
+    suspend fun getExtractionSchemas(): List<ExtractionSchemaEntity>
+
+    @Query("SELECT * FROM extraction_schemas WHERE id = :id LIMIT 1")
+    suspend fun getExtractionSchema(id: String): ExtractionSchemaEntity?
+
+    @Query("SELECT * FROM extraction_schemas WHERE normalizedName = :name LIMIT 1")
+    suspend fun findExtractionSchema(name: String): ExtractionSchemaEntity?
 
     @Query("SELECT * FROM folders ORDER BY parentId, name COLLATE NOCASE")
     suspend fun getFolders(): List<FolderEntity>
@@ -214,6 +226,9 @@ interface DocumentDao {
     suspend fun insertFormTemplate(template: FormTemplateEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExtractionSchema(schema: ExtractionSchemaEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCaptureSession(session: CaptureSessionEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -278,6 +293,9 @@ interface DocumentDao {
 
     @Query("UPDATE pages SET formFillRecipe = :recipe WHERE id = :pageId")
     suspend fun setPageFormFillRecipe(pageId: String, recipe: String?)
+
+    @Query("UPDATE pages SET structuredData = :data WHERE id = :pageId")
+    suspend fun setPageStructuredData(pageId: String, data: String?)
 
     @Query(
         "UPDATE pages SET ocrText = '', ocrLayout = NULL, " +
@@ -533,6 +551,9 @@ interface DocumentDao {
 
     @Query("DELETE FROM form_templates WHERE id = :id")
     suspend fun deleteFormTemplate(id: String)
+
+    @Query("DELETE FROM extraction_schemas WHERE id = :id")
+    suspend fun deleteExtractionSchema(id: String)
 
     @Query("DELETE FROM document_tags WHERE documentId = :documentId AND tagId = :tagId")
     suspend fun deleteDocumentTag(documentId: String, tagId: String)

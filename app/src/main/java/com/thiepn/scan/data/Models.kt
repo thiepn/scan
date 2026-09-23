@@ -128,6 +128,22 @@ data class FormTemplateEntity(
 )
 
 @Entity(
+    tableName = "extraction_schemas",
+    indices = [
+        Index("updatedAt"),
+        Index(value = ["normalizedName"], unique = true)
+    ]
+)
+data class ExtractionSchemaEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val normalizedName: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val definition: String
+)
+
+@Entity(
     tableName = "capture_sessions",
     foreignKeys = [
         ForeignKey(
@@ -239,6 +255,7 @@ data class PageEntity(
     val textEditRecipe: String? = null,
     val markupRecipe: String? = null,
     val formFillRecipe: String? = null,
+    val structuredData: String? = null,
     val ocrFingerprint: String? = null,
     val ocrScript: String? = null,
     val sourceSpreadPageId: String? = null,

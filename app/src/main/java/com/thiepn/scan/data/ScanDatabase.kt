@@ -18,11 +18,12 @@ import kotlinx.coroutines.Dispatchers
         DocumentTagCrossRef::class,
         DocumentFieldEntity::class,
         FormTemplateEntity::class,
+        ExtractionSchemaEntity::class,
         CaptureSessionEntity::class,
         PageProcessingEntity::class,
         PageEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -409,6 +410,32 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE pages ADD COLUMN structuredData TEXT")
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS extraction_schemas (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        normalizedName TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        definition TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_extraction_schemas_updatedAt " +
+                        "ON extraction_schemas(updatedAt)"
+                )
+                connection.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_extraction_schemas_normalizedName " +
+                        "ON extraction_schemas(normalizedName)"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -429,7 +456,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_12_13,
                 MIGRATION_13_14,
                 MIGRATION_14_15,
-                MIGRATION_15_16
+                MIGRATION_15_16,
+                MIGRATION_16_17
             )
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
