@@ -42,6 +42,7 @@ object SpecializedFieldExtractor {
             ScanMode.FORM -> extractForm(text)
             ScanMode.CERTIFICATE -> extractCertificate(text)
             ScanMode.DOCUMENT,
+            ScanMode.BOOK,
             ScanMode.WHITEBOARD,
             ScanMode.PHOTO,
             ScanMode.NOTES -> emptyList()
