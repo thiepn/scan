@@ -5,8 +5,11 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
@@ -24,6 +27,9 @@ class ScanRepository(
     private val searchIndex: OcrSearchIndex,
     private val appScope: CoroutineScope
 ) {
+    private val highSpeedPolicy = HighSpeedProcessingPolicy(context)
+    private val processingQueueMutex = Mutex()
+
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
         val normalized = query.trim()
         if (normalized.isNotBlank()) {
@@ -51,6 +57,11 @@ class ScanRepository(
     fun observeDocumentTags(): Flow<List<DocumentTagCrossRef>> = dao.observeDocumentTags()
     fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>> =
         dao.observeDocumentFields(documentId)
+
+    fun observeLatestCaptureSession(
+        documentId: String
+    ): Flow<CaptureSessionEntity?> =
+        dao.observeLatestCaptureSession(documentId)
 
     fun resumePendingProcessing() {
         appScope.launch(Dispatchers.IO) {
