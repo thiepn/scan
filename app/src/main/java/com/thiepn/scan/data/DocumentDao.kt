@@ -195,13 +195,25 @@ interface DocumentDao {
 
     @Query(
         "UPDATE pages SET bookSplitConfidence = :confidence, " +
-            "bookDewarpStrength = :dewarpStrength WHERE id = :pageId"
+            "bookDewarpStrength = :dewarpStrength, bookReviewResolved = 0 " +
+            "WHERE id = :pageId"
     )
     suspend fun setBookAnalysis(
         pageId: String,
         confidence: Float?,
         dewarpStrength: Float
     )
+
+    @Query(
+        "UPDATE pages SET bookReviewResolved = :resolved WHERE id = :pageId"
+    )
+    suspend fun setBookReviewResolved(pageId: String, resolved: Boolean)
+
+    @Query(
+        "UPDATE pages SET bookSplitConfidence = NULL, bookDewarpStrength = 0, " +
+            "bookReviewResolved = 0 WHERE id = :pageId"
+    )
+    suspend fun clearBookAnalysis(pageId: String)
 
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
