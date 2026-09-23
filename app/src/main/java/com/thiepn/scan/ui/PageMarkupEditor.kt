@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.NormalizedPoint
 import com.thiepn.scan.data.OcrLayoutCodec
+import com.thiepn.scan.data.OcrSearchTerms
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageMarkupItem
 import com.thiepn.scan.data.PageMarkupKind
@@ -92,12 +93,18 @@ fun PageMarkupEditorDialog(
     var verification by remember(page.id) {
         mutableStateOf<RedactionVerification?>(null)
     }
+    var redactionQuery by remember(page.id) { mutableStateOf("") }
     var verifyError by remember(page.id) { mutableStateOf<String?>(null) }
     var verifying by remember(page.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val ocrLayout = remember(page.ocrLayout) {
-        OcrLayoutCodec.decode(page.ocrLayout)
+    val ocrLayout = remember(
+        page.ocrLayout,
+        page.ocrPreRedactionLayout
+    ) {
+        OcrLayoutCodec.decode(
+            page.ocrPreRedactionLayout ?: page.ocrLayout
+        )
     }
     val normalizedRotation = ((page.rotationDegrees % 360) + 360) % 360
     val crop = remember(page.cropQuad) {
@@ -383,6 +390,78 @@ fun PageMarkupEditorDialog(
                         ) {
                             Text("Save drawn ${tool.label.lowercase()}")
                         }
+                    }
+                }
+
+                if (tool == PageMarkupKind.REDACTION && ocrLayout != null) {
+                    HorizontalDivider()
+                    Text(
+                        "OCR-assisted redaction",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    OutlinedTextField(
+                        value = redactionQuery,
+                        onValueChange = { redactionQuery = it.take(240) },
+                        label = { Text("Find text to redact") },
+                        supportingText = {
+                            Text("Supports exact words, quoted phrases, and prefix* search.")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    val matchingWords = remember(
+                        ocrLayout,
+                        redactionQuery
+                    ) {
+                        OcrSearchTerms.matchingWords(
+                            ocrLayout,
+                            redactionQuery
+                        )
+                    }
+                    val uncoveredMatches = matchingWords.filterNot { word ->
+                        val cx = (word.left + word.right) / 2f / sourceWidth
+                        val cy = (word.top + word.bottom) / 2f / sourceHeight
+                        recipe.items.any { item ->
+                            item.kind == PageMarkupKind.REDACTION &&
+                                cx in item.left..item.right &&
+                                cy in item.top..item.bottom
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val additions = uncoveredMatches.map { word ->
+                                PageMarkupItem(
+                                    id = UUID.randomUUID().toString(),
+                                    kind = PageMarkupKind.REDACTION,
+                                    left = word.left.toFloat() / sourceWidth,
+                                    top = word.top.toFloat() / sourceHeight,
+                                    right = word.right.toFloat() / sourceWidth,
+                                    bottom = word.bottom.toFloat() / sourceHeight,
+                                    colorArgb = AndroidColor.BLACK,
+                                    opacity = 1f
+                                )
+                            }
+                            if (additions.isNotEmpty()) {
+                                push(
+                                    recipe.copy(
+                                        items = recipe.items + additions
+                                    )
+                                )
+                            }
+                        },
+                        enabled = uncoveredMatches.isNotEmpty()
+                    ) {
+                        Text(
+                            when {
+                                redactionQuery.isBlank() ->
+                                    "Enter text"
+                                uncoveredMatches.isEmpty() ->
+                                    "No unredacted matches"
+                                else ->
+                                    "Redact ${uncoveredMatches.size} match${if (uncoveredMatches.size == 1) "" else "es"}"
+                            }
+                        )
                     }
                 }
 
