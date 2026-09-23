@@ -36,7 +36,8 @@ class PdfEngine(
         pages: List<PageEntity>,
         destination: File,
         password: String? = null,
-        quality: PdfQuality = PdfQuality.ORIGINAL
+        quality: PdfQuality = PdfQuality.ORIGINAL,
+        includeOcrTextLayer: Boolean = true
     ) {
         require(pages.isNotEmpty()) { "Document has no pages" }
         destination.parentFile?.mkdirs()
@@ -103,20 +104,24 @@ class PdfEngine(
                             stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
                         }
 
-                        val recognition = runCatching {
-                            val geometry = geometryBitmap
-                            if (geometry != null) {
-                                ocr.recognizeDetailed(
-                                    geometry,
-                                    OcrScript.fromStored(pageEntity.ocrScript)
-                                )
-                            } else {
-                                ocr.recognizeDetailed(
-                                    imageFile,
-                                    OcrScript.fromStored(pageEntity.ocrScript)
-                                )
-                            }
-                        }.getOrNull()
+                        val recognition = if (includeOcrTextLayer) {
+                            runCatching {
+                                val geometry = geometryBitmap
+                                if (geometry != null) {
+                                    ocr.recognizeDetailed(
+                                        geometry,
+                                        OcrScript.fromStored(pageEntity.ocrScript)
+                                    )
+                                } else {
+                                    ocr.recognizeDetailed(
+                                        imageFile,
+                                        OcrScript.fromStored(pageEntity.ocrScript)
+                                    )
+                                }
+                            }.getOrNull()
+                        } else {
+                            null
+                        }
 
                         recognition?.words?.forEach { word ->
                             addInvisibleWord(
