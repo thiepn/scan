@@ -350,6 +350,7 @@ object PageMarkupRenderer {
             PageMarkupKind.STAMP -> {
                 paint.style = Paint.Style.STROKE
                 canvas.drawRoundRect(rect, rect.height() * 0.12f, rect.height() * 0.12f, paint)
+                paint.style = Paint.Style.FILL
                 drawTextBox(
                     canvas,
                     rect,
@@ -364,6 +365,7 @@ object PageMarkupRenderer {
                 paint.style = Paint.Style.STROKE
                 paint.alpha = (item.opacity * 150f).roundToInt().coerceIn(0, 255)
                 canvas.drawRect(rect, paint)
+                paint.style = Paint.Style.FILL
                 paint.alpha = (item.opacity * 255f).roundToInt().coerceIn(0, 255)
                 drawTextBox(canvas, rect, item.text, paint, false)
             }

@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.NormalizedPoint
 import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.PageEntity
@@ -52,8 +53,10 @@ import com.thiepn.scan.data.SavedSignatureKind
 import com.thiepn.scan.data.SignaturePathCodec
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 @Composable
 fun PageMarkupEditorDialog(
@@ -97,16 +100,37 @@ fun PageMarkupEditorDialog(
         OcrLayoutCodec.decode(page.ocrLayout)
     }
     val normalizedRotation = ((page.rotationDegrees % 360) + 360) % 360
+    val crop = remember(page.cropQuad) {
+        CropQuadCodec.decode(page.cropQuad)
+    }
+    val cropPoints = crop.points.map {
+        it.x * page.width to it.y * page.height
+    }
+    fun edgeLength(
+        a: Pair<Float, Float>,
+        b: Pair<Float, Float>
+    ): Float = hypot(
+        (a.first - b.first).toDouble(),
+        (a.second - b.second).toDouble()
+    ).toFloat()
+    val unrotatedWidth = max(
+        edgeLength(cropPoints[0], cropPoints[1]),
+        edgeLength(cropPoints[3], cropPoints[2])
+    ).roundToInt().coerceAtLeast(1)
+    val unrotatedHeight = max(
+        edgeLength(cropPoints[0], cropPoints[3]),
+        edgeLength(cropPoints[1], cropPoints[2])
+    ).roundToInt().coerceAtLeast(1)
     val fallbackWidth = if (normalizedRotation == 90 || normalizedRotation == 270) {
-        page.height
+        unrotatedHeight
     } else {
-        page.width
-    }.coerceAtLeast(1)
+        unrotatedWidth
+    }
     val fallbackHeight = if (normalizedRotation == 90 || normalizedRotation == 270) {
-        page.width
+        unrotatedWidth
     } else {
-        page.height
-    }.coerceAtLeast(1)
+        unrotatedHeight
+    }
     val sourceWidth = (ocrLayout?.sourceWidth ?: fallbackWidth).coerceAtLeast(1)
     val sourceHeight = (ocrLayout?.sourceHeight ?: fallbackHeight).coerceAtLeast(1)
 
