@@ -87,7 +87,7 @@ fun LibraryScreen(
     contentPadding: PaddingValues,
     busy: Boolean,
     onOpenDocument: (String) -> Unit,
-    onScan: (ScanMode) -> Unit,
+    onScan: (ScanMode, Boolean) -> Unit,
     onImportPdf: () -> Unit,
     onMessage: (String) -> Unit
 ) {
@@ -490,9 +490,9 @@ fun LibraryScreen(
     if (scanModeOpen) {
         ScanModeChooserDialog(
             onDismiss = { scanModeOpen = false },
-            onChoose = { mode ->
+            onChoose = { mode, rapid ->
                 scanModeOpen = false
-                onScan(mode)
+                onScan(mode, rapid)
             }
         )
     }
