@@ -3848,7 +3848,7 @@ class ScanRepository(
             page.id == deterministicPageId(document.id, page.position) &&
                 PageAssemblyMetadataCodec.decode(
                     page.assemblyMetadata
-                ).isNativeSource()
+                ).kind == AssemblyPageKind.SOURCE
         }
         val hasCleanup = pages.any {
             !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty()
