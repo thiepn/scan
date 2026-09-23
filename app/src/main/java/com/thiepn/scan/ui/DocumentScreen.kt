@@ -113,6 +113,7 @@ fun DocumentScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
+    onRapidScan: (ScanMode) -> Unit,
     onAddPages: (ScanMode) -> Unit,
     onInsertPages: (Int, ScanMode) -> Unit,
     onRetakePage: (String, ScanMode) -> Unit,
@@ -175,6 +176,8 @@ fun DocumentScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val documentFields by repository.observeDocumentFields(documentId)
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val captureSession by repository.observeLatestCaptureSession(documentId)
+        .collectAsStateWithLifecycle(initialValue = null)
     var renameOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var protectOpen by remember { mutableStateOf(false) }
@@ -411,6 +414,32 @@ fun DocumentScreen(
                                 modifier = Modifier.padding(14.dp)
                             )
                         }
+                        captureSession?.takeIf {
+                            it.capturedCount > 0
+                        }?.let { session ->
+                            Spacer(Modifier.height(8.dp))
+                            HighSpeedSessionCard(
+                                session = session,
+                                onRetryFailures = {
+                                    scope.launch {
+                                        runCatching {
+                                            repository.retryHighSpeedCaptureFailures(
+                                                session.id
+                                            )
+                                        }
+                                            .onSuccess {
+                                                onMessage("Retrying failed captured pages")
+                                            }
+                                            .onFailure {
+                                                onMessage(
+                                                    it.message
+                                                        ?: "Could not retry failed pages"
+                                                )
+                                            }
+                                    }
+                                }
+                            )
+                        }
                         if (scanMode == ScanMode.BOOK) {
                             Spacer(Modifier.height(8.dp))
                             Card(Modifier.fillMaxWidth()) {
@@ -498,6 +527,14 @@ fun DocumentScreen(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (scanProfile.supportsHighSpeedCapture) {
+                                OutlinedButton(
+                                    onClick = { onRapidScan(scanMode) },
+                                    enabled = !doc.processing
+                                ) {
+                                    Text("Rapid scan")
+                                }
+                            }
                             OutlinedButton(
                                 onClick = { onAddPages(scanMode) },
                                 enabled = !doc.processing
