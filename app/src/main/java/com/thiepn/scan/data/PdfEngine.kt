@@ -44,17 +44,44 @@ class PdfEngine(
         quality: PdfQuality = PdfQuality.ORIGINAL,
         includeOcrTextLayer: Boolean = true,
         documentTitle: String = "",
-        publishingSettings: PublishingSettings = PublishingSettings()
+        publishingSettings: PublishingSettings = PublishingSettings(),
+        complianceSettings: ComplianceSettings = ComplianceSettings()
     ) {
         require(pages.isNotEmpty()) { "Document has no pages" }
+        val compliance = complianceSettings.normalized()
+        require(password.isNullOrBlank() || compliance.allowsEncryption()) {
+            "PDF/A exports cannot be password encrypted"
+        }
         destination.parentFile?.mkdirs()
 
         PDDocument().use { document ->
+            PdfStandardsSupport.prepareDocument(
+                context = context,
+                document = document,
+                documentTitle = documentTitle,
+                publishing = publishingSettings,
+                compliance = compliance
+            )
+            val tagger = if (
+                compliance.accessibilityMode ==
+                AccessibilityMode.TAGGED_OCR
+            ) {
+                TaggedOcrBuilder(
+                    document,
+                    compliance.documentLanguage
+                )
+            } else {
+                null
+            }
+            val orderedPages = pages.sortedWith(
+                compareBy<PageEntity> { it.sortKey }
+                    .thenBy { it.position }
+            )
             val font = context.assets
                 .open("com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf")
                 .use { PDType0Font.load(document, it) }
 
-            pages.sortedWith(compareBy<PageEntity> { it.sortKey }.thenBy { it.position }).forEach { pageEntity ->
+            orderedPages.forEachIndexed { pageIndex, pageEntity ->
                 val imageFile = File(pageEntity.imagePath)
                 require(imageFile.isFile) { "Missing page image" }
 
@@ -208,16 +235,30 @@ class PdfEngine(
                             null
                         }
 
-                        recognition?.words?.forEach { word ->
-                            addInvisibleWord(
-                                stream = stream,
-                                font = font,
-                                word = word,
-                                sourceWidth = recognition.sourceWidth,
-                                sourceHeight = recognition.sourceHeight,
-                                pageWidth = pdfWidth,
-                                pageHeight = pdfHeight
-                            )
+                        if (recognition != null) {
+                            if (tagger != null) {
+                                tagger.addPage(
+                                    pageKey = pageIndex,
+                                    page = page,
+                                    recognition = recognition,
+                                    stream = stream,
+                                    font = font,
+                                    pageWidth = pdfWidth,
+                                    pageHeight = pdfHeight
+                                )
+                            } else {
+                                recognition.words.forEach { word ->
+                                    addInvisibleWord(
+                                        stream = stream,
+                                        font = font,
+                                        word = word,
+                                        sourceWidth = recognition.sourceWidth,
+                                        sourceHeight = recognition.sourceHeight,
+                                        pageWidth = pdfWidth,
+                                        pageHeight = pdfHeight
+                                    )
+                                }
+                            }
                         }
                     }
                 } finally {
@@ -228,14 +269,15 @@ class PdfEngine(
                 }
             }
 
+            tagger?.finish()
+
             applyPublishing(
                 document = document,
                 font = font,
-                pages = pages.sortedWith(
-                    compareBy<PageEntity> { it.sortKey }.thenBy { it.position }
-                ),
+                pages = orderedPages,
                 documentTitle = documentTitle,
-                settings = publishingSettings
+                settings = publishingSettings,
+                compliance = compliance
             )
 
             if (!password.isNullOrBlank()) {
@@ -271,7 +313,8 @@ class PdfEngine(
                 font = font,
                 pages = pages,
                 documentTitle = documentTitle,
-                settings = settings
+                settings = settings,
+                compliance = ComplianceSettings()
             )
             if (!password.isNullOrBlank()) {
                 protect(document, password)
@@ -346,7 +389,8 @@ class PdfEngine(
         font: PDType0Font,
         pages: List<PageEntity>,
         documentTitle: String,
-        settings: PublishingSettings
+        settings: PublishingSettings,
+        compliance: ComplianceSettings
     ) {
         val normalized = settings.normalized()
         val info = document.documentInformation
@@ -389,7 +433,8 @@ class PdfEngine(
                     pageIndex = index,
                     pageCount = count,
                     metadata = metadata,
-                    settings = normalized
+                    settings = normalized,
+                    compliance = compliance
                 )
             }
         }
@@ -482,7 +527,8 @@ class PdfEngine(
         pageIndex: Int,
         pageCount: Int,
         metadata: PageAssemblyMetadata,
-        settings: PublishingSettings
+        settings: PublishingSettings,
+        compliance: ComplianceSettings
     ) {
         val width = page.mediaBox.width
         val height = page.mediaBox.height
@@ -623,12 +669,32 @@ class PdfEngine(
                 val naturalWidth = runCatching {
                     font.getStringWidth(text) / 1000f * size
                 }.getOrDefault(width * 0.5f)
-                val alpha = PDExtendedGraphicsState().apply {
-                    nonStrokingAlphaConstant = settings.watermarkOpacity
-                }
                 stream.saveGraphicsState()
-                stream.setGraphicsStateParameters(alpha)
-                stream.setNonStrokingColor(0.35f, 0.35f, 0.38f)
+                if (
+                    compliance.pdfStandard ==
+                    PdfStandard.PDF_A_1B
+                ) {
+                    val shade = (
+                        0.92f -
+                            settings.watermarkOpacity * 0.35f
+                        ).coerceIn(0.55f, 0.92f)
+                    stream.setNonStrokingColor(
+                        shade,
+                        shade,
+                        shade
+                    )
+                } else {
+                    val alpha = PDExtendedGraphicsState().apply {
+                        nonStrokingAlphaConstant =
+                            settings.watermarkOpacity
+                    }
+                    stream.setGraphicsStateParameters(alpha)
+                    stream.setNonStrokingColor(
+                        0.35f,
+                        0.35f,
+                        0.38f
+                    )
+                }
                 stream.beginText()
                 stream.setFont(font, size)
                 stream.setTextMatrix(
