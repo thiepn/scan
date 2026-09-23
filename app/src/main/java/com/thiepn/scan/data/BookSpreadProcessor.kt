@@ -89,6 +89,23 @@ object BookSpreadScoring {
     }
 }
 
+object BookReviewPolicy {
+    fun needsManualReview(page: PageEntity): Boolean =
+        !page.deleted &&
+            page.sourceSpreadPageId == null &&
+            !page.bookReviewResolved &&
+            page.width > page.height * 1.12f &&
+            (page.bookSplitConfidence ?: 0f) >= 0.28f
+
+    fun canOpenManualReview(page: PageEntity): Boolean =
+        !page.deleted &&
+            page.sourceSpreadPageId == null &&
+            (
+                page.width > page.height * 1.08f ||
+                    (page.bookSplitConfidence ?: 0f) >= 0.28f
+                )
+}
+
 object BookSpreadProcessor {
     private const val ANALYSIS_EDGE = 760
     private const val MESH_COLUMNS = 32
