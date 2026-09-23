@@ -788,6 +788,7 @@ private fun DocumentCard(
                         rotationDegrees = coverPage.rotationDegrees,
                         cropQuad = coverPage.cropQuad,
                         visualRecipe = coverPage.visualRecipe,
+                        cleanupRecipe = coverPage.cleanupRecipe,
                         contentDescription = "Preview of ${document.title}"
                     )
                     if (document.favorite) {
