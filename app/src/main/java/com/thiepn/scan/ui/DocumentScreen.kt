@@ -1472,6 +1472,7 @@ private fun PageCard(
     canRotate: Boolean,
     canCrop: Boolean,
     canEnhance: Boolean,
+    canCleanup: Boolean,
     canDuplicate: Boolean,
     canReplace: Boolean,
     canRetake: Boolean,
@@ -1487,6 +1488,7 @@ private fun PageCard(
     onRotate: () -> Unit,
     onCrop: () -> Unit,
     onEnhance: () -> Unit,
+    onCleanup: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
@@ -1580,6 +1582,9 @@ private fun PageCard(
                         }
                         IconButton(onClick = onEnhance, enabled = canEnhance) {
                             Icon(Icons.Default.Tune, contentDescription = "Enhance and filters")
+                        }
+                        IconButton(onClick = onCleanup, enabled = canCleanup) {
+                            Icon(Icons.Default.AutoFixHigh, contentDescription = "Smart cleanup")
                         }
                         IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
