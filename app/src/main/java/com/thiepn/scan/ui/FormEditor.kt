@@ -511,13 +511,16 @@ private fun SignaturePad(
     onChange: (List<FormPoint>) -> Unit
 ) {
     val lineColor = MaterialTheme.colorScheme.onSurface
+    var activeStroke by remember { mutableStateOf<List<FormPoint>>(emptyList()) }
+    val renderedPoints = points + activeStroke
+
     Canvas(
         Modifier.fillMaxWidth().height(150.dp)
-            .pointerInput(points) {
+            .pointerInput(points.size) {
                 detectDragGestures(
                     onDragStart = { pos ->
-                        onChange(
-                            points + FormPoint(
+                        activeStroke = listOf(
+                            FormPoint(
                                 pos.x / size.width.toFloat(),
                                 pos.y / size.height.toFloat(),
                                 strokeStart = true
@@ -525,12 +528,19 @@ private fun SignaturePad(
                         )
                     },
                     onDrag = { change, _ ->
-                        onChange(
-                            points + FormPoint(
-                                change.position.x / size.width.toFloat(),
-                                change.position.y / size.height.toFloat()
-                            ).clamped()
-                        )
+                        activeStroke = activeStroke + FormPoint(
+                            change.position.x / size.width.toFloat(),
+                            change.position.y / size.height.toFloat()
+                        ).clamped()
+                    },
+                    onDragEnd = {
+                        if (activeStroke.size >= 2) {
+                            onChange(points + activeStroke)
+                        }
+                        activeStroke = emptyList()
+                    },
+                    onDragCancel = {
+                        activeStroke = emptyList()
                     }
                 )
             }
@@ -540,7 +550,7 @@ private fun SignaturePad(
             style = Stroke(width = 1f * density)
         )
         var previous: FormPoint? = null
-        points.forEach { point ->
+        renderedPoints.forEach { point ->
             if (point.strokeStart) {
                 previous = point
             } else {
