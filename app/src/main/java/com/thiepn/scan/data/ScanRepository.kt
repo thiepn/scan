@@ -145,12 +145,17 @@ class ScanRepository(
             )
         )
 
-        val count = persistHighSpeedBatch(
-            documentId = documentId,
-            sessionId = sessionId,
-            pageUris = pageUris
-        )
-        HighSpeedCaptureResult(documentId, sessionId, count)
+        try {
+            val count = persistHighSpeedBatch(
+                documentId = documentId,
+                sessionId = sessionId,
+                pageUris = pageUris
+            )
+            HighSpeedCaptureResult(documentId, sessionId, count)
+        } catch (error: Throwable) {
+            dao.deleteDocument(documentId)
+            throw error
+        }
     }
 
     suspend fun startHighSpeedCaptureForDocument(
@@ -178,12 +183,22 @@ class ScanRepository(
         )
         dao.setProcessing(documentId, true, now)
 
-        val count = persistHighSpeedBatch(
-            documentId = documentId,
-            sessionId = sessionId,
-            pageUris = pageUris
-        )
-        HighSpeedCaptureResult(documentId, sessionId, count)
+        try {
+            val count = persistHighSpeedBatch(
+                documentId = documentId,
+                sessionId = sessionId,
+                pageUris = pageUris
+            )
+            HighSpeedCaptureResult(documentId, sessionId, count)
+        } catch (error: Throwable) {
+            dao.deleteCaptureSession(sessionId)
+            dao.setProcessing(
+                documentId,
+                false,
+                System.currentTimeMillis()
+            )
+            throw error
+        }
     }
 
     suspend fun appendHighSpeedCapture(
@@ -2187,7 +2202,12 @@ class ScanRepository(
                     continue
                 }
 
-                val completed = processHighSpeedSession(session)
+                val completed = runCatching {
+                    processHighSpeedSession(session)
+                }.getOrElse { error ->
+                    failHighSpeedSession(session, error)
+                    true
+                }
                 if (!completed) return
                 completedAny = true
             }
@@ -2460,6 +2480,42 @@ class ScanRepository(
             pausedReason = null
         )
         return true
+    }
+
+    private suspend fun failHighSpeedSession(
+        session: CaptureSessionEntity,
+        error: Throwable
+    ) {
+        val now = System.currentTimeMillis()
+        dao.getSessionProcessingJobsByStatus(
+            session.id,
+            listOf(
+                PageProcessingStatus.QUEUED.name,
+                PageProcessingStatus.FINGERPRINTING.name,
+                PageProcessingStatus.PROCESSING.name
+            )
+        ).forEach { job ->
+            dao.updateProcessingJobState(
+                pageId = job.pageId,
+                status = PageProcessingStatus.FAILED.name,
+                updatedAt = now,
+                lastError = error.message ?: "Background processing failed"
+            )
+        }
+        dao.refreshCaptureSessionCounters(session.id, now)
+        dao.updateCaptureSessionState(
+            sessionId = session.id,
+            status = CaptureSessionStatus.FAILED.name,
+            updatedAt = now,
+            completedAt = now,
+            pausedReason = null
+        )
+        refreshDocumentSummary(session.documentId)
+        dao.setDocumentsNeedsReview(
+            documentIds = listOf(session.documentId),
+            needsReview = true,
+            updatedAt = now
+        )
     }
 
     private fun scheduleHighSpeedRetry(delayMillis: Long) {
