@@ -12,7 +12,8 @@ import androidx.room.PrimaryKey
         Index("trashedAt"),
         Index("folderId"),
         Index("documentType"),
-        Index("needsReview")
+        Index("needsReview"),
+        Index("scanMode")
     ]
 )
 data class DocumentEntity(
@@ -34,7 +35,9 @@ data class DocumentEntity(
     val documentType: String = DocumentType.UNSPECIFIED.name,
     val suggestedType: String? = null,
     @ColumnInfo(defaultValue = "0")
-    val needsReview: Boolean = false
+    val needsReview: Boolean = false,
+    @ColumnInfo(defaultValue = "'DOCUMENT'")
+    val scanMode: String = ScanMode.DOCUMENT.name
 )
 
 @Entity(
@@ -86,6 +89,28 @@ data class DocumentTagCrossRef(
 )
 
 @Entity(
+    tableName = "document_fields",
+    primaryKeys = ["documentId", "fieldKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = DocumentEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["documentId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("documentId")]
+)
+data class DocumentFieldEntity(
+    val documentId: String,
+    val fieldKey: String,
+    val label: String,
+    val value: String,
+    val confidence: Float,
+    val source: String = "OCR"
+)
+
+@Entity(
     tableName = "pages",
     foreignKeys = [
         ForeignKey(
@@ -123,6 +148,23 @@ data class PageEntity(
 )
 
 enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
+
+enum class ScanMode(val label: String) {
+    DOCUMENT("Document"),
+    RECEIPT("Receipt"),
+    ID_CARD("ID Card"),
+    BUSINESS_CARD("Business Card"),
+    WHITEBOARD("Whiteboard"),
+    FORM("Form"),
+    PHOTO("Photo"),
+    NOTES("Notes"),
+    CERTIFICATE("Certificate");
+
+    companion object {
+        fun fromStored(value: String?): ScanMode =
+            entries.firstOrNull { it.name == value } ?: DOCUMENT
+    }
+}
 
 enum class DocumentType(val label: String) {
     UNSPECIFIED("Unspecified"),
