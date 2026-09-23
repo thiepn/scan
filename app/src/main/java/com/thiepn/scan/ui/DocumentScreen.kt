@@ -513,7 +513,7 @@ fun DocumentScreen(
                                 hasData = structuredTableCount + structuredFieldCount > 0,
                                 onExtract = {
                                     scope.launch {
-                                        runCatching { repository.detectStructuredData(doc.id) }
+                                        runCatching { repository.detectStructuredDataForDocument(doc.id) }
                                             .onSuccess { count ->
                                                 val message = if (count == 0) {
                                                     "No structured data detected"
@@ -1194,7 +1194,7 @@ fun DocumentScreen(
             onRedetect = {
                 scope.launch {
                     runCatching {
-                        repository.detectStructuredData(
+                        repository.detectStructuredDataForPage(
                             doc.id,
                             structuredPage.id
                         )
