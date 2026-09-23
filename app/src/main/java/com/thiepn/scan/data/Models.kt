@@ -153,7 +153,9 @@ data class PageEntity(
     @ColumnInfo(defaultValue = "0")
     val bookDewarpStrength: Float = 0f,
     @ColumnInfo(defaultValue = "0")
-    val preservedBookSource: Boolean = false
+    val preservedBookSource: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val bookReviewResolved: Boolean = false
 )
 
 enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
