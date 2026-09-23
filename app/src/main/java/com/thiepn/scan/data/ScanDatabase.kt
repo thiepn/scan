@@ -19,7 +19,7 @@ import kotlinx.coroutines.Dispatchers
         DocumentFieldEntity::class,
         PageEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -245,6 +245,28 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE pages ADD COLUMN sourceSpreadPageId TEXT")
+                connection.execSQL("ALTER TABLE pages ADD COLUMN bookSide TEXT")
+                connection.execSQL("ALTER TABLE pages ADD COLUMN bookSplitConfidence REAL")
+                connection.execSQL(
+                    "ALTER TABLE pages ADD COLUMN bookDewarpStrength REAL NOT NULL DEFAULT 0"
+                )
+                connection.execSQL(
+                    "ALTER TABLE pages ADD COLUMN preservedBookSource INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_pages_sourceSpreadPageId " +
+                        "ON pages(sourceSpreadPageId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_pages_preservedBookSource " +
+                        "ON pages(preservedBookSource)"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -258,7 +280,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
-                MIGRATION_8_9
+                MIGRATION_8_9,
+                MIGRATION_9_10
             )
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
