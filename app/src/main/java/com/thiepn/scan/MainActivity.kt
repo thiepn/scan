@@ -96,6 +96,37 @@ private fun ScanApp(repository: ScanRepository) {
 
     lateinit var scannerLauncher: ActivityResultLauncher<IntentSenderRequest>
 
+    fun continueRapidCapture(
+        documentId: String,
+        sessionId: String,
+        mode: ScanMode
+    ) {
+        pendingScanAction = PendingScanAction.RapidContinue(
+            documentId = documentId,
+            mode = mode,
+            sessionId = sessionId
+        )
+        startModeScanner(
+            activity = activity,
+            mode = mode,
+            forceSinglePage = false,
+            launcher = scannerLauncher,
+            onFailure = { error ->
+                pendingScanAction = null
+                scope.launch {
+                    runCatching {
+                        repository.finishHighSpeedCaptureSession(sessionId)
+                    }
+                    selectedDocumentId = documentId
+                    snackbar.showSnackbar(
+                        error.message
+                            ?: "Continuous scanner stopped; captured pages were preserved."
+                    )
+                }
+            }
+        )
+    }
+
     fun persistStagedIdFront(path: String, message: String) {
         scope.launch {
             busy = true
@@ -133,11 +164,29 @@ private fun ScanApp(repository: ScanRepository) {
         }
 
         if (result.resultCode != Activity.RESULT_OK) {
-            if (action is PendingScanAction.IdBack) {
-                persistStagedIdFront(
-                    action.stagedFrontPath,
-                    "Front saved. The back can be added later."
-                )
+            when (action) {
+                is PendingScanAction.IdBack -> {
+                    persistStagedIdFront(
+                        action.stagedFrontPath,
+                        "Front saved. The back can be added later."
+                    )
+                }
+
+                is PendingScanAction.RapidContinue -> {
+                    scope.launch {
+                        runCatching {
+                            repository.finishHighSpeedCaptureSession(action.sessionId)
+                        }
+                            .onFailure {
+                                snackbar.showSnackbar(
+                                    it.message ?: "Could not finish rapid capture"
+                                )
+                            }
+                        selectedDocumentId = action.documentId
+                    }
+                }
+
+                else -> Unit
             }
             return@rememberLauncherForActivityResult
         }
@@ -194,23 +243,127 @@ private fun ScanApp(repository: ScanRepository) {
                         busy = true
                         try {
                             if (pages.isNotEmpty() || pdf != null) {
-                                runCatching {
-                                    repository.ingestScan(
-                                        pageUris = pages,
-                                        pdfUri = pdf,
-                                        scanMode = action.mode
-                                    )
-                                }
-                                    .onSuccess { selectedDocumentId = it }
-                                    .onFailure {
+                                if (action.rapid) {
+                                    if (pages.isEmpty()) {
                                         snackbar.showSnackbar(
-                                            it.message ?: "Could not save scan"
+                                            "Rapid capture requires page images"
+                                        )
+                                    } else {
+                                        runCatching {
+                                            repository.ingestHighSpeedCapture(
+                                                pageUris = pages,
+                                                scanMode = action.mode
+                                            )
+                                        }
+                                            .onSuccess { capture ->
+                                                continueRapidCapture(
+                                                    documentId = capture.documentId,
+                                                    sessionId = capture.sessionId,
+                                                    mode = action.mode
+                                                )
+                                            }
+                                            .onFailure {
+                                                snackbar.showSnackbar(
+                                                    it.message
+                                                        ?: "Could not start rapid capture"
+                                                )
+                                            }
+                                    }
+                                } else {
+                                    runCatching {
+                                        repository.ingestScan(
+                                            pageUris = pages,
+                                            pdfUri = pdf,
+                                            scanMode = action.mode
                                         )
                                     }
+                                        .onSuccess { selectedDocumentId = it }
+                                        .onFailure {
+                                            snackbar.showSnackbar(
+                                                it.message ?: "Could not save scan"
+                                            )
+                                        }
+                                }
                             }
                         } finally {
                             busy = false
                         }
+                    }
+                }
+            }
+
+            is PendingScanAction.RapidExistingStart -> {
+                scope.launch {
+                    busy = true
+                    try {
+                        if (pages.isEmpty()) {
+                            snackbar.showSnackbar(
+                                "No page images were returned by the scanner"
+                            )
+                        } else {
+                            runCatching {
+                                repository.startHighSpeedCaptureForDocument(
+                                    documentId = action.documentId,
+                                    pageUris = pages
+                                )
+                            }
+                                .onSuccess { capture ->
+                                    continueRapidCapture(
+                                        documentId = capture.documentId,
+                                        sessionId = capture.sessionId,
+                                        mode = action.mode
+                                    )
+                                }
+                                .onFailure {
+                                    snackbar.showSnackbar(
+                                        it.message ?: "Could not start rapid capture"
+                                    )
+                                }
+                        }
+                    } finally {
+                        busy = false
+                    }
+                }
+            }
+
+            is PendingScanAction.RapidContinue -> {
+                scope.launch {
+                    busy = true
+                    try {
+                        if (pages.isEmpty()) {
+                            repository.finishHighSpeedCaptureSession(
+                                action.sessionId
+                            )
+                            selectedDocumentId = action.documentId
+                        } else {
+                            runCatching {
+                                repository.appendHighSpeedCapture(
+                                    sessionId = action.sessionId,
+                                    pageUris = pages
+                                )
+                            }
+                                .onSuccess {
+                                    continueRapidCapture(
+                                        documentId = action.documentId,
+                                        sessionId = action.sessionId,
+                                        mode = action.mode
+                                    )
+                                }
+                                .onFailure { error ->
+                                    runCatching {
+                                        repository.finishHighSpeedCaptureSession(
+                                            action.sessionId
+                                        )
+                                    }
+                                    selectedDocumentId = action.documentId
+                                    snackbar.showSnackbar(
+                                        error.message
+                                            ?: "Rapid capture stopped; saved pages are processing."
+                                    )
+                                }
+                        }
+                    } finally {
+                        busy = false
                     }
                 }
             }
