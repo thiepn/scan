@@ -242,6 +242,26 @@ interface DocumentDao {
     )
 
     @Query(
+        "UPDATE pages SET ocrText = :text, ocrLayout = :layout, " +
+            "ocrBaseLayout = :baseLayout, textEditRecipe = :textRecipe, " +
+            "markupRecipe = :markupRecipe, ocrFingerprint = :fingerprint, " +
+            "ocrScript = :script WHERE id = :pageId"
+    )
+    suspend fun updatePageSemanticEdits(
+        pageId: String,
+        text: String,
+        layout: String?,
+        baseLayout: String?,
+        textRecipe: String?,
+        markupRecipe: String?,
+        fingerprint: String?,
+        script: String?
+    )
+
+    @Query("UPDATE pages SET markupRecipe = :recipe WHERE id = :pageId")
+    suspend fun setPageMarkupRecipe(pageId: String, recipe: String?)
+
+    @Query(
         "UPDATE pages SET ocrText = '', ocrLayout = NULL, " +
             "ocrBaseLayout = NULL, textEditRecipe = NULL, " +
             "ocrFingerprint = NULL, ocrScript = NULL WHERE id = :pageId"

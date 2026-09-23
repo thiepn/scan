@@ -500,6 +500,7 @@ class ScanRepository(
                 ocrLayout = null,
                 ocrBaseLayout = null,
                 textEditRecipe = null,
+                markupRecipe = null,
                 ocrFingerprint = null,
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
@@ -552,7 +553,7 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page does not belong to this document"
         }
-        requireNoTextEdits(page, "rotating this page")
+        requireNoCoordinateEdits(page, "rotating this page")
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
         invalidateBookAnalysisIfOriginal(document, page)
@@ -581,7 +582,7 @@ class ScanRepository(
             val pages = orderedPages(dao.getPages(documentId))
             val selected = pages.filter { it.id in requested }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
-            selected.forEach { requireNoTextEdits(it, "rotating selected pages") }
+            selected.forEach { requireNoCoordinateEdits(it, "rotating selected pages") }
 
             selected.forEach { page ->
                 dao.setPageRotation(page.id, PageRotation.clockwise(page.rotationDegrees))
@@ -627,7 +628,7 @@ class ScanRepository(
         val page = dao.getPage(pageId)
             ?: throw IllegalArgumentException("Page not found")
         require(page.documentId == documentId) { "Page does not belong to this document" }
-        requireNoTextEdits(page, "changing crop or perspective")
+        requireNoCoordinateEdits(page, "changing crop or perspective")
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
@@ -699,7 +700,7 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page does not belong to this document"
         }
-        requireNoTextEdits(page, "changing smart cleanup")
+        requireNoCoordinateEdits(page, "changing smart cleanup")
 
         val encoded = PageCleanupRecipeCodec.encode(recipe)
         if (encoded == page.cleanupRecipe) return@withContext
@@ -745,35 +746,69 @@ class ScanRepository(
         val base = OcrLayoutCodec.decode(baseEncoded)
             ?: throw IllegalStateException("Recognize this page before editing its text")
         val normalized = recipe.normalized()
+        val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
+        val edited = PageMarkupOcr.applyRedactions(
+            OcrTextEditEngine.apply(base, normalized),
+            markup
+        )
+        val needsBase = !normalized.isEmpty() || markup.hasRedactions()
 
-        if (normalized.isEmpty()) {
-            dao.updatePageTextEdits(
-                pageId = pageId,
-                text = base.text,
-                layout = OcrLayoutCodec.encode(base),
-                baseLayout = null,
-                recipe = null
-            )
-            searchIndex.upsertPage(
-                documentId = documentId,
-                pageId = pageId,
-                content = base.text
-            )
-        } else {
-            val edited = OcrTextEditEngine.apply(base, normalized)
-            dao.updatePageTextEdits(
-                pageId = pageId,
-                text = edited.text,
-                layout = OcrLayoutCodec.encode(edited),
-                baseLayout = baseEncoded,
-                recipe = PageTextEditRecipeCodec.encode(normalized)
-            )
-            searchIndex.upsertPage(
-                documentId = documentId,
-                pageId = pageId,
-                content = edited.text
-            )
+        dao.updatePageSemanticEdits(
+            pageId = pageId,
+            text = edited.text,
+            layout = OcrLayoutCodec.encode(edited),
+            baseLayout = if (needsBase) baseEncoded else null,
+            textRecipe = PageTextEditRecipeCodec.encode(normalized),
+            markupRecipe = page.markupRecipe,
+            fingerprint = page.ocrFingerprint,
+            script = page.ocrScript
+        )
+        if (edited.text.isBlank()) searchIndex.deletePage(pageId) else
+            searchIndex.upsertPage(documentId, pageId, edited.text)
+        refreshDocumentSummary(documentId)
+    }
+
+    suspend fun updatePageMarkup(
+        documentId: String,
+        pageId: String,
+        recipe: PageMarkupRecipe
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId) ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
         }
+
+        val normalized = recipe.normalized()
+        val encodedMarkup = PageMarkupRecipeCodec.encode(normalized)
+        val baseEncoded = page.ocrBaseLayout ?: page.ocrLayout
+        val base = OcrLayoutCodec.decode(baseEncoded)
+        val textRecipe = PageTextEditRecipeCodec.decode(page.textEditRecipe)
+
+        if (base == null) {
+            dao.setPageMarkupRecipe(pageId, encodedMarkup)
+            dao.touchDocument(documentId, System.currentTimeMillis())
+            return@withContext
+        }
+
+        val edited = PageMarkupOcr.applyRedactions(
+            OcrTextEditEngine.apply(base, textRecipe),
+            normalized
+        )
+        val needsBase = !textRecipe.isEmpty() || normalized.hasRedactions()
+        dao.updatePageSemanticEdits(
+            pageId = pageId,
+            text = edited.text,
+            layout = OcrLayoutCodec.encode(edited),
+            baseLayout = if (needsBase) baseEncoded else null,
+            textRecipe = page.textEditRecipe,
+            markupRecipe = encodedMarkup,
+            fingerprint = page.ocrFingerprint,
+            script = page.ocrScript
+        )
+        if (edited.text.isBlank()) searchIndex.deletePage(pageId) else
+            searchIndex.upsertPage(documentId, pageId, edited.text)
         refreshDocumentSummary(documentId)
     }
 
@@ -792,7 +827,7 @@ class ScanRepository(
         require(selected.size == requested.size) {
             "One or more selected pages are unavailable"
         }
-        selected.forEach { requireNoTextEdits(it, "auto-cleaning selected pages") }
+        selected.forEach { requireNoCoordinateEdits(it, "auto-cleaning selected pages") }
 
         var applied = 0
         val changed = mutableListOf<PageEntity>()
@@ -1003,9 +1038,11 @@ class ScanRepository(
                     PageRotation.normalize(page.rotationDegrees) != 0 ||
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
                         !page.cleanupRecipe.isNullOrBlank()
+                val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
                 val hasTextEdits =
                     !page.textEditRecipe.isNullOrBlank() ||
                         !page.ocrBaseLayout.isNullOrBlank()
+                val hasSemanticEdits = hasTextEdits || markup.hasRedactions()
 
                 when {
                     semanticGeometryChanged -> {
@@ -1015,19 +1052,22 @@ class ScanRepository(
                         searchIndex.deletePage(page.id)
                     }
 
-                    hasTextEdits -> {
+                    hasSemanticEdits -> {
                         val base = OcrLayoutCodec.decode(page.ocrBaseLayout)
                         if (base == null) {
                             requiresOcr += page.id
                             dao.clearPageOcr(page.id)
                             searchIndex.deletePage(page.id)
                         } else {
-                            dao.updatePageTextEdits(
+                            dao.updatePageSemanticEdits(
                                 pageId = page.id,
                                 text = base.text,
                                 layout = OcrLayoutCodec.encode(base),
                                 baseLayout = null,
-                                recipe = null
+                                textRecipe = null,
+                                markupRecipe = null,
+                                fingerprint = page.ocrFingerprint,
+                                script = page.ocrScript
                             )
                             searchIndex.upsertPage(
                                 documentId = documentId,
@@ -1042,6 +1082,7 @@ class ScanRepository(
                 dao.setPageCropQuad(page.id, null)
                 dao.setPageVisualRecipe(page.id, null)
                 dao.setPageCleanupRecipe(page.id, null)
+                dao.setPageMarkupRecipe(page.id, null)
             }
 
             if (requiresOcr.isEmpty()) {
@@ -1249,7 +1290,7 @@ class ScanRepository(
             page.ocrFingerprint == fingerprint &&
             page.ocrScript == script.name
         ) {
-            OcrLayoutCodec.decode(page.ocrLayout)?.let {
+            OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)?.let {
                 return RecognizedPage(it, fingerprint)
             }
         }
@@ -1282,19 +1323,27 @@ class ScanRepository(
         pageId: String,
         recognition: RecognizedPage
     ) {
-        val result = recognition.result
-        dao.updatePageOcrV2(
+        val base = recognition.result
+        val page = dao.getPage(pageId)
+        val textRecipe = PageTextEditRecipeCodec.decode(page?.textEditRecipe)
+        val markup = PageMarkupRecipeCodec.decode(page?.markupRecipe)
+        val result = PageMarkupOcr.applyRedactions(
+            OcrTextEditEngine.apply(base, textRecipe),
+            markup
+        )
+        val needsBase = !textRecipe.isEmpty() || markup.hasRedactions()
+        dao.updatePageSemanticEdits(
             pageId = pageId,
             text = result.text,
             layout = OcrLayoutCodec.encode(result),
+            baseLayout = if (needsBase) OcrLayoutCodec.encode(base) else null,
+            textRecipe = PageTextEditRecipeCodec.encode(textRecipe),
+            markupRecipe = PageMarkupRecipeCodec.encode(markup),
             fingerprint = recognition.fingerprint,
             script = result.script.name
         )
-        searchIndex.upsertPage(
-            documentId = documentId,
-            pageId = pageId,
-            content = result.text
-        )
+        if (result.text.isBlank()) searchIndex.deletePage(pageId) else
+            searchIndex.upsertPage(documentId, pageId, result.text)
     }
 
     suspend fun analyzeBookSpread(
@@ -1372,7 +1421,7 @@ class ScanRepository(
             require(!page.deleted && page.sourceSpreadPageId == null) {
                 "Only an active original spread can be split"
             }
-            requireNoTextEdits(page, "splitting this book page")
+            requireNoCoordinateEdits(page, "splitting this book page")
 
             val working = prepareBookWorkingSource(page)
             val analysis = try {
@@ -1468,7 +1517,7 @@ class ScanRepository(
         val derived = dao.getBookDerivedPages(sourcePageId)
         require(derived.isNotEmpty()) { "No derived book pages found" }
         derived.forEach {
-            requireNoTextEdits(it, "restoring the original book spread")
+            requireNoCoordinateEdits(it, "restoring the original book spread")
         }
         val active = orderedPages(dao.getPages(documentId))
         val derivedIds = derived.map { it.id }.toSet()
@@ -1541,7 +1590,8 @@ class ScanRepository(
                 page.documentId != documentId ||
                 page.sourceSpreadPageId != null ||
                 page.bookReviewResolved ||
-                !page.textEditRecipe.isNullOrBlank()
+                !page.textEditRecipe.isNullOrBlank() ||
+                !page.markupRecipe.isNullOrBlank()
             ) {
                 return@forEach
             }
@@ -1584,7 +1634,7 @@ class ScanRepository(
         require(!source.deleted && source.sourceSpreadPageId == null) {
             "Book source page is no longer available"
         }
-        requireNoTextEdits(source, "splitting this book page")
+        requireNoCoordinateEdits(source, "splitting this book page")
         val active = orderedPages(dao.getPages(documentId))
         val sourceIndex = active.indexOfFirst { it.id == sourcePageId }
         require(sourceIndex >= 0) { "Book source page is no longer active" }
@@ -1879,8 +1929,11 @@ class ScanRepository(
         val oldProfile = ScanModeProfiles.forMode(oldMode)
         val profile = ScanModeProfiles.forMode(scanMode)
         val pages = orderedPages(dao.getPages(documentId))
-        if (!profile.ocrEnabled || scanMode == ScanMode.BOOK) {
+        if (!profile.ocrEnabled) {
             pages.forEach { requireNoTextEdits(it, "changing to this scan mode") }
+        }
+        if (scanMode == ScanMode.BOOK) {
+            pages.forEach { requireNoCoordinateEdits(it, "changing to Book mode") }
         }
         dao.setDocumentScanMode(
             id = documentId,
@@ -2162,7 +2215,8 @@ class ScanRepository(
         val hasVisualEdits = pages.any {
             !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                 !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
         }
 
         if (
@@ -2248,7 +2302,8 @@ class ScanRepository(
             val hasVisualEdits = selectedPages.any {
                 !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                     !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                    !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                    !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
             }
             if (source != null && !hasGeometryEdits && !hasVisualEdits) {
                 pdfEngine.extractPages(
@@ -2298,7 +2353,8 @@ class ScanRepository(
         val hasVisualEdits = selected.any {
             !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                 !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
         }
 
         runCatching {
@@ -2382,7 +2438,8 @@ class ScanRepository(
                     val hasVisualEdits = pages.any {
                         !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                             !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                            !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                            !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
                     }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
@@ -2839,6 +2896,13 @@ class ScanRepository(
     ) {
         require(page.textEditRecipe.isNullOrBlank()) {
             "Revert OCR text edits before $action"
+        }
+    }
+
+    private fun requireNoCoordinateEdits(page: PageEntity, action: String) {
+        requireNoTextEdits(page, action)
+        require(page.markupRecipe.isNullOrBlank()) {
+            "Revert page markup before $action"
         }
     }
 
