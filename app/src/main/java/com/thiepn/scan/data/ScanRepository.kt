@@ -707,6 +707,342 @@ class ScanRepository(
         )
     }
 
+    suspend fun analyzeBookSpread(
+        documentId: String,
+        pageId: String
+    ): BookSpreadAnalysis = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+            "Switch this document to Book mode first"
+        }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page is not active in this document"
+        }
+        require(page.sourceSpreadPageId == null) {
+            "This page is already derived from a book spread"
+        }
+
+        val working = prepareBookWorkingSource(page)
+        try {
+            BookSpreadProcessor.analyze(working.first).also { analysis ->
+                dao.setBookAnalysis(
+                    pageId = page.id,
+                    confidence = analysis.confidence,
+                    dewarpStrength = analysis.dewarpStrength
+                )
+            }
+        } finally {
+            if (working.second) working.first.delete()
+        }
+    }
+
+    suspend fun splitBookPage(
+        documentId: String,
+        pageId: String,
+        dewarp: Boolean = true,
+        force: Boolean = true
+    ): BookSpreadAnalysis = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        require(ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+            "Switch this document to Book mode first"
+        }
+
+        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        try {
+            val page = dao.getPage(pageId)
+                ?: throw IllegalArgumentException("Page not found")
+            require(!page.deleted && page.sourceSpreadPageId == null) {
+                "Only an active original spread can be split"
+            }
+
+            val working = prepareBookWorkingSource(page)
+            val analysis = try {
+                BookSpreadProcessor.analyze(working.first)
+            } finally {
+                if (working.second) working.first.delete()
+            }
+            require(force || analysis.likelySpread) {
+                "Spread confidence is too low; review the page before splitting"
+            }
+
+            val effective = if (force && !analysis.likelySpread) {
+                analysis.copy(
+                    likelySpread = true,
+                    autoSplitRecommended = false,
+                    gutterX = if (analysis.confidence < 0.20f) 0.5f else analysis.gutterX,
+                    dewarpStrength = if (dewarp && analysis.dewarpStrength <= 0f) {
+                        0.025f
+                    } else {
+                        analysis.dewarpStrength
+                    },
+                    reason = "Manual spread split"
+                )
+            } else {
+                analysis
+            }
+
+            dao.setBookAnalysis(
+                pageId = pageId,
+                confidence = effective.confidence,
+                dewarpStrength = if (dewarp) effective.dewarpStrength else 0f
+            )
+            splitBookPageInternal(
+                documentId = documentId,
+                sourcePageId = pageId,
+                analysis = effective,
+                dewarp = dewarp
+            )
+            recognizeDocument(documentId)
+            effective
+        } catch (error: Throwable) {
+            dao.setProcessing(documentId, false, System.currentTimeMillis())
+            throw error
+        }
+    }
+
+    suspend fun autoProcessBookSpreads(documentId: String): Int =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            require(ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+                "Switch this document to Book mode first"
+            }
+            val candidates = orderedPages(dao.getPages(documentId))
+                .filter { it.sourceSpreadPageId == null }
+            dao.setProcessing(documentId, true, System.currentTimeMillis())
+            try {
+                processBookPagesAndRecognize(
+                    documentId = documentId,
+                    pageIds = candidates.map { it.id }
+                )
+                val after = dao.getPreservedBookSources(documentId).size
+                after
+            } catch (error: Throwable) {
+                dao.setProcessing(documentId, false, System.currentTimeMillis())
+                throw error
+            }
+        }
+
+    suspend fun restoreBookSpread(
+        documentId: String,
+        sourcePageId: String
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val source = dao.getPage(sourcePageId)
+            ?: throw IllegalArgumentException("Original spread not found")
+        require(
+            source.documentId == documentId &&
+                source.deleted &&
+                source.preservedBookSource
+        ) {
+            "Original spread is not available"
+        }
+
+        val derived = dao.getBookDerivedPages(sourcePageId)
+        require(derived.isNotEmpty()) { "No derived book pages found" }
+        val active = orderedPages(dao.getPages(documentId))
+        val derivedIds = derived.map { it.id }.toSet()
+        val insertionIndex = active.indexOfFirst { it.id in derivedIds }
+            .let { if (it >= 0) it else active.size }
+        val newOrder = active
+            .filterNot { it.id in derivedIds }
+            .map { it.id }
+            .toMutableList()
+            .apply { add(insertionIndex.coerceIn(0, size), sourcePageId) }
+
+        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        try {
+            dao.restoreBookSource(
+                sourcePageId = sourcePageId,
+                derivedPageIds = derived.map { it.id },
+                orderedPageIds = newOrder
+            )
+            derived.forEach { page ->
+                searchIndex.deletePage(page.id)
+                File(page.imagePath).delete()
+            }
+            dao.clearPageOcr(sourcePageId)
+            searchIndex.deletePage(sourcePageId)
+            recognizeDocument(documentId)
+        } catch (error: Throwable) {
+            dao.setProcessing(documentId, false, System.currentTimeMillis())
+            throw error
+        }
+    }
+
+    private suspend fun processBookDocument(documentId: String) {
+        val pageIds = orderedPages(dao.getPages(documentId))
+            .filter { it.sourceSpreadPageId == null }
+            .map { it.id }
+        processBookPagesAndRecognize(documentId, pageIds)
+    }
+
+    private suspend fun processBookPagesAndRecognize(
+        documentId: String,
+        pageIds: List<String>
+    ) {
+        val document = dao.getDocument(documentId) ?: return
+        if (ScanMode.fromStored(document.scanMode) != ScanMode.BOOK) {
+            recognizePagesAndRefresh(documentId, pageIds)
+            return
+        }
+
+        pageIds.distinct().forEach { pageId ->
+            val page = dao.getPage(pageId) ?: return@forEach
+            if (
+                page.deleted ||
+                page.documentId != documentId ||
+                page.sourceSpreadPageId != null
+            ) {
+                return@forEach
+            }
+
+            val working = prepareBookWorkingSource(page)
+            val analysis = try {
+                BookSpreadProcessor.analyze(working.first)
+            } finally {
+                if (working.second) working.first.delete()
+            }
+            dao.setBookAnalysis(
+                pageId = page.id,
+                confidence = analysis.confidence,
+                dewarpStrength = analysis.dewarpStrength
+            )
+
+            if (analysis.autoSplitRecommended) {
+                runCatching {
+                    splitBookPageInternal(
+                        documentId = documentId,
+                        sourcePageId = page.id,
+                        analysis = analysis,
+                        dewarp = true
+                    )
+                }
+            }
+        }
+
+        recognizeDocument(documentId)
+    }
+
+    private suspend fun splitBookPageInternal(
+        documentId: String,
+        sourcePageId: String,
+        analysis: BookSpreadAnalysis,
+        dewarp: Boolean
+    ) {
+        val source = dao.getPage(sourcePageId)
+            ?: throw IllegalArgumentException("Book source page not found")
+        require(!source.deleted && source.sourceSpreadPageId == null) {
+            "Book source page is no longer available"
+        }
+        val active = orderedPages(dao.getPages(documentId))
+        val sourceIndex = active.indexOfFirst { it.id == sourcePageId }
+        require(sourceIndex >= 0) { "Book source page is no longer active" }
+
+        val nextPosition = dao.getMaxPagePosition(documentId) + 1
+        val nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
+        val leftId = UUID.randomUUID().toString()
+        val rightId = UUID.randomUUID().toString()
+        val leftFile = files.pageFile(documentId, leftId)
+        val rightFile = files.pageFile(documentId, rightId)
+
+        val working = prepareBookWorkingSource(source)
+        val rendered = try {
+            BookSpreadProcessor.renderSplitPages(
+                sourceFile = working.first,
+                leftDestination = leftFile,
+                rightDestination = rightFile,
+                analysis = analysis,
+                dewarp = dewarp
+            )
+        } finally {
+            if (working.second) working.first.delete()
+        }
+
+        try {
+            val pages = rendered.sortedBy { it.side.ordinal }.mapIndexed { index, result ->
+                val crop = PageBoundaryDetector.detect(result.file)
+                PageEntity(
+                    id = if (result.side == BookPageSide.LEFT) leftId else rightId,
+                    documentId = documentId,
+                    position = nextPosition + index,
+                    sortKey = nextSortKey + index * 1000L,
+                    deleted = false,
+                    rotationDegrees = 0,
+                    cropQuad = CropQuadCodec.encode(crop),
+                    visualRecipe = source.visualRecipe,
+                    imagePath = result.file.absolutePath,
+                    width = result.width,
+                    height = result.height,
+                    ocrText = "",
+                    ocrLayout = null,
+                    ocrFingerprint = null,
+                    ocrScript = null,
+                    sourceSpreadPageId = sourcePageId,
+                    bookSide = result.side.name,
+                    bookSplitConfidence = analysis.confidence,
+                    bookDewarpStrength = result.dewarpStrength,
+                    preservedBookSource = false
+                )
+            }
+
+            val replacementIds = pages
+                .sortedBy { BookPageSide.valueOf(requireNotNull(it.bookSide)).ordinal }
+                .map { it.id }
+            val newOrder = active.map { it.id }.toMutableList().apply {
+                removeAt(sourceIndex)
+                addAll(sourceIndex, replacementIds)
+            }
+
+            dao.replaceActivePageWithBookPages(
+                sourcePageId = sourcePageId,
+                derivedPages = pages,
+                orderedPageIds = newOrder
+            )
+            searchIndex.deletePage(sourcePageId)
+        } catch (error: Throwable) {
+            leftFile.delete()
+            rightFile.delete()
+            throw error
+        }
+    }
+
+    private fun prepareBookWorkingSource(page: PageEntity): Pair<File, Boolean> {
+        val original = File(page.imagePath)
+        if (
+            CropQuadCodec.decode(page.cropQuad).isFullFrame() &&
+            PageRotation.normalize(page.rotationDegrees) == 0
+        ) {
+            return original to false
+        }
+
+        val bitmap = PageGeometryRenderer.renderFile(
+            file = original,
+            cropQuad = CropQuadCodec.decode(page.cropQuad),
+            rotationDegrees = page.rotationDegrees,
+            maxLongEdge = 3600
+        )
+        val temporary = File.createTempFile(
+            "book-source-",
+            ".jpg",
+            context.cacheDir
+        )
+        return try {
+            temporary.outputStream().use { output ->
+                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, output)) {
+                    "Unable to prepare edited book page"
+                }
+            }
+            temporary to true
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     suspend fun createFolder(
         name: String,
         parentId: String? = null
