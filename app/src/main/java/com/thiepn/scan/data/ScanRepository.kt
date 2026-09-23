@@ -2161,6 +2161,295 @@ class ScanRepository(
         output
     }
 
+    private fun kickProcessingQueue() {
+        appScope.launch(Dispatchers.IO) {
+            processingQueueMutex.withLock {
+                drainHighSpeedProcessingQueue()
+            }
+        }
+    }
+
+    private suspend fun drainHighSpeedProcessingQueue() {
+        while (true) {
+            val sessions = dao.getCaptureSessionsByStatus(
+                listOf(
+                    CaptureSessionStatus.PROCESSING.name,
+                    CaptureSessionStatus.PAUSED.name,
+                    CaptureSessionStatus.INTERRUPTED.name
+                )
+            )
+            if (sessions.isEmpty()) return
+
+            var completedAny = false
+            for (snapshot in sessions) {
+                val session = dao.getCaptureSession(snapshot.id) ?: continue
+                if (session.status == CaptureSessionStatus.CAPTURING.name) {
+                    continue
+                }
+
+                val completed = processHighSpeedSession(session)
+                if (!completed) return
+                completedAny = true
+            }
+
+            if (!completedAny) return
+        }
+    }
+
+    private suspend fun processHighSpeedSession(
+        session: CaptureSessionEntity
+    ): Boolean {
+        val document = dao.getDocument(session.documentId) ?: return true
+        val mode = ScanMode.fromStored(session.scanMode)
+        val budget = highSpeedPolicy.currentBudget(mode)
+
+        if (!budget.canProcess) {
+            val now = System.currentTimeMillis()
+            dao.updateCaptureSessionState(
+                sessionId = session.id,
+                status = CaptureSessionStatus.PAUSED.name,
+                updatedAt = now,
+                completedAt = null,
+                pausedReason = budget.pausedReason
+            )
+            scheduleHighSpeedRetry(budget.retryDelayMillis)
+            return false
+        }
+
+        if (
+            session.status == CaptureSessionStatus.PAUSED.name ||
+            session.status == CaptureSessionStatus.INTERRUPTED.name
+        ) {
+            dao.updateCaptureSessionState(
+                sessionId = session.id,
+                status = CaptureSessionStatus.PROCESSING.name,
+                updatedAt = System.currentTimeMillis(),
+                completedAt = null,
+                pausedReason = null
+            )
+        }
+
+        val fingerprintStatuses = listOf(
+            PageProcessingStatus.QUEUED.name,
+            PageProcessingStatus.FINGERPRINTING.name,
+            PageProcessingStatus.PROCESSING.name
+        )
+        val jobs = dao.getSessionProcessingJobsByStatus(
+            session.id,
+            fingerprintStatuses
+        )
+
+        jobs.filter {
+            it.fingerprintHash == null &&
+                it.status != PageProcessingStatus.COMPLETE.name &&
+                it.status != PageProcessingStatus.DUPLICATE.name
+        }.forEach { job ->
+            val now = System.currentTimeMillis()
+            dao.updateProcessingJobState(
+                pageId = job.pageId,
+                status = PageProcessingStatus.FINGERPRINTING.name,
+                updatedAt = now,
+                attemptIncrement = 1
+            )
+
+            val page = dao.getPage(job.pageId)
+            if (page == null) {
+                dao.updateProcessingJobState(
+                    pageId = job.pageId,
+                    status = PageProcessingStatus.FAILED.name,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = "Captured page is missing"
+                )
+                return@forEach
+            }
+
+            val fingerprint = runCatching {
+                CaptureFrameAnalyzer.analyze(File(page.imagePath))
+            }.getOrElse { error ->
+                dao.updateProcessingJobState(
+                    pageId = job.pageId,
+                    status = PageProcessingStatus.FAILED.name,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = error.message ?: "Capture analysis failed"
+                )
+                return@forEach
+            }
+
+            val duplicate = dao.getReferenceFingerprints(document.id)
+                .firstOrNull { reference ->
+                    reference.pageId != job.pageId &&
+                        CaptureFrameAnalyzer.isLikelyDuplicate(
+                            candidate = fingerprint,
+                            referenceHashHex = reference.fingerprintHash,
+                            referenceMeanLuma = reference.meanLuma,
+                            referenceEdgeEnergy = reference.edgeEnergy,
+                            referenceAspectRatio = reference.aspectRatio
+                        )
+                }
+
+            if (duplicate != null) {
+                dao.updateProcessingFingerprint(
+                    pageId = job.pageId,
+                    status = PageProcessingStatus.DUPLICATE.name,
+                    fingerprintHash = fingerprint.hashHex,
+                    meanLuma = fingerprint.meanLuma,
+                    edgeEnergy = fingerprint.edgeEnergy,
+                    aspectRatio = fingerprint.aspectRatio,
+                    qualityScore = fingerprint.qualityScore,
+                    duplicateOfPageId = duplicate.pageId,
+                    updatedAt = System.currentTimeMillis()
+                )
+                searchIndex.deletePage(job.pageId)
+                File(page.imagePath).delete()
+                dao.deletePageRecord(job.pageId)
+            } else {
+                dao.updateProcessingFingerprint(
+                    pageId = job.pageId,
+                    status = PageProcessingStatus.PROCESSING.name,
+                    fingerprintHash = fingerprint.hashHex,
+                    meanLuma = fingerprint.meanLuma,
+                    edgeEnergy = fingerprint.edgeEnergy,
+                    aspectRatio = fingerprint.aspectRatio,
+                    qualityScore = fingerprint.qualityScore,
+                    duplicateOfPageId = null,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        }
+
+        dao.refreshCaptureSessionCounters(
+            session.id,
+            System.currentTimeMillis()
+        )
+
+        val accepted = dao.getSessionProcessingJobsByStatus(
+            session.id,
+            listOf(PageProcessingStatus.PROCESSING.name)
+        )
+        if (accepted.isNotEmpty()) {
+            val chunks = if (mode == ScanMode.BOOK) {
+                listOf(accepted)
+            } else {
+                accepted.chunked(budget.maxPagesPerChunk)
+            }
+
+            for ((index, chunk) in chunks.withIndex()) {
+                val currentBudget = highSpeedPolicy.currentBudget(mode)
+                if (!currentBudget.canProcess) {
+                    dao.updateCaptureSessionState(
+                        sessionId = session.id,
+                        status = CaptureSessionStatus.PAUSED.name,
+                        updatedAt = System.currentTimeMillis(),
+                        completedAt = null,
+                        pausedReason = currentBudget.pausedReason
+                    )
+                    scheduleHighSpeedRetry(currentBudget.retryDelayMillis)
+                    return false
+                }
+
+                val pageIds = chunk.mapNotNull { job ->
+                    dao.getPage(job.pageId)?.id
+                }
+                if (pageIds.isEmpty()) {
+                    chunk.forEach { job ->
+                        dao.updateProcessingJobState(
+                            pageId = job.pageId,
+                            status = PageProcessingStatus.FAILED.name,
+                            updatedAt = System.currentTimeMillis(),
+                            lastError = "Captured page is unavailable"
+                        )
+                    }
+                    continue
+                }
+
+                dao.setProcessing(
+                    document.id,
+                    true,
+                    System.currentTimeMillis()
+                )
+                runCatching {
+                    if (mode == ScanMode.BOOK) {
+                        processBookPagesAndRecognize(document.id, pageIds)
+                    } else {
+                        recognizePagesAndRefresh(document.id, pageIds)
+                    }
+                }
+                    .onSuccess {
+                        chunk.forEach { job ->
+                            dao.updateProcessingJobState(
+                                pageId = job.pageId,
+                                status = PageProcessingStatus.COMPLETE.name,
+                                updatedAt = System.currentTimeMillis(),
+                                lastError = null
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        chunk.forEach { job ->
+                            dao.updateProcessingJobState(
+                                pageId = job.pageId,
+                                status = PageProcessingStatus.FAILED.name,
+                                updatedAt = System.currentTimeMillis(),
+                                lastError = error.message ?: "Page processing failed"
+                            )
+                        }
+                    }
+
+                if (index < chunks.lastIndex) {
+                    delay(25L)
+                }
+            }
+        }
+
+        dao.refreshCaptureSessionCounters(
+            session.id,
+            System.currentTimeMillis()
+        )
+        val latest = dao.getCaptureSession(session.id) ?: return true
+        val remaining = dao.getSessionProcessingJobsByStatus(
+            session.id,
+            listOf(
+                PageProcessingStatus.QUEUED.name,
+                PageProcessingStatus.FINGERPRINTING.name,
+                PageProcessingStatus.PROCESSING.name
+            )
+        )
+        if (remaining.isNotEmpty()) {
+            return true
+        }
+
+        refreshDocumentSummary(document.id)
+        val finished = dao.getCaptureSession(session.id) ?: latest
+        if (finished.lowQualityCount > 0 || finished.failedCount > 0) {
+            dao.setDocumentsNeedsReview(
+                documentIds = listOf(document.id),
+                needsReview = true,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+
+        val now = System.currentTimeMillis()
+        dao.updateCaptureSessionState(
+            sessionId = session.id,
+            status = if (finished.failedCount > 0) {
+                CaptureSessionStatus.FAILED.name
+            } else {
+                CaptureSessionStatus.COMPLETE.name
+            },
+            updatedAt = now,
+            completedAt = now,
+            pausedReason = null
+        )
+        return true
+    }
+
+    private fun scheduleHighSpeedRetry(delayMillis: Long) {
+        appScope.launch(Dispatchers.IO) {
+            delay(delayMillis.coerceAtLeast(30_000L))
+            kickProcessingQueue()
+        }
+    }
+
     private suspend fun requireEditableDocument(id: String): DocumentEntity {
         val document = dao.getDocument(id) ?: throw IllegalArgumentException("Document not found")
         require(document.trashedAt == null) { "Restore the document before editing it" }
