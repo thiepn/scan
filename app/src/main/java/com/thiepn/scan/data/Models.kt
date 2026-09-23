@@ -212,6 +212,7 @@ data class PageEntity(
     val rotationDegrees: Int = 0,
     val cropQuad: String? = null,
     val visualRecipe: String? = null,
+    val cleanupRecipe: String? = null,
     val imagePath: String,
     val width: Int,
     val height: Int,
