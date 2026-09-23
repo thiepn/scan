@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -101,6 +102,8 @@ import com.thiepn.scan.data.FormValidator
 import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.OcrScript
 import com.thiepn.scan.data.OcrSearchTerms
+import com.thiepn.scan.data.LibraryFilter
+import com.thiepn.scan.data.PageAssemblyMetadataCodec
 import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageMarkupRecipeCodec
 import com.thiepn.scan.data.PageFormRecipeCodec
@@ -108,6 +111,7 @@ import com.thiepn.scan.data.PageStructuredDataCodec
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
+import com.thiepn.scan.data.PublishingSettingsCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanModeProfiles
 import com.thiepn.scan.data.ScanRepository
@@ -135,6 +139,9 @@ fun DocumentScreen(
     val scope = rememberCoroutineScope()
     var pendingPdfSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingTextSavePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingInsertPdfIndex by rememberSaveable {
+        mutableStateOf<Int?>(null)
+    }
 
     val savePdfLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
@@ -160,6 +167,34 @@ fun DocumentScreen(
                 runCatching { repository.saveExportToUri(File(path), uri) }
                     .onSuccess { onMessage("Text saved") }
                     .onFailure { onMessage(it.message ?: "Could not save text") }
+            }
+        }
+    }
+
+    val insertPdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val index = pendingInsertPdfIndex
+        pendingInsertPdfIndex = null
+        if (uri != null && index != null) {
+            scope.launch {
+                runCatching {
+                    repository.insertPdf(
+                        documentId = documentId,
+                        uri = uri,
+                        insertIndex = index
+                    )
+                }
+                    .onSuccess { count ->
+                        onMessage(
+                            count.toString() + " PDF page" +
+                                (if (count == 1) "" else "s") +
+                                " inserted"
+                        )
+                    }
+                    .onFailure {
+                        onMessage(it.message ?: "Could not insert PDF")
+                    }
             }
         }
     }
@@ -192,6 +227,10 @@ fun DocumentScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val extractionSchemas by repository.observeExtractionSchemas()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeDocuments by repository.observeDocuments(
+        LibraryFilter.ACTIVE,
+        ""
+    ).collectAsStateWithLifecycle(initialValue = emptyList())
     val captureSession by repository.observeLatestCaptureSession(documentId)
         .collectAsStateWithLifecycle(initialValue = null)
     var renameOpen by remember { mutableStateOf(false) }
@@ -214,6 +253,16 @@ fun DocumentScreen(
     var structuredExportOpen by remember { mutableStateOf(false) }
     var extractionSchemaNameOpen by remember { mutableStateOf(false) }
     var extractionSchemasOpen by remember { mutableStateOf(false) }
+    var dividerInsertIndex by rememberSaveable {
+        mutableStateOf<Int?>(null)
+    }
+    var transferInsertIndex by rememberSaveable {
+        mutableStateOf<Int?>(null)
+    }
+    var publishingOpen by remember { mutableStateOf(false) }
+    var assemblyPageId by rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
     var cleanupSuggestions by remember {
         mutableStateOf<List<CleanupSuggestion>>(emptyList())
     }
@@ -544,6 +593,45 @@ fun DocumentScreen(
                                 onSchemas = { extractionSchemasOpen = true }
                             )
                         }
+                        Spacer(Modifier.height(8.dp))
+                        AssemblyPublishingTools(
+                            pageCount = pages.size,
+                            enabled = !doc.processing,
+                            onInsertPdf = { index ->
+                                pendingInsertPdfIndex = index
+                                insertPdfLauncher.launch(
+                                    arrayOf("application/pdf")
+                                )
+                            },
+                            onBlankPage = { index ->
+                                scope.launch {
+                                    runCatching {
+                                        repository.insertBlankPage(
+                                            doc.id,
+                                            index
+                                        )
+                                    }
+                                        .onSuccess {
+                                            onMessage("Blank page inserted")
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Could not insert blank page"
+                                            )
+                                        }
+                                }
+                            },
+                            onDividerPage = { index ->
+                                dividerInsertIndex = index
+                            },
+                            onTransfer = { index ->
+                                transferInsertIndex = index
+                            },
+                            onPublishing = {
+                                publishingOpen = true
+                            }
+                        )
                         captureSession?.takeIf {
                             it.capturedCount > 0
                         }?.let { session ->
@@ -831,6 +919,7 @@ fun DocumentScreen(
                     canMarkup = editable,
                     canFillForm = editable,
                     canStructuredData = editable && page.ocrLayout?.isNotBlank() == true,
+                    canAssemblyMetadata = editable,
                     canDuplicate = editable,
                     canReplace = editable,
                     canRetake = editable,
@@ -907,6 +996,7 @@ fun DocumentScreen(
                     onMarkup = { markupPageId = page.id },
                     onFillForm = { formPageId = page.id },
                     onStructuredData = { structuredReviewPageId = page.id },
+                    onAssemblyMetadata = { assemblyPageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -1326,6 +1416,133 @@ fun DocumentScreen(
                         .onFailure {
                             onMessage(
                                 it.message ?: "Could not delete extraction schema"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    val dividerIndex = dividerInsertIndex
+    if (dividerIndex != null) {
+        DividerPageDialog(
+            onDismiss = { dividerInsertIndex = null },
+            onCreate = { title, subtitle ->
+                dividerInsertIndex = null
+                scope.launch {
+                    runCatching {
+                        repository.insertDividerPage(
+                            documentId = doc.id,
+                            title = title,
+                            subtitle = subtitle,
+                            insertIndex = dividerIndex
+                        )
+                    }
+                        .onSuccess {
+                            onMessage("Divider page inserted")
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not insert divider"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    val transferIndex = transferInsertIndex
+    if (transferIndex != null) {
+        TransferPagesDialog(
+            documents = activeDocuments,
+            currentDocumentId = doc.id,
+            targetInsertIndex = transferIndex,
+            onDismiss = { transferInsertIndex = null },
+            onTransfer = { sourceId, range, insertIndex, move ->
+                transferInsertIndex = null
+                scope.launch {
+                    runCatching {
+                        repository.transferPagesFromDocument(
+                            sourceDocumentId = sourceId,
+                            targetDocumentId = doc.id,
+                            rangeSpec = range,
+                            insertIndex = insertIndex,
+                            move = move
+                        )
+                    }
+                        .onSuccess { count ->
+                            onMessage(
+                                count.toString() + " page" +
+                                    (if (count == 1) "" else "s") +
+                                    if (move) " moved" else " copied"
+                            )
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not transfer pages"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    if (publishingOpen) {
+        PublishingSettingsDialog(
+            initial = PublishingSettingsCodec.decode(
+                doc.publishingRecipe
+            ),
+            documentTitle = doc.title,
+            onDismiss = { publishingOpen = false },
+            onSave = { settings ->
+                publishingOpen = false
+                scope.launch {
+                    runCatching {
+                        repository.setPublishingSettings(
+                            doc.id,
+                            settings
+                        )
+                    }
+                        .onSuccess {
+                            onMessage("Publishing settings saved")
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message
+                                    ?: "Could not save publishing settings"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    val assemblyPage = assemblyPageId?.let { id ->
+        pages.firstOrNull { it.id == id }
+    }
+    if (assemblyPage != null) {
+        PageAssemblyMetadataDialog(
+            initial = PageAssemblyMetadataCodec.decode(
+                assemblyPage.assemblyMetadata
+            ),
+            onDismiss = { assemblyPageId = null },
+            onSave = { metadata ->
+                assemblyPageId = null
+                scope.launch {
+                    runCatching {
+                        repository.updatePageAssemblyMetadata(
+                            doc.id,
+                            assemblyPage.id,
+                            metadata
+                        )
+                    }
+                        .onSuccess {
+                            onMessage("Page label and bookmark saved")
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message
+                                    ?: "Could not save page metadata"
                             )
                         }
                 }
@@ -1959,6 +2176,7 @@ private fun PageCard(
     canMarkup: Boolean,
     canFillForm: Boolean,
     canStructuredData: Boolean,
+    canAssemblyMetadata: Boolean,
     canDuplicate: Boolean,
     canReplace: Boolean,
     canRetake: Boolean,
@@ -1979,6 +2197,7 @@ private fun PageCard(
     onMarkup: () -> Unit,
     onFillForm: () -> Unit,
     onStructuredData: () -> Unit,
+    onAssemblyMetadata: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
@@ -2092,6 +2311,15 @@ private fun PageCard(
                             Icon(
                                 Icons.Default.TableChart,
                                 contentDescription = "Structured data"
+                            )
+                        }
+                        IconButton(
+                            onClick = onAssemblyMetadata,
+                            enabled = canAssemblyMetadata
+                        ) {
+                            Icon(
+                                Icons.Default.Bookmark,
+                                contentDescription = "Page label and bookmark"
                             )
                         }
                         IconButton(onClick = onDuplicate, enabled = canDuplicate) {
