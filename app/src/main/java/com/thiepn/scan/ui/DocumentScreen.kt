@@ -609,6 +609,10 @@ fun DocumentScreen(
                     canReviewBookSpread = editable &&
                         scanMode == ScanMode.BOOK &&
                         page.sourceSpreadPageId == null &&
+                        (
+                            page.width > page.height * 1.08f ||
+                                (page.bookSplitConfidence ?: 0f) >= 0.28f
+                            ) &&
                         !bookReviewBusy,
                     canRestoreBookSpread = editable &&
                         scanMode == ScanMode.BOOK &&
