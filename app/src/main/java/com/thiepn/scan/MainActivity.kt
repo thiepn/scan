@@ -535,8 +535,11 @@ private fun ScanApp(repository: ScanRepository) {
                 contentPadding = padding,
                 busy = busy,
                 onOpenDocument = { selectedDocumentId = it },
-                onScan = { mode ->
-                    pendingScanAction = PendingScanAction.NewDocument(mode)
+                onScan = { mode, rapid ->
+                    pendingScanAction = PendingScanAction.NewDocument(
+                        mode = mode,
+                        rapid = rapid
+                    )
                     startModeScanner(
                         activity = activity,
                         mode = mode,
@@ -566,6 +569,26 @@ private fun ScanApp(repository: ScanRepository) {
                 contentPadding = padding,
                 onBack = { selectedDocumentId = null },
                 onDeleted = { selectedDocumentId = null },
+                onRapidScan = { mode ->
+                    pendingScanAction = PendingScanAction.RapidExistingStart(
+                        documentId = id,
+                        mode = mode
+                    )
+                    startModeScanner(
+                        activity = activity,
+                        mode = mode,
+                        forceSinglePage = false,
+                        launcher = scannerLauncher,
+                        onFailure = { error ->
+                            pendingScanAction = null
+                            scope.launch {
+                                snackbar.showSnackbar(
+                                    error.message ?: "Scanner unavailable"
+                                )
+                            }
+                        }
+                    )
+                },
                 onAddPages = { mode ->
                     pendingScanAction = PendingScanAction.Append(id, mode)
                     startModeScanner(
