@@ -8,6 +8,7 @@ data class ScanModeProfile(
     val defaultPreset: ScanPreset,
     val defaultDocumentType: DocumentType,
     val defaultPdfQuality: PdfQuality,
+    val minimumLongEdge: Int = 1000,
     val ocrEnabled: Boolean = true,
     val requiresTwoSidedCapture: Boolean = false,
     val expectedAspectRatioRange: ClosedFloatingPointRange<Float>? = null
@@ -62,7 +63,8 @@ object ScanModeProfiles {
             pageLimit = 1,
             defaultPreset = ScanPreset.WHITEBOARD,
             defaultDocumentType = DocumentType.WHITEBOARD,
-            defaultPdfQuality = PdfQuality.BALANCED
+            defaultPdfQuality = PdfQuality.BALANCED,
+            minimumLongEdge = 1400
         ),
         ScanMode.FORM to ScanModeProfile(
             mode = ScanMode.FORM,
@@ -71,7 +73,8 @@ object ScanModeProfiles {
             pageLimit = 20,
             defaultPreset = ScanPreset.CLEAN,
             defaultDocumentType = DocumentType.FORM,
-            defaultPdfQuality = PdfQuality.ORIGINAL
+            defaultPdfQuality = PdfQuality.ORIGINAL,
+            minimumLongEdge = 1200
         ),
         ScanMode.PHOTO to ScanModeProfile(
             mode = ScanMode.PHOTO,
@@ -81,6 +84,7 @@ object ScanModeProfiles {
             defaultPreset = ScanPreset.ORIGINAL,
             defaultDocumentType = DocumentType.UNSPECIFIED,
             defaultPdfQuality = PdfQuality.HIGH,
+            minimumLongEdge = 1400,
             ocrEnabled = false
         ),
         ScanMode.NOTES to ScanModeProfile(
@@ -90,7 +94,8 @@ object ScanModeProfiles {
             pageLimit = 20,
             defaultPreset = ScanPreset.NOTES,
             defaultDocumentType = DocumentType.NOTES,
-            defaultPdfQuality = PdfQuality.BALANCED
+            defaultPdfQuality = PdfQuality.BALANCED,
+            minimumLongEdge = 1200
         ),
         ScanMode.CERTIFICATE to ScanModeProfile(
             mode = ScanMode.CERTIFICATE,
@@ -100,12 +105,28 @@ object ScanModeProfiles {
             defaultPreset = ScanPreset.COLOR,
             defaultDocumentType = DocumentType.CERTIFICATE,
             defaultPdfQuality = PdfQuality.HIGH,
+            minimumLongEdge = 1400,
             expectedAspectRatioRange = 1.15f..1.65f
         )
     )
 
     fun forMode(mode: ScanMode): ScanModeProfile =
         requireNotNull(profiles[mode])
+
+    fun resolutionWarning(
+        mode: ScanMode,
+        width: Int,
+        height: Int
+    ): String? {
+        if (width <= 0 || height <= 0) return null
+        val profile = forMode(mode)
+        val longEdge = maxOf(width, height)
+        return if (longEdge >= profile.minimumLongEdge) {
+            null
+        } else {
+            "Capture resolution is low for ${mode.label} mode; consider retaking this page."
+        }
+    }
 
     fun aspectRatioWarning(
         mode: ScanMode,
