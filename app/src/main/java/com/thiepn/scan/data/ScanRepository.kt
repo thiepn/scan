@@ -552,6 +552,7 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page does not belong to this document"
         }
+        requireNoTextEdits(page, "rotating this page")
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
         invalidateBookAnalysisIfOriginal(document, page)
@@ -580,6 +581,7 @@ class ScanRepository(
             val pages = orderedPages(dao.getPages(documentId))
             val selected = pages.filter { it.id in requested }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
+            selected.forEach { requireNoTextEdits(it, "rotating selected pages") }
 
             selected.forEach { page ->
                 dao.setPageRotation(page.id, PageRotation.clockwise(page.rotationDegrees))
@@ -625,6 +627,7 @@ class ScanRepository(
         val page = dao.getPage(pageId)
             ?: throw IllegalArgumentException("Page not found")
         require(page.documentId == documentId) { "Page does not belong to this document" }
+        requireNoTextEdits(page, "changing crop or perspective")
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
@@ -696,6 +699,7 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page does not belong to this document"
         }
+        requireNoTextEdits(page, "changing smart cleanup")
 
         val encoded = PageCleanupRecipeCodec.encode(recipe)
         if (encoded == page.cleanupRecipe) return@withContext
@@ -788,6 +792,7 @@ class ScanRepository(
         require(selected.size == requested.size) {
             "One or more selected pages are unavailable"
         }
+        selected.forEach { requireNoTextEdits(it, "auto-cleaning selected pages") }
 
         var applied = 0
         val changed = mutableListOf<PageEntity>()
@@ -1954,6 +1959,7 @@ class ScanRepository(
             if (document.ocrScript == script.name) return@withContext
 
             val pages = orderedPages(dao.getPages(documentId))
+            pages.forEach { requireNoTextEdits(it, "changing the OCR language") }
             dao.setDocumentOcrScript(
                 id = documentId,
                 script = script.name,
@@ -2807,6 +2813,15 @@ class ScanRepository(
         val document = dao.getDocument(id) ?: throw IllegalArgumentException("Document not found")
         require(document.trashedAt == null) { "Restore the document before editing it" }
         return document
+    }
+
+    private fun requireNoTextEdits(
+        page: PageEntity,
+        action: String
+    ) {
+        require(page.textEditRecipe.isNullOrBlank()) {
+            "Revert OCR text edits before $action"
+        }
     }
 
     private suspend fun refreshDocumentSummary(
