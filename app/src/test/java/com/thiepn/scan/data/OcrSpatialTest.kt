@@ -111,18 +111,45 @@ class OcrSpatialTest {
         val file = File.createTempFile("scan-ocr-fingerprint", ".txt")
         try {
             file.writeText("same image bytes")
-            val base = OcrFingerprint.create(file, null, 0, OcrScript.LATIN)
+            val base = OcrFingerprint.create(
+                file,
+                null,
+                0,
+                null,
+                OcrScript.LATIN
+            )
             val cropped = OcrFingerprint.create(
                 file,
                 "0.1;0.1,0.9;0.1,0.9;0.9,0.1;0.9",
                 0,
+                null,
                 OcrScript.LATIN
             )
-            val rotated = OcrFingerprint.create(file, null, 90, OcrScript.LATIN)
-            val korean = OcrFingerprint.create(file, null, 0, OcrScript.KOREAN)
+            val rotated = OcrFingerprint.create(
+                file,
+                null,
+                90,
+                null,
+                OcrScript.LATIN
+            )
+            val cleaned = OcrFingerprint.create(
+                file,
+                null,
+                0,
+                "v1~MANUAL|0.02|1.0|0.5,0.5",
+                OcrScript.LATIN
+            )
+            val korean = OcrFingerprint.create(
+                file,
+                null,
+                0,
+                null,
+                OcrScript.KOREAN
+            )
 
             assertNotEquals(base, cropped)
             assertNotEquals(base, rotated)
+            assertNotEquals(base, cleaned)
             assertNotEquals(base, korean)
             assertTrue(base.length == 64)
         } finally {
