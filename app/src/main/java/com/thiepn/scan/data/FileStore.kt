@@ -142,6 +142,19 @@ class FileStore(private val context: Context) {
         File(root, documentId).deleteRecursively()
     }
 
+    fun deletePlaintextExportsForDocument(
+        documentId: String
+    ) {
+        val marker = "-${documentId.take(8)}"
+        exports.listFiles()
+            ?.filter {
+                it.isFile &&
+                    marker in it.name &&
+                    !it.name.endsWith(".scanbak")
+            }
+            ?.forEach { it.delete() }
+    }
+
     fun deleteExportsForDocument(documentId: String) {
         val marker = "-${documentId.take(8)}"
         exports.listFiles()

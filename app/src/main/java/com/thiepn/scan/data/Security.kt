@@ -214,6 +214,7 @@ class SecurityVaultManager(
         val failed = _state.value.integrityFailedDocumentIds.toMutableSet()
         ids.forEach { id ->
             runCatching {
+                files.deletePlaintextExportsForDocument(id)
                 val directory = files.documentDir(id)
                 directory.walkTopDown()
                     .filter { it.isFile && !isSealed(it) }
@@ -327,6 +328,9 @@ class SecurityVaultManager(
                 _state.value.busyDocumentIds + documentId
         )
         try {
+            files.deletePlaintextExportsForDocument(
+                documentId
+            )
             val directory = files.documentDir(documentId)
             if (directory.exists()) {
                 val manifest = DocumentIntegrity.compute(directory)

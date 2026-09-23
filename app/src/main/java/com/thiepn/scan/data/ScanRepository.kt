@@ -3472,6 +3472,7 @@ class ScanRepository(
     }
 
     suspend fun extractPages(id: String, rangeSpec: String): File? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(id)
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }
         require(!document.processing) { "Document is still processing" }
