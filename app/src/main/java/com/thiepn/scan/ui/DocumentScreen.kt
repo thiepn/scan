@@ -582,6 +582,12 @@ fun DocumentScreen(
                     displayLabel = when {
                         scanMode == ScanMode.ID_CARD && index == 0 -> "ID front"
                         scanMode == ScanMode.ID_CARD && index == 1 -> "ID back"
+                        scanMode == ScanMode.BOOK &&
+                            page.bookSide == BookPageSide.LEFT.name ->
+                            "Book left · Page ${index + 1}"
+                        scanMode == ScanMode.BOOK &&
+                            page.bookSide == BookPageSide.RIGHT.name ->
+                            "Book right · Page ${index + 1}"
                         else -> "Page ${index + 1}"
                     },
                     selectionMode = selectionMode,
@@ -752,6 +758,54 @@ fun DocumentScreen(
                     }
                         .onSuccess { onMessage("Crop updated; refreshing OCR") }
                         .onFailure { onMessage(it.message ?: "Could not update crop") }
+                }
+            }
+        )
+    }
+
+    val bookReviewPage = bookReviewPageId?.let { id ->
+        pages.firstOrNull { it.id == id }
+    }
+    val activeBookAnalysis = bookReviewAnalysis
+    if (bookReviewPage != null && activeBookAnalysis != null) {
+        val pageIndex = pages.indexOfFirst { it.id == bookReviewPage.id }
+        BookSpreadReviewDialog(
+            pageLabel = if (pageIndex >= 0) "Page ${pageIndex + 1}" else "book page",
+            imagePath = bookReviewPage.imagePath,
+            rotationDegrees = bookReviewPage.rotationDegrees,
+            cropQuad = bookReviewPage.cropQuad,
+            visualRecipe = bookReviewPage.visualRecipe,
+            analysis = activeBookAnalysis,
+            onDismiss = {
+                bookReviewPageId = null
+                bookReviewAnalysis = null
+            },
+            onSplit = { gutterX, dewarp ->
+                val pageId = bookReviewPage.id
+                bookReviewPageId = null
+                bookReviewAnalysis = null
+                scope.launch {
+                    runCatching {
+                        repository.splitBookPage(
+                            documentId = doc.id,
+                            pageId = pageId,
+                            dewarp = dewarp,
+                            force = true,
+                            gutterX = gutterX
+                        )
+                    }
+                        .onSuccess {
+                            onMessage(
+                                if (dewarp) {
+                                    "Spread split and flattened"
+                                } else {
+                                    "Spread split"
+                                }
+                            )
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not split book spread")
+                        }
                 }
             }
         )
