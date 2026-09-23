@@ -447,8 +447,15 @@ object StructuredDataDetector {
     private fun columnsAligned(a:RowDraft,b:RowDraft,width:Int):Boolean {
         if(a.cells.size!=b.cells.size)return false
         val tolerance=width*.075f
-        return a.cells.indices.count { i -> abs(a.cells[i].center-b.cells[i].center)<=tolerance }>=
-            max(1,a.cells.size-1)
+        val matches=a.cells.indices.count { i ->
+            abs(a.cells[i].center-b.cells[i].center)<=tolerance
+        }
+        val required=if(a.cells.size<=2) {
+            a.cells.size
+        } else {
+            max(2,(a.cells.size*2+2)/3)
+        }
+        return matches>=required
     }
 
     private fun detectLineItems(result:OcrPageResult):StructuredTable? {
@@ -485,10 +492,14 @@ object StructuredDataDetector {
         result.lines.sortedBy{it.readingOrder}.forEach { line ->
             val raw=line.text.trim()
             val colon=raw.indexOf(':')
-            if(colon in 1..50&&colon<raw.lastIndex) {
+            if(colon in 1..50&&colon<raw.lastIndex&&"://" !in raw) {
                 val label=raw.substring(0,colon).trim()
                 val value=raw.substring(colon+1).trim()
-                if(label.length>=2&&value.isNotBlank()) {
+                if(
+                    label.length>=2 &&
+                    label.any{it.isLetter()} &&
+                    value.isNotBlank()
+                ) {
                     val key=StructuredKeyValue.normalizeKey(label)
                     out.putIfAbsent(key,keyValue(key,label,value,line,result,"OCR"))
                 }

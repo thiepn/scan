@@ -1042,7 +1042,12 @@ class ScanRepository(
         require(!document.processing){"Document is still processing"}
         val page=dao.getPage(pageId)?:throw IllegalArgumentException("Page not found")
         require(page.documentId==documentId&&!page.deleted){"Page does not belong to this document"}
-        dao.setPageStructuredData(pageId,PageStructuredDataCodec.encode(data.normalized()))
+        val currentLayout=OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
+        val normalized=data.normalized().copy(
+            sourceToken=currentLayout?.let(StructuredSourceToken::create)
+                ?: data.sourceToken
+        )
+        dao.setPageStructuredData(pageId,PageStructuredDataCodec.encode(normalized))
         dao.touchDocument(documentId,System.currentTimeMillis())
     }
 
