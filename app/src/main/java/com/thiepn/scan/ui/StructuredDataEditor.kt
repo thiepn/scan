@@ -162,11 +162,17 @@ fun StructuredDataReviewDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { onPrevious?.invoke() },
+                        onClick = {
+                            onSave(data.normalized())
+                            onPrevious?.invoke()
+                        },
                         enabled = onPrevious != null
                     ) { Text("Previous") }
                     OutlinedButton(
-                        onClick = { onNext?.invoke() },
+                        onClick = {
+                            onSave(data.normalized())
+                            onNext?.invoke()
+                        },
                         enabled = onNext != null
                     ) { Text("Next") }
                     OutlinedButton(onClick = onRedetect) {

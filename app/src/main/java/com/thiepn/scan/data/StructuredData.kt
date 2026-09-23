@@ -317,8 +317,13 @@ object StructuredSchemaMatcher {
         if(headers.isEmpty()||table.columnCount!=headers.size)return 0f
         var matches=0
         headers.forEachIndexed { i,h ->
-            val cell=table.cell(0,i)?.text.orEmpty()
-            if(norm(cell)==norm(h)||norm(cell).contains(norm(h))||norm(h).contains(norm(cell)))matches++
+            val cell=norm(table.cell(0,i)?.text.orEmpty())
+            val header=norm(h)
+            if(
+                cell.isNotBlank() &&
+                header.isNotBlank() &&
+                (cell==header||cell.contains(header)||header.contains(cell))
+            ) matches++
         }
         return matches.toFloat()/headers.size
     }

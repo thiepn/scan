@@ -2,7 +2,7 @@ package com.thiepn.scan.data
 
 import java.io.File
 import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
+import java.util.Locale
 import java.util.zip.ZipOutputStream
 
 data class StructuredExportPage(
@@ -66,12 +66,14 @@ object StructuredDataExport {
                 if(page.data.keyValues.isNotEmpty())append("\n")
                 page.data.keyValues.forEachIndexed { i,item ->
                     append("        {")
+                    append("\"id\":").append(json(item.id)).append(",")
                     append("\"key\":").append(json(item.key)).append(",")
                     append("\"label\":").append(json(item.label)).append(",")
                     append("\"value\":").append(json(item.value)).append(",")
                     append("\"confidence\":").append(item.confidence).append(",")
                     append("\"reviewed\":").append(item.reviewed).append(",")
-                    append("\"source\":").append(json(item.source))
+                    append("\"source\":").append(json(item.source)).append(",")
+                    append("\"box\":").append(jsonBox(item.box))
                     append("}")
                     if(i<page.data.keyValues.lastIndex)append(",")
                     append("\n")
@@ -84,8 +86,29 @@ object StructuredDataExport {
                     append("        {\n")
                     append("          \"id\": ").append(json(table.id)).append(",\n")
                     append("          \"title\": ").append(json(table.title)).append(",\n")
+                    append("          \"rowCount\": ").append(table.rowCount).append(",\n")
+                    append("          \"columnCount\": ").append(table.columnCount).append(",\n")
                     append("          \"confidence\": ").append(table.confidence).append(",\n")
                     append("          \"reviewed\": ").append(table.reviewed).append(",\n")
+                    append("          \"source\": ").append(json(table.source)).append(",\n")
+                    append("          \"cells\": [")
+                    if(table.cells.isNotEmpty())append("\n")
+                    table.cells.sortedWith(
+                        compareBy<StructuredCell>{it.row}.thenBy{it.column}
+                    ).forEachIndexed { ci,cell ->
+                        append("            {")
+                        append("\"row\":").append(cell.row).append(",")
+                        append("\"column\":").append(cell.column).append(",")
+                        append("\"text\":").append(json(cell.text)).append(",")
+                        append("\"confidence\":").append(cell.confidence).append(",")
+                        append("\"reviewed\":").append(cell.reviewed).append(",")
+                        append("\"box\":").append(jsonBox(cell.box))
+                        append("}")
+                        if(ci<table.cells.lastIndex)append(",")
+                        append("\n")
+                    }
+                    if(table.cells.isNotEmpty())append("          ")
+                    append("],\n")
                     append("          \"rows\": [\n")
                     for(row in 0 until table.rowCount) {
                         append("            [")
@@ -169,7 +192,14 @@ object StructuredDataExport {
     private fun csvRow(values:List<String>)=values.joinToString(","){v->
         "\"" + v.replace("\"","\"\"") + "\""
     }
-    private fun percent(v:Float)="%.1f%%".format(v*100f)
+    private fun percent(v:Float)=String.format(Locale.US,"%.1f%%",v*100f)
+    private fun jsonBox(box:StructuredBox?):String =
+        box?.let {
+            "{\"left\":" + it.left +
+                ",\"top\":" + it.top +
+                ",\"right\":" + it.right +
+                ",\"bottom\":" + it.bottom + "}"
+        } ?: "null"
     private fun json(v:String)="\"" + v
         .replace("\\","\\\\")
         .replace("\"","\\\"")
@@ -200,9 +230,19 @@ object StructuredDataExport {
         zip.closeEntry()
     }
 
-    private fun xml(s:String)=s
-        .replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
-        .replace("\"","&quot;").replace("'","&apos;")
+    private fun xml(s:String):String {
+        val clean=buildString {
+            s.forEach { ch ->
+                val code=ch.code
+                if(code==0x9||code==0xA||code==0xD||code in 0x20..0xD7FF||code in 0xE000..0xFFFD) {
+                    append(ch)
+                }
+            }
+        }
+        return clean
+            .replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+            .replace("\"","&quot;").replace("'","&apos;")
+    }
 
     private fun cellRef(column:Int,row:Int):String {
         var n=column+1
