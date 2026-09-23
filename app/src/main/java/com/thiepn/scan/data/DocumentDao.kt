@@ -56,6 +56,9 @@ interface DocumentDao {
         statuses: List<String>
     ): List<CaptureSessionEntity>
 
+    @Query("SELECT COUNT(*) FROM capture_sessions WHERE status = 'CAPTURING'")
+    suspend fun getActiveCaptureSessionCount(): Int
+
     @Query(
         "SELECT * FROM page_processing WHERE sessionId = :sessionId " +
             "ORDER BY queuedAt, pageId"
