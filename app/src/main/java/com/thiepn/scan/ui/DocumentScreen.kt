@@ -677,13 +677,28 @@ fun DocumentScreen(
 
             itemsIndexed(pages, key = { _, page -> page.id }) { index, page ->
                 val editable = doc.trashedAt == null && !doc.processing
+                val markupRecipe = PageMarkupRecipeCodec.decode(page.markupRecipe)
+                val hasTextEdits = !page.textEditRecipe.isNullOrBlank()
+                val hasCoordinateMarkup = !markupRecipe.isEmpty()
+                val hasSecureRedactions = markupRecipe.hasRedactions()
+                val sourceSpreadId = page.sourceSpreadPageId
+                val derivedGroupHasProtectedEdits = sourceSpreadId != null &&
+                    pages.any { sibling ->
+                        sibling.sourceSpreadPageId == sourceSpreadId &&
+                            (
+                                !sibling.textEditRecipe.isNullOrBlank() ||
+                                    !PageMarkupRecipeCodec.decode(
+                                        sibling.markupRecipe
+                                    ).isEmpty()
+                                )
+                    }
                 val pageHasEdits =
                     page.rotationDegrees != 0 ||
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
                         !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
                         !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
-                        !page.textEditRecipe.isNullOrBlank() ||
-                        !PageMarkupRecipeCodec.decode(page.markupRecipe).isEmpty()
+                        hasTextEdits ||
+                        hasCoordinateMarkup
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
@@ -705,11 +720,13 @@ fun DocumentScreen(
                     },
                     canMoveUp = editable && index > 0,
                     canMoveDown = editable && index < pages.lastIndex,
-                    canRotate = editable,
-                    canCrop = editable,
+                    canRotate = editable && !hasTextEdits && !hasCoordinateMarkup,
+                    canCrop = editable && !hasTextEdits && !hasCoordinateMarkup,
                     canEnhance = editable,
-                    canCleanup = editable,
-                    canEditText = editable && page.ocrLayout?.isNotBlank() == true,
+                    canCleanup = editable && !hasTextEdits && !hasCoordinateMarkup,
+                    canEditText = editable &&
+                        page.ocrLayout?.isNotBlank() == true &&
+                        !hasSecureRedactions,
                     canMarkup = editable,
                     canDuplicate = editable,
                     canReplace = editable,
@@ -718,11 +735,14 @@ fun DocumentScreen(
                     canDelete = editable && pages.size > 1,
                     canDragReorder = editable && pages.size > 1 && !selectionMode,
                     canReviewBookSpread = editable &&
+                        !hasTextEdits &&
+                        !hasCoordinateMarkup &&
                         scanMode == ScanMode.BOOK &&
                         BookReviewPolicy.canOpenManualReview(page) &&
                         !bookReviewBusy,
                     canRestoreBookSpread = editable &&
-                        page.sourceSpreadPageId != null,
+                        page.sourceSpreadPageId != null &&
+                        !derivedGroupHasProtectedEdits,
                     onToggleSelected = {
                         selectedPageIds = if (page.id in selectedPageIds) {
                             selectedPageIds - page.id
