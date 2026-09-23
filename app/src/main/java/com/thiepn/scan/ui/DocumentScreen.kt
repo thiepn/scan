@@ -374,10 +374,25 @@ fun DocumentScreen(
                         if (doc.processing) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 CircularProgressIndicator(modifier = Modifier.height(20.dp))
-                                Text("Recognizing text…", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    if (scanProfile.ocrEnabled) "Recognizing text…"
+                                    else "Preparing scan…",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
                             }
                             Spacer(Modifier.height(12.dp))
                         }
+
+                        Card(Modifier.fillMaxWidth()) {
+                            SpecializedModeSummary(
+                                mode = scanMode,
+                                pageCount = pages.size,
+                                fields = documentFields,
+                                modifier = Modifier.padding(14.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = { textExportOpen = true },
