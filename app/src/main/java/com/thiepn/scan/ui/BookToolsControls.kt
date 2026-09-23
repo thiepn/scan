@@ -85,6 +85,7 @@ fun BookSpreadReviewDialog(
     rotationDegrees: Int,
     cropQuad: String?,
     visualRecipe: String?,
+    cleanupRecipe: String?,
     analysis: BookSpreadAnalysis,
     onDismiss: () -> Unit,
     onKeepSingle: () -> Unit,
@@ -117,6 +118,7 @@ fun BookSpreadReviewDialog(
                         rotationDegrees = rotationDegrees,
                         cropQuad = cropQuad,
                         visualRecipe = visualRecipe,
+                        cleanupRecipe = cleanupRecipe,
                         contentDescription = pageLabel
                     )
                     Canvas(Modifier.matchParentSize()) {
