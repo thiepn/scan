@@ -777,6 +777,14 @@ class ScanRepository(
         dao.setProcessing(documentId, true, System.currentTimeMillis())
         try {
             val size = imageSize(replacementFile)
+            val sourceAssembly = PageAssemblyMetadataCodec.decode(
+                source.assemblyMetadata
+            )
+            val replacementAssembly = sourceAssembly.copy(
+                kind = AssemblyPageKind.REPLACED,
+                generatedTitle = "",
+                generatedSubtitle = ""
+            )
             val replacement = source.copy(
                 id = replacementId,
                 rotationDegrees = 0,
@@ -796,7 +804,7 @@ class ScanRepository(
                 formFillRecipe = null,
                 structuredData = null,
                 assemblyMetadata = PageAssemblyMetadataCodec.encode(
-                    PageAssemblyMetadata(kind = AssemblyPageKind.REPLACED)
+                    replacementAssembly
                 ),
                 ocrFingerprint = null,
                 ocrScript = null,
