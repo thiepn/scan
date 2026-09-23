@@ -440,13 +440,7 @@ class PdfEngine(
             val metadata = PageAssemblyMetadataCodec.decode(
                 page.assemblyMetadata
             )
-            val title = metadata.bookmarkTitle.ifBlank {
-                if (metadata.kind == AssemblyPageKind.DIVIDER) {
-                    metadata.generatedTitle
-                } else {
-                    ""
-                }
-            }.trim()
+            val title = metadata.bookmarkTitle.trim()
             title.takeIf { it.isNotBlank() }?.let {
                 Triple(index, metadata.bookmarkLevel.coerceIn(0, 3), it)
             }
