@@ -8,6 +8,7 @@ data class ScanModeProfile(
     val defaultPreset: ScanPreset,
     val defaultDocumentType: DocumentType,
     val defaultPdfQuality: PdfQuality,
+    val ocrEnabled: Boolean = true,
     val requiresTwoSidedCapture: Boolean = false,
     val expectedAspectRatioRange: ClosedFloatingPointRange<Float>? = null
 )
@@ -79,7 +80,8 @@ object ScanModeProfiles {
             pageLimit = 1,
             defaultPreset = ScanPreset.ORIGINAL,
             defaultDocumentType = DocumentType.UNSPECIFIED,
-            defaultPdfQuality = PdfQuality.HIGH
+            defaultPdfQuality = PdfQuality.HIGH,
+            ocrEnabled = false
         ),
         ScanMode.NOTES to ScanModeProfile(
             mode = ScanMode.NOTES,
