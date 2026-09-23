@@ -109,6 +109,10 @@ fun OcrTextEditorDialog(
                     "Select a recognized word, line, or text block. The scan is rebuilt locally; the original image remains unchanged.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                Text(
+                    "Finish crop, rotation, and cleanup first. Those operations change OCR coordinates and are blocked while text replacements are saved.",
+                    style = MaterialTheme.typography.bodySmall
+                )
 
                 Row(
                     modifier = Modifier
