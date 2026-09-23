@@ -56,6 +56,7 @@ class PdfEngine(
                 val cleanup = PageCleanupRecipeCodec.decode(pageEntity.cleanupRecipe)
                 val textEdits = PageTextEditRecipeCodec.decode(pageEntity.textEditRecipe)
                 val markup = PageMarkupRecipeCodec.decode(pageEntity.markupRecipe)
+                val form = PageFormRecipeCodec.decode(pageEntity.formFillRecipe)
                 val geometryEdited = !cropQuad.isFullFrame()
                 val directJpeg =
                     quality == PdfQuality.ORIGINAL &&
@@ -63,7 +64,8 @@ class PdfEngine(
                         recipe.isOriginal() &&
                         cleanup.isEmpty() &&
                         textEdits.isEmpty() &&
-                        markup.isEmpty()
+                        markup.isEmpty() &&
+                        !form.hasFillContent()
 
                 var geometryBitmap: Bitmap? = null
                 var visualBitmap: Bitmap? = null
@@ -87,7 +89,8 @@ class PdfEngine(
                         rawGeometry.recycle()
                     }
                     var semanticGeometry = cleanedGeometry
-                    val rasterRotation = !textEdits.isEmpty() || !markup.isEmpty()
+                    val rasterRotation =
+                        !textEdits.isEmpty() || !markup.isEmpty() || form.hasFillContent()
                     if (rasterRotation) {
                         val rotated = PageGeometryRenderer.rotateBitmap(
                             semanticGeometry,
@@ -113,9 +116,13 @@ class PdfEngine(
                         semanticGeometry,
                         recipe
                     )
-                    visualBitmap = PageMarkupRenderer.apply(enhanced, markup)
-                    if (visualBitmap !== enhanced && enhanced !== semanticGeometry) {
+                    val filled = FormFillRenderer.apply(enhanced, form)
+                    if (filled !== enhanced && enhanced !== semanticGeometry) {
                         enhanced.recycle()
+                    }
+                    visualBitmap = PageMarkupRenderer.apply(filled, markup)
+                    if (visualBitmap !== filled && filled !== semanticGeometry) {
+                        filled.recycle()
                     }
                     imageWidth = visualBitmap.width
                     imageHeight = visualBitmap.height
@@ -123,7 +130,11 @@ class PdfEngine(
 
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
                 val page = PDPage(PDRectangle(pdfWidth, pdfHeight)).apply {
-                    rotation = if (textEdits.isEmpty() && markup.isEmpty()) {
+                    rotation = if (
+                        textEdits.isEmpty() &&
+                        markup.isEmpty() &&
+                        !form.hasFillContent()
+                    ) {
                         PageRotation.normalize(pageEntity.rotationDegrees)
                     } else {
                         0
@@ -149,7 +160,11 @@ class PdfEngine(
                         }
 
                         val recognition = if (includeOcrTextLayer) {
-                            if (!textEdits.isEmpty() || !markup.isEmpty()) {
+                            if (
+                                !textEdits.isEmpty() ||
+                                !markup.isEmpty() ||
+                                form.hasSearchableValues()
+                            ) {
                                 OcrLayoutCodec.decode(pageEntity.ocrLayout)
                                     ?: if (markup.hasRedactions()) {
                                         null

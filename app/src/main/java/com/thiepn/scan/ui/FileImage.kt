@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.FormFillRenderer
 import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.OcrWordBox
 import com.thiepn.scan.data.OcrTextEditRenderer
@@ -29,6 +30,7 @@ import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageTextEditRecipeCodec
 import com.thiepn.scan.data.PageCleanupRenderer
 import com.thiepn.scan.data.PageGeometryRenderer
+import com.thiepn.scan.data.PageFormRecipeCodec
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,6 +48,7 @@ fun FileImage(
     cleanupRecipe: String? = null,
     textEditRecipe: String? = null,
     markupRecipe: String? = null,
+    formFillRecipe: String? = null,
     highlightWords: List<OcrWordBox> = emptyList(),
     highlightSourceWidth: Int = 0,
     highlightSourceHeight: Int = 0,
@@ -60,7 +63,8 @@ fun FileImage(
         visualRecipe,
         cleanupRecipe,
         textEditRecipe,
-        markupRecipe
+        markupRecipe,
+        formFillRecipe
     ) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -105,11 +109,16 @@ fun FileImage(
                     if (enhanced !== edited) edited.recycle()
                     enhanced
                 }
-                val marked = PageMarkupRenderer.apply(
+                val filled = FormFillRenderer.apply(
                     rendered,
+                    PageFormRecipeCodec.decode(formFillRecipe)
+                )
+                if (filled !== rendered) rendered.recycle()
+                val marked = PageMarkupRenderer.apply(
+                    filled,
                     PageMarkupRecipeCodec.decode(markupRecipe)
                 )
-                if (marked !== rendered) rendered.recycle()
+                if (marked !== filled) filled.recycle()
                 marked
             }.getOrNull()
         }
