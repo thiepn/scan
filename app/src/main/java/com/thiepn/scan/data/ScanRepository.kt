@@ -2013,12 +2013,7 @@ class ScanRepository(
         if (mode == ScanMode.BOOK) {
             val preservedSources = dao.getPreservedBookSources(documentId)
             val derivedCount = pages.count { it.sourceSpreadPageId != null }
-            val uncertain = pages.filter { page ->
-                page.sourceSpreadPageId == null &&
-                    !page.bookReviewResolved &&
-                    page.width > page.height * 1.12f &&
-                    (page.bookSplitConfidence ?: 0f) >= 0.28f
-            }
+            val uncertain = pages.filter(BookReviewPolicy::needsManualReview)
 
             if (preservedSources.isNotEmpty()) {
                 bookFields += DocumentFieldEntity(
