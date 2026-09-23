@@ -41,7 +41,9 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.RestorePage
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Search
@@ -82,6 +84,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.thiepn.scan.data.BookPageSide
+import com.thiepn.scan.data.BookSpreadAnalysis
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.DocumentPageSearchHit
@@ -195,6 +199,9 @@ fun DocumentScreen(
     var documentSearchHits by remember { mutableStateOf<List<DocumentPageSearchHit>>(emptyList()) }
     var documentSearchBusy by remember { mutableStateOf(false) }
     var ocrScriptOpen by remember { mutableStateOf(false) }
+    var bookReviewPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var bookReviewAnalysis by remember { mutableStateOf<BookSpreadAnalysis?>(null) }
+    var bookReviewBusy by remember { mutableStateOf(false) }
     val pageListState = rememberLazyListState()
 
     LaunchedEffect(
@@ -241,6 +248,21 @@ fun DocumentScreen(
 
     val scanMode = ScanMode.fromStored(doc.scanMode)
     val scanProfile = ScanModeProfiles.forMode(scanMode)
+
+    val bookReviewCount = if (scanMode == ScanMode.BOOK) {
+        pages.count { page ->
+            page.sourceSpreadPageId == null &&
+                page.width > page.height * 1.12f &&
+                (page.bookSplitConfidence ?: 0f) in 0.28f..0.6599f
+        }
+    } else {
+        0
+    }
+    val bookSplitCount = if (scanMode == ScanMode.BOOK) {
+        pages.mapNotNull { it.sourceSpreadPageId }.distinct().size
+    } else {
+        0
+    }
 
     val hasAnyPageEdits = pages.any { page ->
         page.rotationDegrees != 0 ||
@@ -390,6 +412,34 @@ fun DocumentScreen(
                                 fields = documentFields,
                                 modifier = Modifier.padding(14.dp)
                             )
+                        }
+                        if (scanMode == ScanMode.BOOK) {
+                            Spacer(Modifier.height(8.dp))
+                            Card(Modifier.fillMaxWidth()) {
+                                BookToolsBar(
+                                    reviewCount = bookReviewCount,
+                                    splitCount = bookSplitCount,
+                                    enabled = !doc.processing,
+                                    onAutoProcess = {
+                                        scope.launch {
+                                            runCatching {
+                                                repository.autoProcessBookSpreads(doc.id)
+                                            }
+                                                .onSuccess { count ->
+                                                    onMessage(
+                                                        "Book analysis complete · $count preserved spread${if (count == 1) "" else "s"}"
+                                                    )
+                                                }
+                                                .onFailure {
+                                                    onMessage(
+                                                        it.message ?: "Could not analyze book spreads"
+                                                    )
+                                                }
+                                        }
+                                    },
+                                    modifier = Modifier.padding(14.dp)
+                                )
+                            }
                         }
                         Spacer(Modifier.height(10.dp))
 
