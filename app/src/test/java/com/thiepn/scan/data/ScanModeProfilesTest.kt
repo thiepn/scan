@@ -27,6 +27,17 @@ class ScanModeProfilesTest {
     }
 
     @Test
+    fun bookModeUsesMultipageCleanBookDefaults() {
+        val profile = ScanModeProfiles.forMode(ScanMode.BOOK)
+
+        assertEquals(DocumentType.BOOK, profile.defaultDocumentType)
+        assertEquals(ScanPreset.CLEAN, profile.defaultPreset)
+        assertEquals(PdfQuality.BALANCED, profile.defaultPdfQuality)
+        assertTrue(profile.ocrEnabled)
+        assertEquals(40, profile.pageLimit)
+    }
+
+    @Test
     fun photoModeIsVisualFirstAndDoesNotRunOcr() {
         val profile = ScanModeProfiles.forMode(ScanMode.PHOTO)
 
