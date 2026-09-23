@@ -412,6 +412,33 @@ object PdfComplianceValidator {
                                 )
                             }
                         }
+                        if (
+                            normalized.pdfStandard ==
+                            PdfStandard.PDF_A_1B
+                        ) {
+                            resources.extGStateNames.forEach { name ->
+                                val state = runCatching {
+                                    resources.getExtGState(name)
+                                }.getOrNull() ?: return@forEach
+                                val strokeAlpha =
+                                    state.strokingAlphaConstant
+                                        ?: 1f
+                                val fillAlpha =
+                                    state.nonStrokingAlphaConstant
+                                        ?: 1f
+                                if (
+                                    strokeAlpha < 0.999f ||
+                                    fillAlpha < 0.999f ||
+                                    state.softMask != null
+                                ) {
+                                    issues += ComplianceIssue(
+                                        "PDFA1_TRANSPARENCY",
+                                        ComplianceSeverity.ERROR,
+                                        "Page ${index + 1} uses transparency, which PDF/A-1b does not permit."
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
