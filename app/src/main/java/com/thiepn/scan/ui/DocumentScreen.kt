@@ -611,8 +611,17 @@ fun DocumentScreen(
 
             if (selectionMode && doc.trashedAt == null) {
                 item {
+                    val selectedPagesForActions = pages.filter {
+                        it.id in selectedPageIds
+                    }
+                    val selectedHasProtectedEdits = selectedPagesForActions.any {
+                        !it.textEditRecipe.isNullOrBlank() ||
+                            !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+                    }
                     BatchActionBar(
                         selectedCount = selectedPageIds.size,
+                        canRotate = !selectedHasProtectedEdits,
+                        canCleanup = !selectedHasProtectedEdits,
                         canDelete = pages.size - selectedPageIds.size >= 1,
                         onRotate = {
                             val selected = selectedPageIds
