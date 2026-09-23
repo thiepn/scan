@@ -122,8 +122,16 @@ object PdfDigitalSigner {
     ): KeyMaterial {
         val store = KeyStore.getInstance("PKCS12")
         input.use { store.load(it, password) }
-        val alias = store.aliases().toList()
-            .firstOrNull(store::isKeyEntry)
+        val aliases = store.aliases()
+        var keyAlias: String? = null
+        while (aliases.hasMoreElements()) {
+            val candidate = aliases.nextElement()
+            if (store.isKeyEntry(candidate)) {
+                keyAlias = candidate
+                break
+            }
+        }
+        val alias = keyAlias
             ?: throw IllegalArgumentException(
                 "PKCS#12 file contains no private key"
             )
@@ -283,8 +291,10 @@ object PdfSignatureInspector {
                     .build(certificate)
             )
 
-            val allCertificates = certificateStore
-                .getMatches(null)
+            val allHolders:
+                Collection<X509CertificateHolder> =
+                certificateStore.getMatches(null)
+            val allCertificates = allHolders
                 .mapNotNull { certHolder ->
                     runCatching {
                         JcaX509CertificateConverter()
