@@ -401,15 +401,14 @@ class SecurityVaultManager(
         forgetDocument(documentId)
     }
 
-    private fun validatePlaintextIntegrityIfPresent(
+    private suspend fun validatePlaintextIntegrityIfPresent(
         documentId: String,
         directory: File,
         failed: MutableSet<String>
     ) {
         val expected = runCatching {
-            kotlinx.coroutines.runBlocking {
-                dao.getDocument(documentId)
-            }?.integrityManifest
+            dao.getDocument(documentId)
+                ?.integrityManifest
         }.getOrNull()
             ?.let(DocumentIntegrityManifestCodec::decode)
             ?: return
