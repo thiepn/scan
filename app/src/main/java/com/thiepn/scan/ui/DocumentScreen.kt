@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -94,11 +95,14 @@ import com.thiepn.scan.data.CleanupSuggestion
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.DocumentPageSearchHit
+import com.thiepn.scan.data.FormTemplateEntity
+import com.thiepn.scan.data.FormValidator
 import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.OcrScript
 import com.thiepn.scan.data.OcrSearchTerms
 import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageMarkupRecipeCodec
+import com.thiepn.scan.data.PageFormRecipeCodec
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
@@ -182,6 +186,8 @@ fun DocumentScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val documentFields by repository.observeDocumentFields(documentId)
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val formTemplates by repository.observeFormTemplates()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val captureSession by repository.observeLatestCaptureSession(documentId)
         .collectAsStateWithLifecycle(initialValue = null)
     var renameOpen by remember { mutableStateOf(false) }
@@ -197,6 +203,9 @@ fun DocumentScreen(
     var cleanupPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var textEditPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var markupPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var formPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var formTemplateNameOpen by remember { mutableStateOf(false) }
+    var formTemplatesOpen by remember { mutableStateOf(false) }
     var cleanupSuggestions by remember {
         mutableStateOf<List<CleanupSuggestion>>(emptyList())
     }
@@ -224,7 +233,9 @@ fun DocumentScreen(
     LaunchedEffect(
         documentSearchOpen,
         documentSearchQuery,
-        pages.map { Triple(it.ocrFingerprint, it.textEditRecipe, it.markupRecipe) }
+        pages.map {
+            listOf(it.ocrFingerprint, it.textEditRecipe, it.markupRecipe, it.formFillRecipe)
+        }
     ) {
         if (!documentSearchOpen || documentSearchQuery.isBlank()) {
             documentSearchBusy = false
@@ -284,8 +295,16 @@ fun DocumentScreen(
             !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
             !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
             !page.textEditRecipe.isNullOrBlank() ||
-            !PageMarkupRecipeCodec.decode(page.markupRecipe).isEmpty()
+            !PageMarkupRecipeCodec.decode(page.markupRecipe).isEmpty() ||
+            !PageFormRecipeCodec.decode(page.formFillRecipe).isEmpty()
     }
+
+    val pageFormRecipes = pages.map { PageFormRecipeCodec.decode(it.formFillRecipe) }
+    val formFieldCount = pageFormRecipes.sumOf { it.fields.size }
+    val formFilledCount = pageFormRecipes.sumOf { recipe ->
+        recipe.fields.count { it.isFilled() }
+    }
+    val formIssueCount = pageFormRecipes.sumOf { FormValidator.validate(it).size }
 
     Scaffold(
         modifier = Modifier.padding(contentPadding),
@@ -428,6 +447,38 @@ fun DocumentScreen(
                                 pageCount = pages.size,
                                 fields = documentFields,
                                 modifier = Modifier.padding(14.dp)
+                            )
+                        }
+                        if (scanMode == ScanMode.FORM) {
+                            Spacer(Modifier.height(8.dp))
+                            FormDocumentTools(
+                                fieldCount = formFieldCount,
+                                filledCount = formFilledCount,
+                                issueCount = formIssueCount,
+                                templateCount = formTemplates.size,
+                                enabled = !doc.processing,
+                                onFill = {
+                                    formPageId = pages.firstOrNull()?.id
+                                },
+                                onDetectAll = {
+                                    scope.launch {
+                                        runCatching { repository.detectFormFields(doc.id) }
+                                            .onSuccess { count ->
+                                                onMessage(
+                                                    if (count == 0) {
+                                                        "No additional form fields detected"
+                                                    } else {
+                                                        "$count form field${if (count == 1) "" else "s"} detected"
+                                                    }
+                                                )
+                                            }
+                                            .onFailure {
+                                                onMessage(it.message ?: "Could not detect form fields")
+                                            }
+                                    }
+                                },
+                                onSaveTemplate = { formTemplateNameOpen = true },
+                                onTemplates = { formTemplatesOpen = true }
                             )
                         }
                         captureSession?.takeIf {
@@ -677,15 +728,17 @@ fun DocumentScreen(
             itemsIndexed(pages, key = { _, page -> page.id }) { index, page ->
                 val editable = doc.trashedAt == null && !doc.processing
                 val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
+                val form = PageFormRecipeCodec.decode(page.formFillRecipe)
                 val hasCoordinateOverlays =
-                    !page.textEditRecipe.isNullOrBlank() || !markup.isEmpty()
+                    !page.textEditRecipe.isNullOrBlank() || !markup.isEmpty() || !form.isEmpty()
                 val pageHasEdits =
                     page.rotationDegrees != 0 ||
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
                         !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
                         !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
                         !page.textEditRecipe.isNullOrBlank() ||
-                        !markup.isEmpty()
+                        !markup.isEmpty() ||
+                        !form.isEmpty()
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
@@ -713,6 +766,7 @@ fun DocumentScreen(
                     canCleanup = editable && !hasCoordinateOverlays,
                     canEditText = editable && page.ocrLayout?.isNotBlank() == true,
                     canMarkup = editable,
+                    canFillForm = editable,
                     canDuplicate = editable,
                     canReplace = editable,
                     canRetake = editable,
@@ -787,6 +841,7 @@ fun DocumentScreen(
                     },
                     onEditText = { textEditPageId = page.id },
                     onMarkup = { markupPageId = page.id },
+                    onFillForm = { formPageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -979,6 +1034,69 @@ fun DocumentScreen(
                             onMessage(if (recipe.isEmpty()) "Markup reverted" else "Markup saved")
                         }
                         .onFailure { onMessage(it.message ?: "Could not save markup") }
+                }
+            }
+        )
+    }
+
+    val formPage = formPageId?.let { id -> pages.firstOrNull { it.id == id } }
+    if (formPage != null) {
+        FormEditorDialog(
+            page = formPage,
+            onDismiss = { formPageId = null },
+            onSave = { recipe ->
+                formPageId = null
+                scope.launch {
+                    runCatching {
+                        repository.updatePageForm(doc.id, formPage.id, recipe)
+                    }
+                        .onSuccess {
+                            val issues = FormValidator.validate(recipe).size
+                            onMessage(
+                                if (issues == 0) {
+                                    "Form fields saved"
+                                } else {
+                                    "Form saved with $issues validation issue${if (issues == 1) "" else "s"}"
+                                }
+                            )
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not save form fields") }
+                }
+            }
+        )
+    }
+
+    if (formTemplateNameOpen) {
+        FormTemplateNameDialog(
+            onDismiss = { formTemplateNameOpen = false },
+            onSave = { name ->
+                formTemplateNameOpen = false
+                scope.launch {
+                    runCatching { repository.saveFormTemplate(doc.id, name) }
+                        .onSuccess { onMessage("Form profile saved") }
+                        .onFailure { onMessage(it.message ?: "Could not save form profile") }
+                }
+            }
+        )
+    }
+
+    if (formTemplatesOpen) {
+        FormTemplatePickerDialog(
+            templates = formTemplates,
+            currentPageCount = pages.size,
+            onDismiss = { formTemplatesOpen = false },
+            onApply = { template ->
+                formTemplatesOpen = false
+                scope.launch {
+                    runCatching { repository.applyFormTemplate(doc.id, template.id) }
+                        .onSuccess { onMessage("Form profile applied") }
+                        .onFailure { onMessage(it.message ?: "Could not apply form profile") }
+                }
+            },
+            onDelete = { template ->
+                scope.launch {
+                    runCatching { repository.deleteFormTemplate(template.id) }
+                        .onFailure { onMessage(it.message ?: "Could not delete form profile") }
                 }
             }
         )
@@ -1608,6 +1726,7 @@ private fun PageCard(
     canCleanup: Boolean,
     canEditText: Boolean,
     canMarkup: Boolean,
+    canFillForm: Boolean,
     canDuplicate: Boolean,
     canReplace: Boolean,
     canRetake: Boolean,
@@ -1626,6 +1745,7 @@ private fun PageCard(
     onCleanup: () -> Unit,
     onEditText: () -> Unit,
     onMarkup: () -> Unit,
+    onFillForm: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
@@ -1729,6 +1849,9 @@ private fun PageCard(
                         IconButton(onClick = onMarkup, enabled = canMarkup) {
                             Icon(Icons.Default.Draw, contentDescription = "Markup, redact, or sign")
                         }
+                        IconButton(onClick = onFillForm, enabled = canFillForm) {
+                            Icon(Icons.Default.CheckBox, contentDescription = "Fill form fields")
+                        }
                         IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
                         }
@@ -1772,6 +1895,7 @@ private fun PageCard(
                 cleanupRecipe = page.cleanupRecipe,
                 textEditRecipe = page.textEditRecipe,
                 markupRecipe = page.markupRecipe,
+                formFillRecipe = page.formFillRecipe,
                 highlightWords = highlightWords,
                 highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
                 highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,

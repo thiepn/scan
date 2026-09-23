@@ -372,6 +372,7 @@ private fun OcrRegionPreview(
             cleanupRecipe = page.cleanupRecipe,
             textEditRecipe = textEditRecipe,
             markupRecipe = page.markupRecipe,
+            formFillRecipe = page.formFillRecipe,
             contentDescription = "OCR text editing preview"
         )
 

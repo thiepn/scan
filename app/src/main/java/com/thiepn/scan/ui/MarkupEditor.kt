@@ -277,6 +277,7 @@ private fun MarkupSurface(
             cleanupRecipe=page.cleanupRecipe,
             textEditRecipe=page.textEditRecipe,
             markupRecipe=recipe,
+            formFillRecipe=page.formFillRecipe,
             contentDescription="Markup preview"
         )
         Canvas(

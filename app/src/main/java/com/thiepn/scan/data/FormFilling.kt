@@ -18,8 +18,16 @@ enum class FormFieldType(val label: String) {
     SIGNATURE("Signature")
 }
 
-data class FormPoint(val x: Float, val y: Float) {
-    fun clamped() = FormPoint(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+data class FormPoint(
+    val x: Float,
+    val y: Float,
+    val strokeStart: Boolean = false
+) {
+    fun clamped() = FormPoint(
+        x.coerceIn(0f, 1f),
+        y.coerceIn(0f, 1f),
+        strokeStart
+    )
 }
 
 data class FormField(
@@ -131,13 +139,15 @@ object PageFormRecipeCodec {
     private fun dec(s:String)=if(s=="~")"" else runCatching {
         Base64.getUrlDecoder().decode(s).toString(Charsets.UTF_8)
     }.getOrDefault("")
-    private fun encPts(ps:List<FormPoint>)=if(ps.isEmpty())"~" else ps.joinToString(";"){"${it.x},${it.y}"}
+    private fun encPts(ps:List<FormPoint>)=if(ps.isEmpty())"~" else ps.joinToString(";"){
+        "${it.x},${it.y},${if(it.strokeStart)1 else 0}"
+    }
     private fun decPts(s:String):List<FormPoint>{
         if(s=="~")return emptyList()
         return s.split(";").mapNotNull {
-            val q=it.split(","); if(q.size!=2)null else {
+            val q=it.split(","); if(q.size !in 2..3)null else {
                 val x=q[0].toFloatOrNull();val y=q[1].toFloatOrNull()
-                if(x==null||y==null)null else FormPoint(x,y)
+                if(x==null||y==null)null else FormPoint(x,y,q.getOrNull(2)=="1")
             }
         }
     }
@@ -385,7 +395,7 @@ object FormFillRenderer {
         val path=Path()
         pts.forEachIndexed { i,q ->
             val x=r.left+q.x*r.width();val y=r.top+q.y*r.height()
-            if(i==0)path.moveTo(x,y) else path.lineTo(x,y)
+            if(i==0||q.strokeStart)path.moveTo(x,y) else path.lineTo(x,y)
         }
         c.drawPath(path,p)
     }
