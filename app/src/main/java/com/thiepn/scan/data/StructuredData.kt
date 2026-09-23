@@ -87,7 +87,7 @@ data class StructuredKeyValue(
     )
     companion object {
         fun normalizeKey(value:String):String=value.lowercase()
-            .replace(Regex("[^a-z0-9]+"),"_")
+            .replace(Regex("[^\\p{L}\\p{N}]+"),"_")
             .trim('_')
             .take(80)
             .ifBlank{"field"}
@@ -312,7 +312,7 @@ object StructuredSchemaMatcher {
         }
         return data.copy(tables=tables,keyValues=existing).normalized()
     }
-    private fun norm(s:String)=s.lowercase().replace(Regex("[^a-z0-9]+")," ").trim()
+    private fun norm(s:String)=s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+")," ").trim()
     private fun headerSimilarity(table:StructuredTable,headers:List<String>):Float {
         if(headers.isEmpty()||table.columnCount!=headers.size)return 0f
         var matches=0
