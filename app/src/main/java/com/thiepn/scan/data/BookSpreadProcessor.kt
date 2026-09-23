@@ -303,10 +303,13 @@ object BookSpreadProcessor {
 
         val normalizedStrength = strength.coerceIn(0f, 0.12f)
         val widthScale = 1f + normalizedStrength * 0.55f
+        val heightScale = 1f + normalizedStrength * 0.35f
         val outWidth = (source.width * widthScale)
             .roundToInt()
             .coerceAtLeast(source.width)
-        val outHeight = source.height
+        val outHeight = (source.height * heightScale)
+            .roundToInt()
+            .coerceAtLeast(source.height)
 
         val verts = FloatArray((MESH_COLUMNS + 1) * (MESH_ROWS + 1) * 2)
         var offset = 0
@@ -321,8 +324,18 @@ object BookSpreadProcessor {
                     BookPageSide.RIGHT ->
                         (u + normalizedStrength * wave).coerceIn(0f, 1f)
                 }
+                val innerProximity = when (side) {
+                    BookPageSide.LEFT -> u
+                    BookPageSide.RIGHT -> 1f - u
+                }
+                val localVerticalScale =
+                    1f + normalizedStrength * 0.35f * innerProximity * innerProximity
+                val warpedY =
+                    outHeight * 0.5f +
+                        (v - 0.5f) * source.height * localVerticalScale
+
                 verts[offset++] = warpedU * outWidth
-                verts[offset++] = v * outHeight
+                verts[offset++] = warpedY.coerceIn(0f, outHeight.toFloat())
             }
         }
 
