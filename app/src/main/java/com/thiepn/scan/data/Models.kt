@@ -38,7 +38,8 @@ data class DocumentEntity(
     val needsReview: Boolean = false,
     @ColumnInfo(defaultValue = "'DOCUMENT'")
     val scanMode: String = ScanMode.DOCUMENT.name,
-    val publishingRecipe: String? = null
+    val publishingRecipe: String? = null,
+    val complianceRecipe: String? = null
 )
 
 @Entity(

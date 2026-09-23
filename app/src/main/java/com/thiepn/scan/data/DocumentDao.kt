@@ -304,6 +304,13 @@ interface DocumentDao {
         updatedAt: Long
     )
 
+    @Query("UPDATE documents SET complianceRecipe = :recipe, updatedAt = :updatedAt WHERE id = :documentId")
+    suspend fun setComplianceRecipe(
+        documentId: String,
+        recipe: String?,
+        updatedAt: Long
+    )
+
     @Query("UPDATE pages SET structuredData = :data WHERE id = :pageId")
     suspend fun setPageStructuredData(pageId: String, data: String?)
 
