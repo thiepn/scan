@@ -1876,6 +1876,42 @@ class ScanRepository(
             )?.let(warnings::add)
         }
 
+        val bookFields = mutableListOf<DocumentFieldEntity>()
+        if (mode == ScanMode.BOOK) {
+            val preservedSources = dao.getPreservedBookSources(documentId)
+            val derivedCount = pages.count { it.sourceSpreadPageId != null }
+            val uncertain = pages.filter { page ->
+                page.sourceSpreadPageId == null &&
+                    page.width > page.height * 1.12f &&
+                    (page.bookSplitConfidence ?: 0f) in 0.28f..0.6599f
+            }
+
+            if (preservedSources.isNotEmpty()) {
+                bookFields += DocumentFieldEntity(
+                    documentId = documentId,
+                    fieldKey = "book_split_status",
+                    label = "Book processing",
+                    value = "${preservedSources.size} spread${if (preservedSources.size == 1) "" else "s"} split into $derivedCount logical pages. Originals are preserved.",
+                    confidence = 1f,
+                    source = "BOOK_ANALYSIS"
+                )
+            }
+            if (uncertain.isNotEmpty()) {
+                warnings += "${uncertain.size} possible book spread${if (uncertain.size == 1) "" else "s"} need manual split review."
+                bookFields += DocumentFieldEntity(
+                    documentId = documentId,
+                    fieldKey = "book_review_count",
+                    label = "Spread review",
+                    value = "${uncertain.size} page${if (uncertain.size == 1) "" else "s"} kept unsplit because gutter confidence was below the auto-split threshold.",
+                    confidence = uncertain.mapNotNull { it.bookSplitConfidence }
+                        .average()
+                        .toFloat()
+                        .coerceIn(0f, 1f),
+                    source = "BOOK_ANALYSIS"
+                )
+            }
+        }
+
         val fields = buildList {
             extracted.forEach { field ->
                 add(
@@ -1888,6 +1924,7 @@ class ScanRepository(
                     )
                 )
             }
+            addAll(bookFields)
             warnings.distinct().takeIf { it.isNotEmpty() }?.let { distinctWarnings ->
                 add(
                     DocumentFieldEntity(
