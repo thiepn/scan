@@ -558,6 +558,7 @@ class ScanRepository(
             "Page does not belong to this document"
         }
         requireNoTextEdits(page, "rotating this page")
+        requireNoCoordinateMarkup(page, "rotating this page")
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
         invalidateBookAnalysisIfOriginal(document, page)
@@ -586,7 +587,10 @@ class ScanRepository(
             val pages = orderedPages(dao.getPages(documentId))
             val selected = pages.filter { it.id in requested }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
-            selected.forEach { requireNoTextEdits(it, "rotating selected pages") }
+            selected.forEach {
+                requireNoTextEdits(it, "rotating selected pages")
+                requireNoCoordinateMarkup(it, "rotating selected pages")
+            }
 
             selected.forEach { page ->
                 dao.setPageRotation(page.id, PageRotation.clockwise(page.rotationDegrees))
@@ -633,6 +637,7 @@ class ScanRepository(
             ?: throw IllegalArgumentException("Page not found")
         require(page.documentId == documentId) { "Page does not belong to this document" }
         requireNoTextEdits(page, "changing crop or perspective")
+        requireNoCoordinateMarkup(page, "changing crop or perspective")
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
@@ -705,6 +710,7 @@ class ScanRepository(
             "Page does not belong to this document"
         }
         requireNoTextEdits(page, "changing smart cleanup")
+        requireNoCoordinateMarkup(page, "changing smart cleanup")
 
         val encoded = PageCleanupRecipeCodec.encode(recipe)
         if (encoded == page.cleanupRecipe) return@withContext
@@ -906,7 +912,10 @@ class ScanRepository(
         require(selected.size == requested.size) {
             "One or more selected pages are unavailable"
         }
-        selected.forEach { requireNoTextEdits(it, "auto-cleaning selected pages") }
+        selected.forEach {
+            requireNoTextEdits(it, "auto-cleaning selected pages")
+            requireNoCoordinateMarkup(it, "auto-cleaning selected pages")
+        }
 
         var applied = 0
         val changed = mutableListOf<PageEntity>()
@@ -1430,6 +1439,8 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page is not active in this document"
         }
+        requireNoTextEdits(page, "analyzing this book spread")
+        requireNoCoordinateMarkup(page, "analyzing this book spread")
         require(page.sourceSpreadPageId == null) {
             "This page is already derived from a book spread"
         }
@@ -1984,6 +1995,9 @@ class ScanRepository(
         val oldProfile = ScanModeProfiles.forMode(oldMode)
         val profile = ScanModeProfiles.forMode(scanMode)
         val pages = orderedPages(dao.getPages(documentId))
+        pages.forEach {
+            requireNoCoordinateMarkup(it, "changing the scan mode")
+        }
         if (!profile.ocrEnabled || scanMode == ScanMode.BOOK) {
             pages.forEach { requireNoTextEdits(it, "changing to this scan mode") }
         }
@@ -2082,7 +2096,10 @@ class ScanRepository(
             if (document.ocrScript == script.name) return@withContext
 
             val pages = orderedPages(dao.getPages(documentId))
-            pages.forEach { requireNoTextEdits(it, "changing the OCR language") }
+            pages.forEach {
+                requireNoTextEdits(it, "changing the OCR language")
+                requireNoCoordinateMarkup(it, "changing the OCR language")
+            }
             dao.setDocumentOcrScript(
                 id = documentId,
                 script = script.name,

@@ -74,6 +74,20 @@ Crop, rotation, cleanup, OCR-language changes, and OCR-regenerating scan-mode ch
 
 PDF generation never uses native imported-PDF passthrough when text replacements exist. It rasterizes the edited page and writes the stored edited OCR layout as the invisible searchable text layer, keeping visual output and search/copy truth synchronized.
 
+### Annotations, forms, signatures, and secure redaction
+
+Phase 11 adds a second page-space operation layer stored in `PageEntity.markupRecipe`. Pen, highlight, text, rectangles, arrows, stamps, signatures/initials, and manual form fields render non-destructively over the immutable scan. Reusable signatures and initials live in the local `saved_signatures` Room table; only normalized vector paths are stored.
+
+The final visible pipeline is:
+
+`source → crop/perspective → cleanup → display rotation → OCR text replacement → enhancement → annotations/forms/signatures → secure redaction`
+
+Redaction is treated as a security boundary rather than ordinary annotation. When a redaction recipe is saved, `OcrRedactionEngine` removes intersecting OCR words and rebuilds lines, blocks, page text, FTS content, document summaries, specialized fields, text exports, and the searchable PDF text layer. `ocrPreRedactionLayout` preserves the pre-redaction OCR state so redaction can be reverted locally without rerunning recognition.
+
+PDF export never uses native imported-PDF passthrough when markup exists. Marked pages are rasterized and flattened; secure-redaction pages use the scrubbed stored OCR layout for the invisible text layer and clear document metadata fields before save. No PDF annotation object, form object, hidden original text, or unredacted imported page is copied into the generated file.
+
+The editor includes OCR-independent page annotation, reusable drawn signatures/initials, text/date/checkbox/radio fields, undo, operation removal, and explicit redaction verification. Geometry-changing operations are blocked while page-space markup exists because rotation/crop/cleanup would invalidate normalized coordinates.
+
 ### OCR
 
 `OcrEngine` wraps ML Kit Text Recognition. The bundled Latin model makes recognition available without a first-use model download. Recognition runs after capture/import on an application coroutine scope.
