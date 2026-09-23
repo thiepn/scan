@@ -42,6 +42,22 @@ Processing state is restart-safe. On app startup, in-flight page jobs return to 
 
 ML Kit's scanner remains responsible for its own live document detection and automatic capture behavior. The repository queue only works with completed page images returned by that capture UI.
 
+### Smart cleanup
+
+Cleanup is a reversible semantic operation layer over immutable page sources. `PageEntity.cleanupRecipe` stores a compact vector recipe made of normalized strokes and accepted automatic suggestions; no cleaned source JPEG replaces the canonical page image.
+
+Cleanup coordinates live in the perspective-corrected but unrotated page coordinate system. Rotation therefore preserves cleanup automatically, while a crop/perspective change clears cleanup because the coordinate basis has changed. Duplicate pages may copy cleanup recipes because their source geometry is identical; replacement pages start clean.
+
+The rendering order is:
+
+`source → crop/perspective → cleanup/inpainting → enhancement → display/PDF rotation`
+
+`PageCleanupRenderer` rasterizes each bounded vector mask, samples unmasked texture around the affected region, reconstructs a local horizontal/vertical color field, and feathers the mask boundary. This is deterministic offline document reconstruction rather than generative image synthesis.
+
+`CleanupSuggestionDetector` analyzes bounded derivatives and produces conservative suggestions for punch holes, border shadows, finger/hand-colored border components, and small stains/spots. Suggestions are metadata only until accepted. Batch cleanup intentionally uses a higher confidence threshold than the interactive editor.
+
+Cleanup changes OCR truth. The cleanup recipe participates in `OcrFingerprint`; repository mutations clear stale OCR/FTS and recognize the cleaned semantic bitmap. PDF generation applies cleanup before enhancement and builds its invisible text layer from the same cleaned geometry. Native imported-PDF passthrough is prohibited whenever cleanup exists.
+
 ### OCR
 
 `OcrEngine` wraps ML Kit Text Recognition. The bundled Latin model makes recognition available without a first-use model download. Recognition runs after capture/import on an application coroutine scope.
