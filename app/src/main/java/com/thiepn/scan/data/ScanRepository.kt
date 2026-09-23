@@ -843,6 +843,79 @@ class ScanRepository(
         )
     }
 
+    suspend fun setScanMode(
+        documentId: String,
+        scanMode: ScanMode,
+        applyEnhancementDefaults: Boolean = true
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val oldMode = ScanMode.fromStored(document.scanMode)
+        if (oldMode == scanMode && !applyEnhancementDefaults) return@withContext
+
+        val oldProfile = ScanModeProfiles.forMode(oldMode)
+        val profile = ScanModeProfiles.forMode(scanMode)
+        val pages = orderedPages(dao.getPages(documentId))
+        dao.setDocumentScanMode(
+            id = documentId,
+            scanMode = scanMode.name,
+            documentType = profile.defaultDocumentType.name,
+            needsReview = false,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        if (applyEnhancementDefaults) {
+            val recipe = PageVisualRecipeCodec.encode(
+                PageVisualRecipe.forPreset(profile.defaultPreset)
+            )
+            pages.forEach { page ->
+                dao.setPageVisualRecipe(page.id, recipe)
+            }
+        }
+
+        when {
+            !profile.ocrEnabled -> {
+                pages.forEach { page ->
+                    dao.clearPageOcr(page.id)
+                    searchIndex.deletePage(page.id)
+                }
+                dao.finishProcessing(
+                    id = documentId,
+                    text = "",
+                    processing = false,
+                    pageCount = pages.size,
+                    updatedAt = System.currentTimeMillis()
+                )
+                refreshSpecializedFields(documentId)
+            }
+
+            !oldProfile.ocrEnabled -> {
+                pages.forEach { page ->
+                    dao.clearPageOcr(page.id)
+                    searchIndex.deletePage(page.id)
+                }
+                dao.setProcessing(documentId, true, System.currentTimeMillis())
+                appScope.launch(Dispatchers.IO) {
+                    recognizeDocument(documentId)
+                }
+            }
+
+            else -> {
+                refreshTypeSuggestion(documentId)
+                refreshSpecializedFields(documentId)
+            }
+        }
+    }
+
+    suspend fun defaultPdfQuality(documentId: String): PdfQuality =
+        withContext(Dispatchers.IO) {
+            val document = dao.getDocument(documentId)
+                ?: throw IllegalArgumentException("Document not found")
+            ScanModeProfiles.forMode(
+                ScanMode.fromStored(document.scanMode)
+            ).defaultPdfQuality
+        }
+
     suspend fun ensureSpatialOcr(documentId: String) =
         withContext(Dispatchers.IO) {
             val document = dao.getDocument(documentId) ?: return@withContext
@@ -1347,14 +1420,21 @@ class ScanRepository(
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
         )
-        if (!processing) refreshTypeSuggestion(documentId)
+        if (!processing) {
+            refreshTypeSuggestion(documentId)
+            refreshSpecializedFields(documentId)
+        }
     }
 
     private suspend fun refreshTypeSuggestion(documentId: String) {
         val document = dao.getDocument(documentId) ?: return
         if (DocumentType.fromStored(document.documentType) != DocumentType.UNSPECIFIED) {
-            if (document.suggestedType != null || document.needsReview) {
-                dao.setSuggestedDocumentType(documentId, null, false)
+            if (document.suggestedType != null) {
+                dao.setSuggestedDocumentType(
+                    documentId,
+                    null,
+                    document.needsReview
+                )
             }
             return
         }
@@ -1363,8 +1443,75 @@ class ScanRepository(
         dao.setSuggestedDocumentType(
             id = documentId,
             suggestedType = suggestion?.type?.name,
-            needsReview = suggestion != null
+            needsReview = document.needsReview || suggestion != null
         )
+    }
+
+    private suspend fun refreshSpecializedFields(documentId: String) {
+        val document = dao.getDocument(documentId) ?: return
+        val mode = ScanMode.fromStored(document.scanMode)
+        val profile = ScanModeProfiles.forMode(mode)
+        val pages = orderedPages(dao.getPages(documentId))
+        val extracted = SpecializedFieldExtractor.extract(
+            mode = mode,
+            title = document.title,
+            ocrText = document.ocrText
+        )
+
+        val warnings = mutableListOf<String>()
+        if (profile.requiresTwoSidedCapture) {
+            when {
+                pages.size < 2 -> warnings += "Back side has not been captured."
+                pages.size > 2 -> warnings += "ID Card mode expects exactly two active pages."
+            }
+        }
+        profile.pageLimit?.let { limit ->
+            if (!profile.requiresTwoSidedCapture && pages.size > limit) {
+                warnings += "${profile.mode.label} mode expects at most $limit active page${if (limit == 1) "" else "s"}."
+            }
+        }
+        pages.forEach { page ->
+            ScanModeProfiles.aspectRatioWarning(
+                mode = mode,
+                width = page.width,
+                height = page.height
+            )?.let(warnings::add)
+        }
+
+        val fields = buildList {
+            extracted.forEach { field ->
+                add(
+                    DocumentFieldEntity(
+                        documentId = documentId,
+                        fieldKey = field.key,
+                        label = field.label,
+                        value = field.value,
+                        confidence = field.confidence
+                    )
+                )
+            }
+            warnings.distinct().takeIf { it.isNotEmpty() }?.let { distinctWarnings ->
+                add(
+                    DocumentFieldEntity(
+                        documentId = documentId,
+                        fieldKey = "capture_warning",
+                        label = "Capture check",
+                        value = distinctWarnings.joinToString(" "),
+                        confidence = 1f,
+                        source = "MODE_VALIDATION"
+                    )
+                )
+            }
+        }
+        dao.replaceDocumentFields(documentId, fields)
+
+        if (warnings.isNotEmpty() && !document.needsReview) {
+            dao.setDocumentsNeedsReview(
+                documentIds = listOf(documentId),
+                needsReview = true,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
     }
 
     private suspend fun editableDocumentIds(documentIds: List<String>): List<String> {
@@ -1401,10 +1548,14 @@ class ScanRepository(
         return options.outWidth.coerceAtLeast(0) to options.outHeight.coerceAtLeast(0)
     }
 
-    private fun defaultTitle(timestamp: Long): String {
+    private fun defaultTitle(
+        timestamp: Long,
+        scanMode: ScanMode = ScanMode.DOCUMENT
+    ): String {
         val formatter = DateTimeFormatter.ofPattern("MMM d, yyyy · HH:mm")
         val local = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
-        return "Scan · ${formatter.format(local)}"
+        val prefix = if (scanMode == ScanMode.DOCUMENT) "Scan" else scanMode.label
+        return "$prefix · ${formatter.format(local)}"
     }
 
     private fun deterministicPageId(documentId: String, index: Int): String =
