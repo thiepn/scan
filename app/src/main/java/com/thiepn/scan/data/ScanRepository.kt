@@ -2395,6 +2395,11 @@ class ScanRepository(
                         }
                     }
 
+                dao.refreshCaptureSessionCounters(
+                    session.id,
+                    System.currentTimeMillis()
+                )
+
                 if (index < chunks.lastIndex) {
                     delay(25L)
                 }
