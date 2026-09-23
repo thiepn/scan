@@ -111,6 +111,78 @@ data class DocumentFieldEntity(
 )
 
 @Entity(
+    tableName = "capture_sessions",
+    foreignKeys = [
+        ForeignKey(
+            entity = DocumentEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["documentId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index("documentId"),
+        Index("status"),
+        Index("updatedAt")
+    ]
+)
+data class CaptureSessionEntity(
+    @PrimaryKey val id: String,
+    val documentId: String,
+    val scanMode: String,
+    val startedAt: Long,
+    val updatedAt: Long,
+    val status: String = CaptureSessionStatus.CAPTURING.name,
+    val capturedCount: Int = 0,
+    val processedCount: Int = 0,
+    val duplicateCount: Int = 0,
+    val lowQualityCount: Int = 0,
+    val failedCount: Int = 0,
+    val completedAt: Long? = null,
+    val pausedReason: String? = null
+)
+
+@Entity(
+    tableName = "page_processing",
+    foreignKeys = [
+        ForeignKey(
+            entity = DocumentEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["documentId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = CaptureSessionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index("documentId"),
+        Index("sessionId"),
+        Index("status"),
+        Index(value = ["documentId", "status"])
+    ]
+)
+data class PageProcessingEntity(
+    @PrimaryKey val pageId: String,
+    val documentId: String,
+    val sessionId: String,
+    val status: String = PageProcessingStatus.QUEUED.name,
+    val queuedAt: Long,
+    val updatedAt: Long,
+    val attemptCount: Int = 0,
+    val fingerprintHash: String? = null,
+    val meanLuma: Float? = null,
+    val edgeEnergy: Float? = null,
+    val aspectRatio: Float? = null,
+    val qualityScore: Float? = null,
+    val duplicateOfPageId: String? = null,
+    val lastError: String? = null
+)
+
+@Entity(
     tableName = "pages",
     foreignKeys = [
         ForeignKey(
@@ -159,6 +231,24 @@ data class PageEntity(
 )
 
 enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
+
+enum class CaptureSessionStatus {
+    CAPTURING,
+    PROCESSING,
+    PAUSED,
+    COMPLETE,
+    INTERRUPTED,
+    FAILED
+}
+
+enum class PageProcessingStatus {
+    QUEUED,
+    FINGERPRINTING,
+    PROCESSING,
+    COMPLETE,
+    DUPLICATE,
+    FAILED
+}
 
 enum class ScanMode(val label: String) {
     DOCUMENT("Document"),
