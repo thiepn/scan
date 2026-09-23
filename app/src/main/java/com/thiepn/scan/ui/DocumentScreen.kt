@@ -249,15 +249,16 @@ fun DocumentScreen(
     val scanMode = ScanMode.fromStored(doc.scanMode)
     val scanProfile = ScanModeProfiles.forMode(scanMode)
 
-    val bookReviewCount = if (scanMode == ScanMode.BOOK) {
-        pages.count { page ->
+    val bookReviewPages = if (scanMode == ScanMode.BOOK) {
+        pages.filter { page ->
             page.sourceSpreadPageId == null &&
                 page.width > page.height * 1.12f &&
                 (page.bookSplitConfidence ?: 0f) in 0.28f..0.6599f
         }
     } else {
-        0
+        emptyList()
     }
+    val bookReviewCount = bookReviewPages.size
     val bookSplitCount = if (scanMode == ScanMode.BOOK) {
         pages.mapNotNull { it.sourceSpreadPageId }.distinct().size
     } else {
@@ -435,6 +436,30 @@ fun DocumentScreen(
                                                         it.message ?: "Could not analyze book spreads"
                                                     )
                                                 }
+                                        }
+                                    },
+                                    onReviewNext = {
+                                        val next = bookReviewPages.firstOrNull()
+                                        if (next != null) {
+                                            scope.launch {
+                                                bookReviewBusy = true
+                                                runCatching {
+                                                    repository.analyzeBookSpread(
+                                                        doc.id,
+                                                        next.id
+                                                    )
+                                                }
+                                                    .onSuccess { analysis ->
+                                                        bookReviewPageId = next.id
+                                                        bookReviewAnalysis = analysis
+                                                    }
+                                                    .onFailure {
+                                                        onMessage(
+                                                            it.message ?: "Could not analyze book spread"
+                                                        )
+                                                    }
+                                                bookReviewBusy = false
+                                            }
                                         }
                                     },
                                     modifier = Modifier.padding(14.dp)
