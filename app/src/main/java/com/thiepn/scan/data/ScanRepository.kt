@@ -2936,7 +2936,12 @@ class ScanRepository(
             ?: throw IllegalStateException(
                 "Could not create standards export"
             )
-        require(export.report.passed) {
+        val mandatoryReport =
+            PdfComplianceValidator.validate(
+                export.file,
+                compliance
+            )
+        require(mandatoryReport.passed) {
             "Standards export has compliance errors; fix them before signing"
         }
 
@@ -2944,29 +2949,35 @@ class ScanRepository(
             documentId,
             document.title
         )
-        val input = context.contentResolver
-            .openInputStream(certificateUri)
-            ?: throw IllegalArgumentException(
-                "Could not open PKCS#12 certificate"
+        try {
+            val input = context.contentResolver
+                .openInputStream(certificateUri)
+                ?: throw IllegalArgumentException(
+                    "Could not open PKCS#12 certificate"
+                )
+            PdfDigitalSigner.sign(
+                source = export.file,
+                destination = destination,
+                pkcs12Input = input,
+                password = password,
+                reason = reason,
+                location = location
             )
-        PdfDigitalSigner.sign(
-            source = export.file,
-            destination = destination,
-            pkcs12Input = input,
-            password = password,
-            reason = reason,
-            location = location
-        )
-        SignedPdfResult(
-            file = destination,
-            complianceReport =
-                PdfComplianceValidator.validate(
-                    destination,
-                    compliance
-                ),
-            signatureReport =
-                PdfSignatureInspector.inspect(destination)
-        )
+            SignedPdfResult(
+                file = destination,
+                complianceReport =
+                    PdfComplianceValidator.validate(
+                        destination,
+                        compliance
+                    ),
+                signatureReport =
+                    PdfSignatureInspector.inspect(
+                        destination
+                    )
+            )
+        } finally {
+            password.fill('\u0000')
+        }
     }
 
     suspend fun validateExternalPdf(
