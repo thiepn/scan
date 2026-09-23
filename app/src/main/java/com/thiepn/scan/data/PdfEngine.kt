@@ -53,11 +53,13 @@ class PdfEngine(
 
                 val cropQuad = CropQuadCodec.decode(pageEntity.cropQuad)
                 val recipe = PageVisualRecipeCodec.decode(pageEntity.visualRecipe)
+                val cleanup = PageCleanupRecipeCodec.decode(pageEntity.cleanupRecipe)
                 val geometryEdited = !cropQuad.isFullFrame()
                 val directJpeg =
                     quality == PdfQuality.ORIGINAL &&
                         !geometryEdited &&
-                        recipe.isOriginal()
+                        recipe.isOriginal() &&
+                        cleanup.isEmpty()
 
                 var geometryBitmap: Bitmap? = null
                 var visualBitmap: Bitmap? = null
@@ -68,13 +70,21 @@ class PdfEngine(
                     imageWidth = pageEntity.width.coerceAtLeast(1)
                     imageHeight = pageEntity.height.coerceAtLeast(1)
                 } else {
-                    geometryBitmap = PageGeometryRenderer.renderUnrotatedForPdf(
+                    val rawGeometry = PageGeometryRenderer.renderUnrotatedForPdf(
                         file = imageFile,
                         cropQuad = cropQuad,
                         maxLongEdge = quality.maxLongEdge
                     )
+                    val cleanedGeometry = PageCleanupRenderer.apply(
+                        rawGeometry,
+                        cleanup
+                    )
+                    if (cleanedGeometry !== rawGeometry) {
+                        rawGeometry.recycle()
+                    }
+                    geometryBitmap = cleanedGeometry
                     visualBitmap = ImageEnhancementRenderer.apply(
-                        geometryBitmap,
+                        cleanedGeometry,
                         recipe
                     )
                     imageWidth = visualBitmap.width
