@@ -199,7 +199,7 @@ object FormFieldDetector {
         "company","firma","organization","organisation","department","abteilung",
         "title","position","reference","number","no.","id"
     )
-    private val checkboxRegex=Regex("""[☐□☑✓]|\[\s?\]|\(\s?\)""")
+    private val checkboxRegex=Regex("""[☐□☑✓]|\[[ xX✓]?\]|\([ xX✓]?\)""")
     private val underscoreRegex=Regex("""_{2,}""")
 
     fun detect(result:OcrPageResult?):PageFormRecipe {
