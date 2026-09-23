@@ -916,7 +916,10 @@ private fun DocumentCard(
                             Icons.Default.Description
                         },
                         contentDescription = null,
-                        tint = if (document.favorite) {
+                        tint = if (
+                            !hideLockedMetadata &&
+                            document.favorite
+                        ) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -933,13 +936,25 @@ private fun DocumentCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    buildString {
-                        append("${document.pageCount} page")
-                        if (document.pageCount != 1) append('s')
-                        append(" · ")
-                        append(formatDate(document.updatedAt))
-                        if (document.processing) append(" · Processing")
-                        if (document.trashedAt != null) append(" · In Trash")
+                    if (hideLockedMetadata) {
+                        "Protected details hidden"
+                    } else {
+                        buildString {
+                            append("${document.pageCount} page")
+                            if (document.pageCount != 1) {
+                                append('s')
+                            }
+                            append(" · ")
+                            append(
+                                formatDate(document.updatedAt)
+                            )
+                            if (document.processing) {
+                                append(" · Processing")
+                            }
+                            if (document.trashedAt != null) {
+                                append(" · In Trash")
+                            }
+                        }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -977,7 +992,10 @@ private fun DocumentCard(
                         if (isNotEmpty()) append(" · ")
                         append(type.label)
                     }
-                    if (document.needsReview) {
+                    if (
+                        !hideLockedMetadata &&
+                        document.needsReview
+                    ) {
                         if (isNotEmpty()) append(" · ")
                         append("Needs review")
                     }
@@ -1004,9 +1022,20 @@ private fun DocumentCard(
                     )
                 }
 
-                val suggestion = document.suggestedType
-                    ?.let { DocumentType.fromStored(it) }
-                    ?.takeIf { it != DocumentType.UNSPECIFIED }
+                val suggestion = if (
+                    hideLockedMetadata
+                ) {
+                    null
+                } else {
+                    document.suggestedType
+                        ?.let {
+                            DocumentType.fromStored(it)
+                        }
+                        ?.takeIf {
+                            it !=
+                                DocumentType.UNSPECIFIED
+                        }
+                }
                 if (suggestion != null && !selectionMode) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
