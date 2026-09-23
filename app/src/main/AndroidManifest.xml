@@ -3,6 +3,7 @@
     <application
         android:name=".ScanApplication"
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:icon="@drawable/ic_scan_logo"
         android:label="Scan"
         android:roundIcon="@drawable/ic_scan_logo"
