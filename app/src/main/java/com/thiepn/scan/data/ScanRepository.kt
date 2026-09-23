@@ -2400,9 +2400,7 @@ class ScanRepository(
         ).ocrEnabled
 
         runCatching {
-            val requiresRaster = selectedPages.any {
-                it.requiresRasterizedExport()
-            }
+            val requiresRaster = selectedPages.any(PdfExportPolicy::requiresRasterization)
             if (source != null && !requiresRaster) {
                 pdfEngine.extractPages(
                     source = source,
@@ -2445,9 +2443,7 @@ class ScanRepository(
         val includeOcrTextLayer = ScanModeProfiles.forMode(
             ScanMode.fromStored(document.scanMode)
         ).ocrEnabled
-        val requiresRaster = selected.any {
-            it.requiresRasterizedExport()
-        }
+        val requiresRaster = selected.any(PdfExportPolicy::requiresRasterization)
 
         runCatching {
             if (
@@ -2523,9 +2519,7 @@ class ScanRepository(
                 if (nativeSource != null) {
                     val nativeOrder = pages.map { it.position }
                     val rotations = pages.map { it.rotationDegrees }
-                    val requiresRaster = pages.any {
-                        it.requiresRasterizedExport()
-                    }
+                    val requiresRaster = pages.any(PdfExportPolicy::requiresRasterization)
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
                         rotations.all { it == 0 } &&
@@ -2967,13 +2961,6 @@ class ScanRepository(
             kickProcessingQueue()
         }
     }
-
-    private fun PageEntity.requiresRasterizedExport(): Boolean =
-        !CropQuadCodec.decode(cropQuad).isFullFrame() ||
-            !PageVisualRecipeCodec.decode(visualRecipe).isOriginal() ||
-            !PageCleanupRecipeCodec.decode(cleanupRecipe).isEmpty() ||
-            !PageTextEditRecipeCodec.decode(textEditRecipe).isEmpty() ||
-            !PageMarkupRecipeCodec.decode(markupRecipe).isEmpty()
 
     private suspend fun requireEditableDocument(id: String): DocumentEntity {
         val document = dao.getDocument(id) ?: throw IllegalArgumentException("Document not found")
