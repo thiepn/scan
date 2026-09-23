@@ -226,7 +226,7 @@ object StructuredDataExport {
     private fun uniqueSheetNames(names:List<String>):List<String> {
         val used=mutableSetOf<String>()
         return names.mapIndexed { index,raw ->
-            val clean=raw.replace(Regex("[\\\\/*?:\[\]]")," ")
+            val clean=raw.replace(Regex("""[\\/*?:\[\]]""")," ")
                 .replace(Regex("\\s+")," ").trim().take(31).ifBlank{"Sheet ${index+1}"}
             var candidate=clean
             var suffix=2
