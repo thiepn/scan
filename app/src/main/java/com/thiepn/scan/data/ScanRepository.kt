@@ -498,6 +498,8 @@ class ScanRepository(
                 height = size.second,
                 ocrText = "",
                 ocrLayout = null,
+                ocrBaseLayout = null,
+                textEditRecipe = null,
                 ocrFingerprint = null,
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
@@ -714,6 +716,61 @@ class ScanRepository(
                 recognizePageAndRefresh(documentId, pageId)
             }
         }
+    }
+
+    suspend fun updatePageTextEdits(
+        documentId: String,
+        pageId: String,
+        recipe: PageTextEditRecipe
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        require(
+            ScanModeProfiles.forMode(
+                ScanMode.fromStored(document.scanMode)
+            ).ocrEnabled
+        ) { "OCR text editing is unavailable in this scan mode" }
+
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+
+        val baseEncoded = page.ocrBaseLayout ?: page.ocrLayout
+        val base = OcrLayoutCodec.decode(baseEncoded)
+            ?: throw IllegalStateException("Recognize this page before editing its text")
+        val normalized = recipe.normalized()
+
+        if (normalized.isEmpty()) {
+            dao.updatePageTextEdits(
+                pageId = pageId,
+                text = base.text,
+                layout = OcrLayoutCodec.encode(base),
+                baseLayout = null,
+                recipe = null
+            )
+            searchIndex.upsertPage(
+                documentId = documentId,
+                pageId = pageId,
+                content = base.text
+            )
+        } else {
+            val edited = OcrTextEditEngine.apply(base, normalized)
+            dao.updatePageTextEdits(
+                pageId = pageId,
+                text = edited.text,
+                layout = OcrLayoutCodec.encode(edited),
+                baseLayout = baseEncoded,
+                recipe = PageTextEditRecipeCodec.encode(normalized)
+            )
+            searchIndex.upsertPage(
+                documentId = documentId,
+                pageId = pageId,
+                content = edited.text
+            )
+        }
+        refreshDocumentSummary(documentId)
     }
 
     suspend fun autoCleanupPages(
@@ -937,16 +994,45 @@ class ScanRepository(
 
             val requiresOcr = mutableListOf<String>()
             selected.forEach { page ->
-                if (
+                val semanticGeometryChanged =
                     PageRotation.normalize(page.rotationDegrees) != 0 ||
-                    !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
-                    !page.cleanupRecipe.isNullOrBlank()
-                ) {
-                    requiresOcr += page.id
-                    invalidateBookAnalysisIfOriginal(document, page)
-                    dao.clearPageOcr(page.id)
-                    searchIndex.deletePage(page.id)
+                        !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
+                        !page.cleanupRecipe.isNullOrBlank()
+                val hasTextEdits =
+                    !page.textEditRecipe.isNullOrBlank() ||
+                        !page.ocrBaseLayout.isNullOrBlank()
+
+                when {
+                    semanticGeometryChanged -> {
+                        requiresOcr += page.id
+                        invalidateBookAnalysisIfOriginal(document, page)
+                        dao.clearPageOcr(page.id)
+                        searchIndex.deletePage(page.id)
+                    }
+
+                    hasTextEdits -> {
+                        val base = OcrLayoutCodec.decode(page.ocrBaseLayout)
+                        if (base == null) {
+                            requiresOcr += page.id
+                            dao.clearPageOcr(page.id)
+                            searchIndex.deletePage(page.id)
+                        } else {
+                            dao.updatePageTextEdits(
+                                pageId = page.id,
+                                text = base.text,
+                                layout = OcrLayoutCodec.encode(base),
+                                baseLayout = null,
+                                recipe = null
+                            )
+                            searchIndex.upsertPage(
+                                documentId = documentId,
+                                pageId = page.id,
+                                content = base.text
+                            )
+                        }
+                    }
                 }
+
                 dao.setPageRotation(page.id, 0)
                 dao.setPageCropQuad(page.id, null)
                 dao.setPageVisualRecipe(page.id, null)
@@ -2050,7 +2136,9 @@ class ScanRepository(
 
         val hasGeometryEdits = pages.any { !CropQuadCodec.decode(it.cropQuad).isFullFrame() }
         val hasVisualEdits = pages.any {
-            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
+                !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
+                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
         }
 
         if (
@@ -2134,7 +2222,9 @@ class ScanRepository(
                 !CropQuadCodec.decode(it.cropQuad).isFullFrame()
             }
             val hasVisualEdits = selectedPages.any {
-                !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+                !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
+                    !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
+                    !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
             }
             if (source != null && !hasGeometryEdits && !hasVisualEdits) {
                 pdfEngine.extractPages(
