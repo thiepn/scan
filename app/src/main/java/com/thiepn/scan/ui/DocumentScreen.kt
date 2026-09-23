@@ -83,6 +83,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.DocumentPageSearchHit
 import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.OcrScript
@@ -90,6 +91,8 @@ import com.thiepn.scan.data.OcrSearchTerms
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
+import com.thiepn.scan.data.ScanMode
+import com.thiepn.scan.data.ScanModeProfiles
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
@@ -105,9 +108,9 @@ fun DocumentScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
-    onAddPages: () -> Unit,
-    onInsertPages: (Int) -> Unit,
-    onRetakePage: (String) -> Unit,
+    onAddPages: (ScanMode) -> Unit,
+    onInsertPages: (Int, ScanMode) -> Unit,
+    onRetakePage: (String, ScanMode) -> Unit,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -165,6 +168,8 @@ fun DocumentScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val tags by repository.observeTags()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val documentFields by repository.observeDocumentFields(documentId)
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     var renameOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var protectOpen by remember { mutableStateOf(false) }
@@ -184,6 +189,7 @@ fun DocumentScreen(
     var insertPagesOpen by remember { mutableStateOf(false) }
     var resetAllEditsOpen by remember { mutableStateOf(false) }
     var organizeDocumentOpen by remember { mutableStateOf(false) }
+    var scanModeOpen by remember { mutableStateOf(false) }
     var documentSearchOpen by remember { mutableStateOf(false) }
     var documentSearchQuery by remember { mutableStateOf("") }
     var documentSearchHits by remember { mutableStateOf<List<DocumentPageSearchHit>>(emptyList()) }
