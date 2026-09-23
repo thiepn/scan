@@ -65,6 +65,8 @@ class ScanRepository(
 
                 if (looksLikePdfImport) {
                     renderPdfAndRecognize(document.id, pdf)
+                } else if (ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+                    processBookDocument(document.id)
                 } else {
                     recognizeDocument(document.id)
                 }
@@ -97,8 +99,10 @@ class ScanRepository(
             )
         )
 
+        val createdPageIds = mutableListOf<String>()
         pageUris.forEachIndexed { index, uri ->
             val pageId = UUID.randomUUID().toString()
+            createdPageIds += pageId
             val file = files.copyUri(uri, files.pageFile(id, pageId))
             val size = imageSize(file)
             dao.insertPage(
@@ -118,8 +122,11 @@ class ScanRepository(
         }
 
         appScope.launch(Dispatchers.IO) {
-            if (pageUris.isEmpty() && pdf != null) renderPdfAndRecognize(id, pdf)
-            else recognizeDocument(id)
+            when {
+                pageUris.isEmpty() && pdf != null -> renderPdfAndRecognize(id, pdf)
+                scanMode == ScanMode.BOOK -> processBookPagesAndRecognize(id, createdPageIds)
+                else -> recognizeDocument(id)
+            }
         }
         id
     }
@@ -170,7 +177,17 @@ class ScanRepository(
             }
             dao.insertPagesWithOrder(insertedPages, newOrder)
             appScope.launch(Dispatchers.IO) {
-                recognizePagesAndRefresh(documentId, insertedPages.map { it.id })
+                if (ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+                    processBookPagesAndRecognize(
+                        documentId,
+                        insertedPages.map { it.id }
+                    )
+                } else {
+                    recognizePagesAndRefresh(
+                        documentId,
+                        insertedPages.map { it.id }
+                    )
+                }
             }
             insertedPages.size
         } catch (error: Throwable) {
