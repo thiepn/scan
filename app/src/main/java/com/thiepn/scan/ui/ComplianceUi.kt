@@ -323,15 +323,15 @@ fun PdfValidationDialog(
             ) {
                 Text(
                     if (compliance.passed) {
-                        "Compliance checks passed"
+                        "Scan's configured checks passed"
                     } else {
                         compliance.errorCount.toString() +
                             " compliance error" +
-                            if (compliance.errorCount == 1) {
+                            (if (compliance.errorCount == 1) {
                                 ""
                             } else {
                                 "s"
-                            }
+                            })
                     },
                     style = MaterialTheme.typography.titleSmall,
                     color = if (compliance.passed) {

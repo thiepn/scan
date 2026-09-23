@@ -2891,10 +2891,26 @@ class ScanRepository(
             )
             StandardsExportResult(
                 file = file,
-                report = PdfComplianceValidator.validate(
-                    file,
-                    compliance
-                )
+                report = if (
+                    compliance.validateAfterExport
+                ) {
+                    PdfComplianceValidator.validate(
+                        file,
+                        compliance
+                    )
+                } else {
+                    ComplianceReport(
+                        compliance.pdfStandard,
+                        compliance.accessibilityMode,
+                        listOf(
+                            ComplianceIssue(
+                                "VALIDATION_SKIPPED",
+                                ComplianceSeverity.INFO,
+                                "Automated Scan validation was disabled for this export."
+                            )
+                        )
+                    )
+                }
             )
         }.getOrElse {
             temporary.delete()
