@@ -49,6 +49,8 @@ class ScanRepository(
     fun observeFolders(): Flow<List<FolderEntity>> = dao.observeFolders()
     fun observeTags(): Flow<List<TagEntity>> = dao.observeTags()
     fun observeDocumentTags(): Flow<List<DocumentTagCrossRef>> = dao.observeDocumentTags()
+    fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>> =
+        dao.observeDocumentFields(documentId)
 
     fun resumePendingProcessing() {
         appScope.launch(Dispatchers.IO) {
@@ -70,11 +72,16 @@ class ScanRepository(
         }
     }
 
-    suspend fun ingestScan(pageUris: List<Uri>, pdfUri: Uri?): String = withContext(Dispatchers.IO) {
+    suspend fun ingestScan(
+        pageUris: List<Uri>,
+        pdfUri: Uri?,
+        scanMode: ScanMode = ScanMode.DOCUMENT
+    ): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val pdf = pdfUri?.let { files.copyUri(it, files.pdfFile(id)) }
-        val title = defaultTitle(now)
+        val profile = ScanModeProfiles.forMode(scanMode)
+        val title = defaultTitle(now, scanMode)
 
         dao.insertDocument(
             DocumentEntity(
@@ -84,7 +91,9 @@ class ScanRepository(
                 updatedAt = now,
                 pdfPath = pdf?.absolutePath,
                 pageCount = pageUris.size,
-                processing = true
+                processing = true,
+                documentType = profile.defaultDocumentType.name,
+                scanMode = scanMode.name
             )
         )
 
@@ -98,6 +107,9 @@ class ScanRepository(
                     documentId = id,
                     position = index,
                     sortKey = (index + 1L) * 1000L,
+                    visualRecipe = PageVisualRecipeCodec.encode(
+                        PageVisualRecipe.forPreset(profile.defaultPreset)
+                    ),
                     imagePath = file.absolutePath,
                     width = size.first,
                     height = size.second
@@ -125,6 +137,7 @@ class ScanRepository(
         require(!document.processing) { "Document is still processing" }
 
         val currentPages = orderedPages(dao.getPages(documentId))
+        val profile = ScanModeProfiles.forMode(ScanMode.fromStored(document.scanMode))
         val targetIndex = insertIndex.coerceIn(0, currentPages.size)
         val nextPosition = dao.getMaxPagePosition(documentId) + 1
         val nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
@@ -143,6 +156,9 @@ class ScanRepository(
                     documentId = documentId,
                     position = nextPosition + index,
                     sortKey = nextSortKey + index * 1000L,
+                    visualRecipe = PageVisualRecipeCodec.encode(
+                        PageVisualRecipe.forPreset(profile.defaultPreset)
+                    ),
                     imagePath = file.absolutePath,
                     width = size.first,
                     height = size.second
@@ -173,6 +189,7 @@ class ScanRepository(
         require(!document.processing) { "Document is still processing" }
 
         val currentPages = orderedPages(dao.getPages(documentId))
+        val profile = ScanModeProfiles.forMode(ScanMode.fromStored(document.scanMode))
         val sourceIndex = currentPages.indexOfFirst { it.id == pageId }
         require(sourceIndex >= 0) { "Page not found" }
         val source = currentPages[sourceIndex]
@@ -190,7 +207,9 @@ class ScanRepository(
                 id = replacementId,
                 rotationDegrees = 0,
                 cropQuad = null,
-                visualRecipe = null,
+                visualRecipe = PageVisualRecipeCodec.encode(
+                    PageVisualRecipe.forPreset(profile.defaultPreset)
+                ),
                 imagePath = replacementFile.absolutePath,
                 width = size.first,
                 height = size.second,
