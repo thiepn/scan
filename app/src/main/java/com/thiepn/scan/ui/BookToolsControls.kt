@@ -35,6 +35,7 @@ fun BookToolsBar(
     splitCount: Int,
     enabled: Boolean,
     onAutoProcess: () -> Unit,
+    onReviewNext: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -58,11 +59,21 @@ fun BookToolsBar(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedButton(
-            onClick = onAutoProcess,
-            enabled = enabled
-        ) {
-            Text("Analyze unsplit pages")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onAutoProcess,
+                enabled = enabled
+            ) {
+                Text("Analyze unsplit pages")
+            }
+            if (reviewCount > 0) {
+                OutlinedButton(
+                    onClick = onReviewNext,
+                    enabled = enabled
+                ) {
+                    Text("Review next spread")
+                }
+            }
         }
     }
 }
