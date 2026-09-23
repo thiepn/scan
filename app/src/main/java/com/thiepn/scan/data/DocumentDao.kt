@@ -528,6 +528,32 @@ interface DocumentDao {
     suspend fun deletePageRecords(pageIds: List<String>)
 
     @Transaction
+    suspend fun markCapturedPageDuplicate(
+        pageId: String,
+        fingerprintHash: String,
+        meanLuma: Float,
+        edgeEnergy: Float,
+        aspectRatio: Float,
+        qualityScore: Float,
+        duplicateOfPageId: String,
+        updatedAt: Long
+    ) {
+        updateProcessingFingerprint(
+            pageId = pageId,
+            status = PageProcessingStatus.DUPLICATE.name,
+            fingerprintHash = fingerprintHash,
+            meanLuma = meanLuma,
+            edgeEnergy = edgeEnergy,
+            aspectRatio = aspectRatio,
+            qualityScore = qualityScore,
+            duplicateOfPageId = duplicateOfPageId,
+            updatedAt = updatedAt,
+            lastError = null
+        )
+        deletePageRecord(pageId)
+    }
+
+    @Transaction
     suspend fun insertCapturedPagesAndJobs(
         pages: List<PageEntity>,
         jobs: List<PageProcessingEntity>,
