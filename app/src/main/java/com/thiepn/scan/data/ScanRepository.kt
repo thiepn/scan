@@ -2825,6 +2825,18 @@ class ScanRepository(
         val includeOcrTextLayer = ScanModeProfiles.forMode(
             ScanMode.fromStored(document.scanMode)
         ).ocrEnabled
+        val publishing = PublishingSettingsCodec.decode(
+            document.publishingRecipe
+        )
+        val publishingNeeded =
+            !publishing.isEmpty() ||
+                pages.any { page ->
+                    val meta = PageAssemblyMetadataCodec.decode(
+                        page.assemblyMetadata
+                    )
+                    meta.label.isNotBlank() ||
+                        meta.bookmarkTitle.isNotBlank()
+                }
 
         val destination = files.pdfExportFile(
             documentId = id,
@@ -2854,31 +2866,87 @@ class ScanRepository(
                 rotations.all { it == 0 }
 
             if (unchanged) {
-                if (password.isNullOrBlank()) {
-                    return@withContext files.copyToExport(source, destination)
-                }
-                val temporary = files.temporaryExport(destination)
-                runCatching {
-                    pdfEngine.protectExisting(source, temporary, password)
-                    files.commitGeneratedExport(temporary, destination)
-                }.getOrElse {
-                    temporary.delete()
-                    throw it
+                if (!publishingNeeded) {
+                    if (password.isNullOrBlank()) {
+                        return@withContext files.copyToExport(
+                            source,
+                            destination
+                        )
+                    }
+                    val temporary = files.temporaryExport(destination)
+                    runCatching {
+                        pdfEngine.protectExisting(
+                            source,
+                            temporary,
+                            password
+                        )
+                        files.commitGeneratedExport(
+                            temporary,
+                            destination
+                        )
+                    }.getOrElse {
+                        temporary.delete()
+                        throw it
+                    }
+                } else {
+                    val temporary = files.temporaryExport(destination)
+                    runCatching {
+                        pdfEngine.publishExisting(
+                            source = source,
+                            destination = temporary,
+                            pages = pages,
+                            documentTitle = document.title,
+                            settings = publishing,
+                            password = password
+                        )
+                        files.commitGeneratedExport(
+                            temporary,
+                            destination
+                        )
+                    }.getOrElse {
+                        temporary.delete()
+                        throw it
+                    }
                 }
             } else {
                 val temporary = files.temporaryExport(destination)
+                val reordered = files.temporaryWorkingPdf(
+                    "scan-publish-order"
+                )
                 runCatching {
-                    pdfEngine.extractPages(
-                        source = source,
-                        pageIndices = nativeOrder,
-                        destination = temporary,
-                        password = password,
-                        rotationDeltas = rotations
+                    if (publishingNeeded) {
+                        pdfEngine.extractPages(
+                            source = source,
+                            pageIndices = nativeOrder,
+                            destination = reordered,
+                            rotationDeltas = rotations
+                        )
+                        pdfEngine.publishExisting(
+                            source = reordered,
+                            destination = temporary,
+                            pages = pages,
+                            documentTitle = document.title,
+                            settings = publishing,
+                            password = password
+                        )
+                    } else {
+                        pdfEngine.extractPages(
+                            source = source,
+                            pageIndices = nativeOrder,
+                            destination = temporary,
+                            password = password,
+                            rotationDeltas = rotations
+                        )
+                    }
+                    files.commitGeneratedExport(
+                        temporary,
+                        destination
                     )
-                    files.commitGeneratedExport(temporary, destination)
                 }.getOrElse {
                     temporary.delete()
                     throw it
+                }.also {
+                    reordered.delete()
                 }
             }
         } else if (pages.isNotEmpty()) {
@@ -2889,7 +2957,9 @@ class ScanRepository(
                     destination = temporary,
                     password = password,
                     quality = quality,
-                    includeOcrTextLayer = includeOcrTextLayer
+                    includeOcrTextLayer = includeOcrTextLayer,
+                    documentTitle = document.title,
+                    publishingSettings = publishing
                 )
                 files.commitGeneratedExport(temporary, destination)
             }.getOrElse {
