@@ -43,6 +43,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.ImageEnhancementRenderer
+import com.thiepn.scan.data.PageCleanupRecipeCodec
+import com.thiepn.scan.data.PageCleanupRenderer
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageGeometryRenderer
 import com.thiepn.scan.data.PageVisualRecipe
@@ -194,6 +196,7 @@ private fun EnhancementPreview(
         page.imagePath,
         page.cropQuad,
         page.rotationDegrees,
+        page.cleanupRecipe,
         recipe
     ) {
         value = withContext(Dispatchers.Default) {
@@ -203,8 +206,13 @@ private fun EnhancementPreview(
                     cropQuad = CropQuadCodec.decode(page.cropQuad),
                     maxLongEdge = 1400
                 )
-                val enhanced = ImageEnhancementRenderer.apply(geometry, recipe)
-                if (enhanced !== geometry) geometry.recycle()
+                val cleaned = PageCleanupRenderer.apply(
+                    geometry,
+                    PageCleanupRecipeCodec.decode(page.cleanupRecipe)
+                )
+                if (cleaned !== geometry) geometry.recycle()
+                val enhanced = ImageEnhancementRenderer.apply(cleaned, recipe)
+                if (enhanced !== cleaned) cleaned.recycle()
                 val rotated = PageGeometryRenderer.rotateBitmap(
                     enhanced,
                     page.rotationDegrees
