@@ -1372,6 +1372,7 @@ class ScanRepository(
             require(!page.deleted && page.sourceSpreadPageId == null) {
                 "Only an active original spread can be split"
             }
+            requireNoTextEdits(page, "splitting this book page")
 
             val working = prepareBookWorkingSource(page)
             val analysis = try {
@@ -1466,6 +1467,9 @@ class ScanRepository(
 
         val derived = dao.getBookDerivedPages(sourcePageId)
         require(derived.isNotEmpty()) { "No derived book pages found" }
+        derived.forEach {
+            requireNoTextEdits(it, "restoring the original book spread")
+        }
         val active = orderedPages(dao.getPages(documentId))
         val derivedIds = derived.map { it.id }.toSet()
         val derivedIndex = active.indexOfFirst { it.id in derivedIds }

@@ -728,10 +728,16 @@ object OcrTextEditRenderer {
     ): InkSample {
         val background = sampleRingColor(bitmap, rect)
         val backgroundLuma = luma(background)
-        var red = 0L
-        var green = 0L
-        var blue = 0L
-        var count = 0L
+        var darkRed = 0L
+        var darkGreen = 0L
+        var darkBlue = 0L
+        var darkCount = 0L
+        var darkContrast = 0L
+        var lightRed = 0L
+        var lightGreen = 0L
+        var lightBlue = 0L
+        var lightCount = 0L
+        var lightContrast = 0L
         val step = max(1, min(rect.width(), rect.height()) / 48)
 
         var y = rect.top
@@ -739,20 +745,46 @@ object OcrTextEditRenderer {
             var x = rect.left
             while (x < rect.right) {
                 val color = bitmap.getPixel(x, y)
-                if (luma(color) < backgroundLuma - 24) {
-                    red += Color.red(color)
-                    green += Color.green(color)
-                    blue += Color.blue(color)
-                    count++
+                val delta = luma(color) - backgroundLuma
+                when {
+                    delta <= -24 -> {
+                        darkRed += Color.red(color)
+                        darkGreen += Color.green(color)
+                        darkBlue += Color.blue(color)
+                        darkCount++
+                        darkContrast += -delta
+                    }
+
+                    delta >= 24 -> {
+                        lightRed += Color.red(color)
+                        lightGreen += Color.green(color)
+                        lightBlue += Color.blue(color)
+                        lightCount++
+                        lightContrast += delta
+                    }
                 }
                 x += step
             }
             y += step
         }
 
+        val useLightInk = lightCount > 0L &&
+            (darkCount == 0L || lightContrast > darkContrast)
+        val count = if (useLightInk) lightCount else darkCount
         if (count == 0L) {
-            return InkSample(Color.rgb(32, 32, 32), false)
+            return InkSample(
+                color = if (backgroundLuma < 128) {
+                    Color.rgb(235, 235, 235)
+                } else {
+                    Color.rgb(32, 32, 32)
+                },
+                bold = false
+            )
         }
+
+        val red = if (useLightInk) lightRed else darkRed
+        val green = if (useLightInk) lightGreen else darkGreen
+        val blue = if (useLightInk) lightBlue else darkBlue
         val sampledArea = (
             max(1, rect.width() / step) *
                 max(1, rect.height() / step)
