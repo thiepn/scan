@@ -36,11 +36,15 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Smart collections provide Recent (7 days), Unfiled, and Needs Review views; organization filters can combine folder trees, tags, and document type with relevance/date/title/page-count sorting.
 - Deterministic local classification suggests Receipt, Invoice, ID, Form, Notes, Letter, Business Card, Book, Whiteboard, or Certificate when OCR/title evidence is strong, but never overwrites a user-selected type.
 - Folder deletion is non-destructive: documents and child folders are promoted to the deleted folder's parent; tag deletion only removes tag relationships.
-- Specialized Scan Modes: Document, Receipt, ID Card, Business Card, Whiteboard, Form, Photo, Notes, and Certificate, each with mode-specific capture guidance, page limits, enhancement defaults, document type, OCR policy, PDF quality, and capture validation.
+- Specialized Scan Modes: Document, Receipt, ID Card, Business Card, Book, Whiteboard, Form, Photo, Notes, and Certificate, each with mode-specific capture guidance, page limits, enhancement defaults, document type, OCR policy, PDF quality, and capture validation.
 - ID Card mode uses a dedicated two-step front/back capture flow; the front is staged durably before launching the back scan, and cancelling the second side still preserves a one-page ID that can later use the explicit Scan back action.
 - Receipt, Business Card, ID Card, Form, and Certificate modes perform deterministic on-device field extraction; extracted details are persisted locally, shown in the document editor, and individually copyable.
 - Mode validation flags unusual aspect ratios, missing ID sides, unexpected page counts, and conservatively low capture resolution through the existing Needs Review workflow.
 - Photo mode is visual-first: Original enhancement defaults, high-quality export, no OCR/search/text export, and no hidden OCR text layer when PDFs are rebuilt or merged.
+- Book Scanner detects likely open-book spreads from landscape geometry plus center-gutter evidence, auto-splits only high-confidence spreads, and keeps lower-confidence pages intact for manual review.
+- Book spread splitting preserves the untouched original source, creates ordered left/right derived pages, applies bounded cylindrical mesh dewarping near the gutter, and auto-detects an independent crop for each resulting page.
+- Book review includes a live gutter preview with manual gutter adjustment, optional dewarping, sequential Review next spread workflow, and one-tap Restore original spread that removes the derived pair and reactivates the source.
+- OCR, FTS search, page editing, text/PDF export, merge, and page ordering operate only on active logical book pages; preserved source spreads stay hidden from normal Deleted pages and remain available solely for reversible restoration.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
