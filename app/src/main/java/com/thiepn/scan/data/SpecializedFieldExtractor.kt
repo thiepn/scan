@@ -198,7 +198,10 @@ object SpecializedFieldExtractor {
         lines.forEachIndexed { index, line ->
             val lower = line.lowercase()
             val label = labels.firstOrNull { it in lower } ?: return@forEachIndexed
-            val after = line.substringAfter(label, "").trim(' ', ':', '-', '–')
+            val labelIndex = lower.indexOf(label)
+            val after = line
+                .substring((labelIndex + label.length).coerceAtMost(line.length))
+                .trim(' ', ':', '-', '–')
             if (after.length >= 2) return after
             lines.getOrNull(index + 1)?.takeIf { it.length >= 2 }?.let { return it }
         }
