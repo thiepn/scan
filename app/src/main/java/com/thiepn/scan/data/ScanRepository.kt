@@ -1413,6 +1413,7 @@ class ScanRepository(
 
     suspend fun createStructuredCsvExport(documentId:String):File?=
         withContext(Dispatchers.IO){
+            requireVaultUnlocked(documentId)
             val document=dao.getDocument(documentId)?:return@withContext null
             require(document.trashedAt==null){"Restore the document before exporting it"}
             val pages=structuredExportPages(documentId)
@@ -1424,6 +1425,7 @@ class ScanRepository(
 
     suspend fun createStructuredJsonExport(documentId:String):File?=
         withContext(Dispatchers.IO){
+            requireVaultUnlocked(documentId)
             val document=dao.getDocument(documentId)?:return@withContext null
             require(document.trashedAt==null){"Restore the document before exporting it"}
             val pages=structuredExportPages(documentId)
@@ -1436,6 +1438,7 @@ class ScanRepository(
 
     suspend fun createStructuredXlsxExport(documentId:String):File?=
         withContext(Dispatchers.IO){
+            requireVaultUnlocked(documentId)
             val document=dao.getDocument(documentId)?:return@withContext null
             require(document.trashedAt==null){"Restore the document before exporting it"}
             val pages=structuredExportPages(documentId)
@@ -3013,9 +3016,131 @@ class ScanRepository(
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
 
+    suspend fun createPrivacyPdfExport(
+        documentId: String
+    ): File? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(documentId)
+        val document = dao.getDocument(documentId)
+            ?: return@withContext null
+        require(document.trashedAt == null) {
+            "Restore the document before exporting it"
+        }
+        require(!document.processing) {
+            "Document is still processing"
+        }
+        val security = DocumentSecuritySettingsCodec.decode(
+            document.securityRecipe
+        )
+        val pages = orderedPages(dao.getPages(documentId))
+        if (pages.isEmpty()) return@withContext null
+
+        val sanitizedPages = pages.map { page ->
+            val metadata = PageAssemblyMetadataCodec.decode(
+                page.assemblyMetadata
+            )
+            page.copy(
+                assemblyMetadata = PageAssemblyMetadataCodec.encode(
+                    metadata.copy(
+                        label = "",
+                        bookmarkTitle = ""
+                    )
+                )
+            )
+        }
+        val destination = files.privacyPdfExportFile(
+            documentId
+        )
+        val rendered = files.temporaryWorkingPdf(
+            "scan-private"
+        )
+        val temporary = files.temporaryExport(
+            destination
+        )
+        try {
+            pdfEngine.createSearchablePdf(
+                pages = sanitizedPages,
+                destination = rendered,
+                quality = PdfQuality.HIGH,
+                includeOcrTextLayer =
+                    security.privacyExportMode ==
+                        PrivacyExportMode.STRIP_METADATA,
+                documentTitle = "",
+                publishingSettings =
+                    PublishingSettings(
+                        pageNumberPosition =
+                            PageNumberPosition.NONE
+                    ),
+                complianceSettings =
+                    ComplianceSettings()
+            )
+            pdfEngine.sanitizePrivacy(
+                rendered,
+                temporary
+            )
+            files.commitGeneratedExport(
+                temporary,
+                destination
+            )
+        } finally {
+            rendered.delete()
+            temporary.takeIf { it.exists() }?.delete()
+        }
+    }
+
+    suspend fun createSecureBackup(
+        documentId: String,
+        password: CharArray
+    ): SecureBackupResult = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(documentId)
+        val document = dao.getDocument(documentId)
+            ?: throw IllegalArgumentException(
+                "Document not found"
+            )
+        require(document.trashedAt == null) {
+            "Restore the document before backing it up"
+        }
+        require(!document.processing) {
+            "Document is still processing"
+        }
+        SecureDocumentBackup(
+            dao = dao,
+            files = files,
+            searchIndex = searchIndex
+        ).create(
+            documentId = documentId,
+            password = password
+        )
+    }
+
+    suspend fun restoreSecureBackup(
+        uri: Uri,
+        password: CharArray
+    ): String = withContext(Dispatchers.IO) {
+        val temporary = File.createTempFile(
+            "scan-backup-restore",
+            ".scanbak",
+            context.cacheDir
+        )
+        try {
+            files.copyUri(uri, temporary)
+            SecureDocumentBackup(
+                dao = dao,
+                files = files,
+                searchIndex = searchIndex
+            ).restore(
+                source = temporary,
+                password = password
+            )
+        } finally {
+            password.fill('\u0000')
+            temporary.delete()
+        }
+    }
+
     suspend fun createStandardsPdfExport(
         documentId: String
     ): StandardsExportResult? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(documentId)
         val document = dao.getDocument(documentId)
             ?: return@withContext null
         require(document.trashedAt == null) {
@@ -3191,6 +3316,7 @@ class ScanRepository(
         password: String? = null,
         quality: PdfQuality = PdfQuality.ORIGINAL
     ): File? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(id)
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }
         val pages = orderedPages(dao.getPages(id))
@@ -3398,6 +3524,7 @@ class ScanRepository(
         pageIds: List<String>,
         quality: PdfQuality = PdfQuality.ORIGINAL
     ): File? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(id)
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }
         require(!document.processing) { "Document is still processing" }
@@ -3457,6 +3584,7 @@ class ScanRepository(
         id: String,
         pageIds: List<String>
     ): File? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(id)
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }
         val requested = pageIds.distinct()
@@ -3486,6 +3614,7 @@ class ScanRepository(
         val temporaryInputs = mutableListOf<File>()
         try {
             orderedIds.forEach { id ->
+                requireVaultUnlocked(id)
                 val document = dao.getDocument(id)
                     ?: throw IllegalArgumentException("A selected document no longer exists")
                 require(document.trashedAt == null) { "${document.title} is in Trash" }
@@ -3577,6 +3706,7 @@ class ScanRepository(
     }
 
     suspend fun createTextExport(id: String): File? = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(id)
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }
         val pages = orderedPages(dao.getPages(id))
