@@ -64,7 +64,7 @@ fun ScanModeChooserDialog(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            "Capture first; OCR and heavy processing run after you exit the scan loop. Available for Document, Book, Form, and Notes.",
+                            "Capture first; OCR and heavy processing run after you exit the scan loop. The scanner reopens after each saved batch; cancel the next scan to finish. Available for Document, Book, Form, and Notes.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
