@@ -2413,7 +2413,8 @@ class ScanRepository(
             val hasVisualEdits = selectedPages.any {
                 !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                     !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                    !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                    !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                    !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
             }
             if (source != null && !hasGeometryEdits && !hasVisualEdits) {
                 pdfEngine.extractPages(
@@ -2463,7 +2464,8 @@ class ScanRepository(
         val hasVisualEdits = selected.any {
             !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                 !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
         }
 
         runCatching {
@@ -2547,7 +2549,8 @@ class ScanRepository(
                     val hasVisualEdits = pages.any {
                         !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                             !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                            !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                            !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                            !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
                     }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
