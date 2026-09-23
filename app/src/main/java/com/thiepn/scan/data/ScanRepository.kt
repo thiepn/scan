@@ -752,7 +752,8 @@ class ScanRepository(
         documentId: String,
         pageId: String,
         dewarp: Boolean = true,
-        force: Boolean = true
+        force: Boolean = true,
+        gutterX: Float? = null
     ): BookSpreadAnalysis = withContext(Dispatchers.IO) {
         val document = requireEditableDocument(documentId)
         require(!document.processing) { "Document is still processing" }
@@ -778,7 +779,7 @@ class ScanRepository(
                 "Spread confidence is too low; review the page before splitting"
             }
 
-            val effective = if (force && !analysis.likelySpread) {
+            val base = if (force && !analysis.likelySpread) {
                 analysis.copy(
                     likelySpread = true,
                     autoSplitRecommended = false,
@@ -793,6 +794,9 @@ class ScanRepository(
             } else {
                 analysis
             }
+            val effective = base.copy(
+                gutterX = gutterX?.coerceIn(0.32f, 0.68f) ?: base.gutterX
+            )
 
             dao.setBookAnalysis(
                 pageId = pageId,
