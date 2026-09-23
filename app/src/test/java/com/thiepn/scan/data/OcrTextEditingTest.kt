@@ -55,6 +55,31 @@ class OcrTextEditingTest {
     }
 
     @Test
+    fun multiwordReplacementDoesNotCollideWithNeighborWordIdentity() {
+        val base = samplePage()
+        val regions = OcrTextEditEngine.regions(base, OcrTextEditTarget.WORD)
+        val invoice = regions.first { it.text == "Invoice" }
+        val total = regions.first { it.text == "total" }
+        var recipe = PageTextEditRecipe()
+        recipe = OcrTextEditEngine.withEdit(
+            recipe,
+            OcrTextEditEngine.createEdit(invoice, "Final invoice")
+        )
+        recipe = OcrTextEditEngine.withEdit(
+            recipe,
+            OcrTextEditEngine.createEdit(total, "amount")
+        )
+
+        val edited = OcrTextEditEngine.apply(base, recipe)
+
+        assertEquals(
+            listOf("Final", "invoice", "amount", "Due", "today"),
+            edited.words.map { it.text }
+        )
+        assertTrue(edited.text.contains("Final invoice amount"))
+    }
+
+    @Test
     fun multilineBlockEditRebuildsLinesWordsAndSearchTruth() {
         val base = samplePage()
         val block = OcrTextEditEngine.regions(
