@@ -754,47 +754,42 @@ object OcrTextEditRenderer {
         rect: Rect
     ) {
         val pad = max(2, (rect.height() * 0.16f).roundToInt())
-        val left = (rect.left - pad).coerceIn(0, bitmap.width - 1)
-        val top = (rect.top - pad).coerceIn(0, bitmap.height - 1)
-        val right = (rect.right + pad).coerceIn(left + 1, bitmap.width)
-        val bottom = (rect.bottom + pad).coerceIn(top + 1, bitmap.height)
-
         val sampleRadius = max(1, pad / 2)
         val topLeft = sampleAverage(
             bitmap,
-            left - sampleRadius,
-            top - sampleRadius,
-            left + sampleRadius,
-            top + sampleRadius
+            rect.left - pad - sampleRadius,
+            rect.top - pad - sampleRadius,
+            rect.left - pad + sampleRadius,
+            rect.top - pad + sampleRadius
         )
         val topRight = sampleAverage(
             bitmap,
-            right - sampleRadius,
-            top - sampleRadius,
-            right + sampleRadius,
-            top + sampleRadius
+            rect.right + pad - sampleRadius,
+            rect.top - pad - sampleRadius,
+            rect.right + pad + sampleRadius,
+            rect.top - pad + sampleRadius
         )
         val bottomLeft = sampleAverage(
             bitmap,
-            left - sampleRadius,
-            bottom - sampleRadius,
-            left + sampleRadius,
-            bottom + sampleRadius
+            rect.left - pad - sampleRadius,
+            rect.bottom + pad - sampleRadius,
+            rect.left - pad + sampleRadius,
+            rect.bottom + pad + sampleRadius
         )
         val bottomRight = sampleAverage(
             bitmap,
-            right - sampleRadius,
-            bottom - sampleRadius,
-            right + sampleRadius,
-            bottom + sampleRadius
+            rect.right + pad - sampleRadius,
+            rect.bottom + pad - sampleRadius,
+            rect.right + pad + sampleRadius,
+            rect.bottom + pad + sampleRadius
         )
 
-        val width = (right - left).coerceAtLeast(1)
-        val height = (bottom - top).coerceAtLeast(1)
-        for (y in top until bottom) {
-            val ty = (y - top).toFloat() / height
-            for (x in left until right) {
-                val tx = (x - left).toFloat() / width
+        val width = rect.width().coerceAtLeast(1)
+        val height = rect.height().coerceAtLeast(1)
+        for (y in rect.top until rect.bottom) {
+            val ty = (y - rect.top).toFloat() / height
+            for (x in rect.left until rect.right) {
+                val tx = (x - rect.left).toFloat() / width
                 val topColor = lerpColor(topLeft, topRight, tx)
                 val bottomColor = lerpColor(bottomLeft, bottomRight, tx)
                 bitmap.setPixel(x, y, lerpColor(topColor, bottomColor, ty))
