@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -192,6 +193,7 @@ fun DocumentScreen(
     var cropPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var enhancePageId by rememberSaveable { mutableStateOf<String?>(null) }
     var cleanupPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var textEditPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var cleanupSuggestions by remember {
         mutableStateOf<List<CleanupSuggestion>>(emptyList())
     }
@@ -219,7 +221,7 @@ fun DocumentScreen(
     LaunchedEffect(
         documentSearchOpen,
         documentSearchQuery,
-        pages.map { it.ocrFingerprint }
+        pages.map { it.ocrFingerprint to it.textEditRecipe }
     ) {
         if (!documentSearchOpen || documentSearchQuery.isBlank()) {
             documentSearchBusy = false
@@ -277,7 +279,8 @@ fun DocumentScreen(
         page.rotationDegrees != 0 ||
             !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
             !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
-            !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty()
+            !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
+            !page.textEditRecipe.isNullOrBlank()
     }
 
     Scaffold(
@@ -673,7 +676,8 @@ fun DocumentScreen(
                     page.rotationDegrees != 0 ||
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
                         !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
-                        !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty()
+                        !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
+                        !page.textEditRecipe.isNullOrBlank()
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
@@ -699,6 +703,7 @@ fun DocumentScreen(
                     canCrop = editable,
                     canEnhance = editable,
                     canCleanup = editable,
+                    canEditText = editable && page.ocrLayout?.isNotBlank() == true,
                     canDuplicate = editable,
                     canReplace = editable,
                     canRetake = editable,
@@ -771,6 +776,7 @@ fun DocumentScreen(
                             cleanupDetecting = false
                         }
                     },
+                    onEditText = { textEditPageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -908,6 +914,40 @@ fun DocumentScreen(
                         }
                         .onFailure {
                             onMessage(it.message ?: "Could not save cleanup")
+                        }
+                }
+            }
+        )
+    }
+
+    val textEditPage = textEditPageId?.let { id ->
+        pages.firstOrNull { it.id == id }
+    }
+    if (textEditPage != null) {
+        OcrTextEditorDialog(
+            page = textEditPage,
+            onDismiss = { textEditPageId = null },
+            onSave = { recipe ->
+                textEditPageId = null
+                scope.launch {
+                    runCatching {
+                        repository.updatePageTextEdits(
+                            documentId = doc.id,
+                            pageId = textEditPage.id,
+                            recipe = recipe
+                        )
+                    }
+                        .onSuccess {
+                            onMessage(
+                                if (recipe.isEmpty()) {
+                                    "Text edits reverted"
+                                } else {
+                                    "Text edits saved"
+                                }
+                            )
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not save text edits")
                         }
                 }
             }
@@ -1536,6 +1576,7 @@ private fun PageCard(
     canCrop: Boolean,
     canEnhance: Boolean,
     canCleanup: Boolean,
+    canEditText: Boolean,
     canDuplicate: Boolean,
     canReplace: Boolean,
     canRetake: Boolean,
@@ -1552,6 +1593,7 @@ private fun PageCard(
     onCrop: () -> Unit,
     onEnhance: () -> Unit,
     onCleanup: () -> Unit,
+    onEditText: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
@@ -1649,6 +1691,9 @@ private fun PageCard(
                         IconButton(onClick = onCleanup, enabled = canCleanup) {
                             Icon(Icons.Default.AutoFixHigh, contentDescription = "Smart cleanup")
                         }
+                        IconButton(onClick = onEditText, enabled = canEditText) {
+                            Icon(Icons.Default.TextFields, contentDescription = "Edit recognized text")
+                        }
                         IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
                         }
@@ -1690,6 +1735,7 @@ private fun PageCard(
                 cropQuad = page.cropQuad,
                 visualRecipe = page.visualRecipe,
                 cleanupRecipe = page.cleanupRecipe,
+                textEditRecipe = page.textEditRecipe,
                 highlightWords = highlightWords,
                 highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
                 highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,
