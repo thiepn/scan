@@ -10,6 +10,7 @@ data class ScanModeProfile(
     val defaultPdfQuality: PdfQuality,
     val minimumLongEdge: Int = 1000,
     val ocrEnabled: Boolean = true,
+    val supportsHighSpeedCapture: Boolean = false,
     val requiresTwoSidedCapture: Boolean = false,
     val expectedAspectRatioRange: ClosedFloatingPointRange<Float>? = null
 )
@@ -23,7 +24,8 @@ object ScanModeProfiles {
             pageLimit = null,
             defaultPreset = ScanPreset.AUTO,
             defaultDocumentType = DocumentType.UNSPECIFIED,
-            defaultPdfQuality = PdfQuality.ORIGINAL
+            defaultPdfQuality = PdfQuality.ORIGINAL,
+            supportsHighSpeedCapture = true
         ),
         ScanMode.RECEIPT to ScanModeProfile(
             mode = ScanMode.RECEIPT,
@@ -64,6 +66,7 @@ object ScanModeProfiles {
             defaultPreset = ScanPreset.CLEAN,
             defaultDocumentType = DocumentType.BOOK,
             defaultPdfQuality = PdfQuality.BALANCED,
+            supportsHighSpeedCapture = true,
             minimumLongEdge = 1400
         ),
         ScanMode.WHITEBOARD to ScanModeProfile(
@@ -84,6 +87,7 @@ object ScanModeProfiles {
             defaultPreset = ScanPreset.CLEAN,
             defaultDocumentType = DocumentType.FORM,
             defaultPdfQuality = PdfQuality.ORIGINAL,
+            supportsHighSpeedCapture = true,
             minimumLongEdge = 1200
         ),
         ScanMode.PHOTO to ScanModeProfile(
@@ -105,6 +109,7 @@ object ScanModeProfiles {
             defaultPreset = ScanPreset.NOTES,
             defaultDocumentType = DocumentType.NOTES,
             defaultPdfQuality = PdfQuality.BALANCED,
+            supportsHighSpeedCapture = true,
             minimumLongEdge = 1200
         ),
         ScanMode.CERTIFICATE to ScanModeProfile(
