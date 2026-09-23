@@ -110,6 +110,7 @@ private fun ScanApp(repository: ScanRepository) {
             activity = activity,
             mode = mode,
             forceSinglePage = false,
+            rapidCapture = true,
             launcher = scannerLauncher,
             onFailure = { error ->
                 pendingScanAction = null
@@ -544,6 +545,7 @@ private fun ScanApp(repository: ScanRepository) {
                         activity = activity,
                         mode = mode,
                         forceSinglePage = mode == ScanMode.ID_CARD,
+                        rapidCapture = rapid,
                         launcher = scannerLauncher,
                         onFailure = { error ->
                             pendingScanAction = null
@@ -578,6 +580,7 @@ private fun ScanApp(repository: ScanRepository) {
                         activity = activity,
                         mode = mode,
                         forceSinglePage = false,
+                        rapidCapture = true,
                         launcher = scannerLauncher,
                         onFailure = { error ->
                             pendingScanAction = null
@@ -652,16 +655,13 @@ private fun startModeScanner(
     activity: Activity,
     mode: ScanMode,
     forceSinglePage: Boolean,
+    rapidCapture: Boolean = false,
     launcher: ActivityResultLauncher<IntentSenderRequest>,
     onFailure: (Throwable) -> Unit
 ) {
     val profile = ScanModeProfiles.forMode(mode)
     val builder = GmsDocumentScannerOptions.Builder()
         .setGalleryImportAllowed(true)
-        .setResultFormats(
-            GmsDocumentScannerOptions.RESULT_FORMAT_JPEG,
-            GmsDocumentScannerOptions.RESULT_FORMAT_PDF
-        )
         .setScannerMode(
             if (mode == ScanMode.PHOTO) {
                 GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER
@@ -669,6 +669,17 @@ private fun startModeScanner(
                 GmsDocumentScannerOptions.SCANNER_MODE_FULL
             }
         )
+
+    if (rapidCapture) {
+        builder.setResultFormats(
+            GmsDocumentScannerOptions.RESULT_FORMAT_JPEG
+        )
+    } else {
+        builder.setResultFormats(
+            GmsDocumentScannerOptions.RESULT_FORMAT_JPEG,
+            GmsDocumentScannerOptions.RESULT_FORMAT_PDF
+        )
+    }
 
     val pageLimit = if (forceSinglePage) 1 else profile.pageLimit
     if (pageLimit != null) {
