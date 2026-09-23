@@ -294,6 +294,16 @@ interface DocumentDao {
     @Query("UPDATE pages SET formFillRecipe = :recipe WHERE id = :pageId")
     suspend fun setPageFormFillRecipe(pageId: String, recipe: String?)
 
+    @Query("UPDATE pages SET assemblyMetadata = :metadata WHERE id = :pageId")
+    suspend fun setPageAssemblyMetadata(pageId: String, metadata: String?)
+
+    @Query("UPDATE documents SET publishingRecipe = :recipe, updatedAt = :updatedAt WHERE id = :documentId")
+    suspend fun setPublishingRecipe(
+        documentId: String,
+        recipe: String?,
+        updatedAt: Long
+    )
+
     @Query("UPDATE pages SET structuredData = :data WHERE id = :pageId")
     suspend fun setPageStructuredData(pageId: String, data: String?)
 

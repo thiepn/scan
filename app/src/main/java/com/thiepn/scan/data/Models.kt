@@ -37,7 +37,8 @@ data class DocumentEntity(
     @ColumnInfo(defaultValue = "0")
     val needsReview: Boolean = false,
     @ColumnInfo(defaultValue = "'DOCUMENT'")
-    val scanMode: String = ScanMode.DOCUMENT.name
+    val scanMode: String = ScanMode.DOCUMENT.name,
+    val publishingRecipe: String? = null
 )
 
 @Entity(
@@ -256,6 +257,7 @@ data class PageEntity(
     val markupRecipe: String? = null,
     val formFillRecipe: String? = null,
     val structuredData: String? = null,
+    val assemblyMetadata: String? = null,
     val ocrFingerprint: String? = null,
     val ocrScript: String? = null,
     val sourceSpreadPageId: String? = null,
