@@ -491,6 +491,7 @@ class ScanRepository(
                 visualRecipe = PageVisualRecipeCodec.encode(
                     PageVisualRecipe.forPreset(profile.defaultPreset)
                 ),
+                cleanupRecipe = null,
                 imagePath = replacementFile.absolutePath,
                 width = size.first,
                 height = size.second,
@@ -624,6 +625,9 @@ class ScanRepository(
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
+        if (!page.cleanupRecipe.isNullOrBlank()) {
+            dao.setPageCleanupRecipe(pageId, null)
+        }
         invalidateBookAnalysisIfOriginal(document, page)
         dao.clearPageOcr(pageId)
         searchIndex.deletePage(pageId)
@@ -793,7 +797,8 @@ class ScanRepository(
             selected.forEach { page ->
                 if (
                     PageRotation.normalize(page.rotationDegrees) != 0 ||
-                    !CropQuadCodec.decode(page.cropQuad).isFullFrame()
+                    !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
+                    !page.cleanupRecipe.isNullOrBlank()
                 ) {
                     requiresOcr += page.id
                     invalidateBookAnalysisIfOriginal(document, page)
@@ -803,6 +808,7 @@ class ScanRepository(
                 dao.setPageRotation(page.id, 0)
                 dao.setPageCropQuad(page.id, null)
                 dao.setPageVisualRecipe(page.id, null)
+                dao.setPageCleanupRecipe(page.id, null)
             }
 
             if (requiresOcr.isEmpty()) {
@@ -1002,6 +1008,7 @@ class ScanRepository(
             file = imageFile,
             cropQuad = page.cropQuad,
             rotationDegrees = page.rotationDegrees,
+            cleanupRecipe = page.cleanupRecipe,
             script = script
         )
 
@@ -1014,17 +1021,17 @@ class ScanRepository(
             }
         }
 
+        val cleanup = PageCleanupRecipeCodec.decode(page.cleanupRecipe)
         val quad = CropQuadCodec.decode(page.cropQuad)
         val result = if (
+            cleanup.isEmpty() &&
             quad.isFullFrame() &&
             PageRotation.normalize(page.rotationDegrees) == 0
         ) {
             ocr.recognizeDetailed(imageFile, script)
         } else {
-            val bitmap = PageGeometryRenderer.renderFile(
-                file = imageFile,
-                cropQuad = quad,
-                rotationDegrees = page.rotationDegrees,
+            val bitmap = renderSemanticPageBitmap(
+                page = page,
                 maxLongEdge = 2800
             )
             try {
@@ -1366,6 +1373,7 @@ class ScanRepository(
                     rotationDegrees = 0,
                     cropQuad = CropQuadCodec.encode(crop),
                     visualRecipe = source.visualRecipe,
+                    cleanupRecipe = null,
                     imagePath = result.file.absolutePath,
                     width = result.width,
                     height = result.height,
@@ -1404,17 +1412,17 @@ class ScanRepository(
 
     private fun prepareBookWorkingSource(page: PageEntity): Pair<File, Boolean> {
         val original = File(page.imagePath)
+        val cleanup = PageCleanupRecipeCodec.decode(page.cleanupRecipe)
         if (
+            cleanup.isEmpty() &&
             CropQuadCodec.decode(page.cropQuad).isFullFrame() &&
             PageRotation.normalize(page.rotationDegrees) == 0
         ) {
             return original to false
         }
 
-        val bitmap = PageGeometryRenderer.renderFile(
-            file = original,
-            cropQuad = CropQuadCodec.decode(page.cropQuad),
-            rotationDegrees = page.rotationDegrees,
+        val bitmap = renderSemanticPageBitmap(
+            page = page,
             maxLongEdge = 3600
         )
         val temporary = File.createTempFile(
@@ -1432,6 +1440,29 @@ class ScanRepository(
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private fun renderSemanticPageBitmap(
+        page: PageEntity,
+        maxLongEdge: Int
+    ): android.graphics.Bitmap {
+        val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
+            file = File(page.imagePath),
+            cropQuad = CropQuadCodec.decode(page.cropQuad),
+            maxLongEdge = maxLongEdge
+        )
+        val cleaned = PageCleanupRenderer.apply(
+            geometry,
+            PageCleanupRecipeCodec.decode(page.cleanupRecipe)
+        )
+        if (cleaned !== geometry) geometry.recycle()
+
+        val rotated = PageGeometryRenderer.rotateBitmap(
+            cleaned,
+            page.rotationDegrees
+        )
+        if (rotated !== cleaned) cleaned.recycle()
+        return rotated
     }
 
     suspend fun createFolder(
