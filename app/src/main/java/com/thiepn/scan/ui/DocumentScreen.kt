@@ -640,7 +640,6 @@ fun DocumentScreen(
                             ) &&
                         !bookReviewBusy,
                     canRestoreBookSpread = editable &&
-                        scanMode == ScanMode.BOOK &&
                         page.sourceSpreadPageId != null,
                     onToggleSelected = {
                         selectedPageIds = if (page.id in selectedPageIds) {
