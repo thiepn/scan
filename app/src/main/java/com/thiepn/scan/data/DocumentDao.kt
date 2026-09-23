@@ -262,6 +262,9 @@ interface DocumentDao {
     @Query("UPDATE pages SET visualRecipe = :visualRecipe WHERE id = :pageId")
     suspend fun setPageVisualRecipe(pageId: String, visualRecipe: String?)
 
+    @Query("UPDATE pages SET cleanupRecipe = :cleanupRecipe WHERE id = :pageId")
+    suspend fun setPageCleanupRecipe(pageId: String, cleanupRecipe: String?)
+
     @Query(
         "UPDATE pages SET bookSplitConfidence = :confidence, " +
             "bookDewarpStrength = :dewarpStrength, bookReviewResolved = 0 " +
