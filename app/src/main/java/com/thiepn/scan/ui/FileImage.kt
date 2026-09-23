@@ -22,6 +22,8 @@ import androidx.compose.ui.layout.ContentScale
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.OcrWordBox
+import com.thiepn.scan.data.PageCleanupRecipeCodec
+import com.thiepn.scan.data.PageCleanupRenderer
 import com.thiepn.scan.data.PageGeometryRenderer
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +39,7 @@ fun FileImage(
     rotationDegrees: Int = 0,
     cropQuad: String? = null,
     visualRecipe: String? = null,
+    cleanupRecipe: String? = null,
     highlightWords: List<OcrWordBox> = emptyList(),
     highlightSourceWidth: Int = 0,
     highlightSourceHeight: Int = 0,
@@ -48,7 +51,8 @@ fun FileImage(
         maxDecodeEdge,
         rotationDegrees,
         cropQuad,
-        visualRecipe
+        visualRecipe,
+        cleanupRecipe
     ) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -57,11 +61,16 @@ fun FileImage(
                     cropQuad = CropQuadCodec.decode(cropQuad),
                     maxLongEdge = maxDecodeEdge
                 )
-                val enhanced = ImageEnhancementRenderer.apply(
+                val cleaned = PageCleanupRenderer.apply(
                     geometry,
+                    PageCleanupRecipeCodec.decode(cleanupRecipe)
+                )
+                if (cleaned !== geometry) geometry.recycle()
+                val enhanced = ImageEnhancementRenderer.apply(
+                    cleaned,
                     PageVisualRecipeCodec.decode(visualRecipe)
                 )
-                if (enhanced !== geometry) geometry.recycle()
+                if (enhanced !== cleaned) cleaned.recycle()
                 val rotated = PageGeometryRenderer.rotateBitmap(
                     enhanced,
                     rotationDegrees
