@@ -345,7 +345,7 @@ object StructuredDataDetector {
         result?:return PageStructuredData()
         if(result.sourceWidth<=0||result.sourceHeight<=0)return PageStructuredData()
         val tables=detectTables(result).toMutableList()
-        if((mode==ScanMode.RECEIPT||mode==ScanMode.FORM)&&
+        if((mode==ScanMode.RECEIPT||mode==ScanMode.FORM||mode==ScanMode.DOCUMENT)&&
             tables.none{it.columnCount>=2&&it.rowCount>=2}) {
             detectLineItems(result)?.let(tables::add)
         }
