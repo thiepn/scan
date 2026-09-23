@@ -95,7 +95,7 @@ data class PageTextEditRecipe(
         }
         return copy(
             version = CURRENT_VERSION,
-            edits = deduped.values.takeLast(MAX_EDITS)
+            edits = deduped.values.toList().takeLast(MAX_EDITS)
         )
     }
 
