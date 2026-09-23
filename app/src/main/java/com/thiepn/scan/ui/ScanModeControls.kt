@@ -33,8 +33,9 @@ import com.thiepn.scan.data.ScanModeProfiles
 @Composable
 fun ScanModeChooserDialog(
     onDismiss: () -> Unit,
-    onChoose: (ScanMode) -> Unit
+    onChoose: (ScanMode, Boolean) -> Unit
 ) {
+    var rapidCapture by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Choose scan mode") },
@@ -46,12 +47,42 @@ fun ScanModeChooserDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { rapidCapture = !rapidCapture }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = rapidCapture,
+                        onCheckedChange = { rapidCapture = it }
+                    )
+                    Column {
+                        Text(
+                            "Rapid continuous capture",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "Capture first; OCR and heavy processing run after you exit the scan loop. Available for Document, Book, Form, and Notes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                HorizontalDivider()
+
                 ScanMode.entries.forEachIndexed { index, mode ->
                     val profile = ScanModeProfiles.forMode(mode)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onChoose(mode) }
+                            .clickable {
+                                onChoose(
+                                    mode,
+                                    rapidCapture && profile.supportsHighSpeedCapture
+                                )
+                            }
                             .padding(vertical = 8.dp)
                     ) {
                         Row(
