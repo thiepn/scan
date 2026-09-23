@@ -30,6 +30,18 @@ Book splitting is non-destructive. The original `PageEntity` is marked as a hidd
 
 Dewarping uses a bounded cylindrical bitmap mesh concentrated near the gutter. It is intentionally conservative and optional during manual review. Derived pages then pass through normal crop, enhancement, OCR, search, ordering, and PDF pipelines. Preserved source spreads never participate in active-page OCR/search/export and are excluded from normal Deleted pages.
 
+### High-speed capture queue
+
+Rapid capture separates durability from expensive processing. A scanner batch is first copied into app-private page files, inserted into Room, and paired with durable `page_processing` jobs under a `capture_sessions` record. No OCR, Book dewarping, or image enhancement rendering is required before the next scanner session can start.
+
+While a capture session is `CAPTURING`, heavy queue work is intentionally deferred. Ending the loop changes the session to `PROCESSING`. The queue then fingerprints one page at a time, suppresses only conservative perceptual duplicates, and processes accepted pages in bounded chunks. Bitmap lifetime is page-scoped; queue size therefore does not imply proportional bitmap memory.
+
+Processing state is restart-safe. On app startup, in-flight page jobs return to `QUEUED`, an unfinished `CAPTURING` session becomes `INTERRUPTED`, and preserved jobs are drained again. Failed jobs remain durable and can be retried.
+
+`HighSpeedProcessingPolicy` constrains chunk size using Android memory class, battery state, thermal status, and scan mode. Severe thermal pressure or critically low unplugged battery moves the session to `PAUSED` and schedules a later retry.
+
+ML Kit's scanner remains responsible for its own live document detection and automatic capture behavior. The repository queue only works with completed page images returned by that capture UI.
+
 ### OCR
 
 `OcrEngine` wraps ML Kit Text Recognition. The bundled Latin model makes recognition available without a first-use model download. Recognition runs after capture/import on an application coroutine scope.
