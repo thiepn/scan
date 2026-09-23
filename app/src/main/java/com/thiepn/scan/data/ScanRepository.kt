@@ -233,7 +233,12 @@ class ScanRepository(
                 ocrText = "",
                 ocrLayout = null,
                 ocrFingerprint = null,
-                ocrScript = null
+                ocrScript = null,
+                sourceSpreadPageId = null,
+                bookSide = null,
+                bookSplitConfidence = null,
+                bookDewarpStrength = 0f,
+                preservedBookSource = false
             )
             val newOrder = currentPages.map { it.id }.toMutableList().apply {
                 this[sourceIndex] = replacementId
@@ -381,7 +386,12 @@ class ScanRepository(
                         position = nextPosition++,
                         sortKey = nextSortKey,
                         deleted = false,
-                        imagePath = file.absolutePath
+                        imagePath = file.absolutePath,
+                        sourceSpreadPageId = null,
+                        bookSide = null,
+                        bookSplitConfidence = null,
+                        bookDewarpStrength = 0f,
+                        preservedBookSource = false
                     )
                     nextSortKey += 1000L
                     duplicateBySource[source.id] = duplicateId
@@ -1240,6 +1250,13 @@ class ScanRepository(
                     updatedAt = System.currentTimeMillis()
                 )
                 refreshSpecializedFields(documentId)
+            }
+
+            scanMode == ScanMode.BOOK -> {
+                dao.setProcessing(documentId, true, System.currentTimeMillis())
+                appScope.launch(Dispatchers.IO) {
+                    processBookDocument(documentId)
+                }
             }
 
             !oldProfile.ocrEnabled -> {
