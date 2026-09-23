@@ -663,6 +663,147 @@ class ScanRepository(
         dao.touchDocument(documentId, System.currentTimeMillis())
     }
 
+    suspend fun detectCleanupSuggestions(
+        documentId: String,
+        pageId: String
+    ): List<CleanupSuggestion> = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+
+        CleanupSuggestionDetector.detect(
+            file = File(page.imagePath),
+            cropQuad = CropQuadCodec.decode(page.cropQuad)
+        )
+    }
+
+    suspend fun updatePageCleanup(
+        documentId: String,
+        pageId: String,
+        recipe: PageCleanupRecipe
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+
+        val encoded = PageCleanupRecipeCodec.encode(recipe)
+        if (encoded == page.cleanupRecipe) return@withContext
+
+        dao.setPageCleanupRecipe(pageId, encoded)
+        invalidateBookAnalysisIfOriginal(document, page)
+        dao.clearPageOcr(pageId)
+        searchIndex.deletePage(pageId)
+        refreshDocumentSummary(documentId, processing = true)
+
+        appScope.launch(Dispatchers.IO) {
+            if (
+                ScanMode.fromStored(document.scanMode) == ScanMode.BOOK &&
+                page.sourceSpreadPageId == null
+            ) {
+                processBookPagesAndRecognize(documentId, listOf(pageId))
+            } else {
+                recognizePageAndRefresh(documentId, pageId)
+            }
+        }
+    }
+
+    suspend fun autoCleanupPages(
+        documentId: String,
+        pageIds: List<String>,
+        minimumConfidence: Float = 0.84f
+    ): Int = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val requested = pageIds.distinct()
+        require(requested.isNotEmpty()) { "Select at least one page" }
+
+        val pages = orderedPages(dao.getPages(documentId))
+        val selected = pages.filter { it.id in requested }
+        require(selected.size == requested.size) {
+            "One or more selected pages are unavailable"
+        }
+
+        var applied = 0
+        val changed = mutableListOf<PageEntity>()
+        selected.forEach { page ->
+            val suggestions = CleanupSuggestionDetector.detect(
+                file = File(page.imagePath),
+                cropQuad = CropQuadCodec.decode(page.cropQuad)
+            ).filter { it.stroke.confidence >= minimumConfidence }
+
+            if (suggestions.isEmpty()) return@forEach
+            val current = PageCleanupRecipeCodec.decode(page.cleanupRecipe)
+            val existingKeys = current.strokes.map(::cleanupStrokeKey).toMutableSet()
+            val additions = suggestions.map { it.stroke }.filter { stroke ->
+                existingKeys.add(cleanupStrokeKey(stroke))
+            }
+            if (additions.isEmpty()) return@forEach
+
+            val recipe = current.copy(
+                strokes = current.strokes + additions
+            ).normalized()
+            dao.setPageCleanupRecipe(
+                page.id,
+                PageCleanupRecipeCodec.encode(recipe)
+            )
+            invalidateBookAnalysisIfOriginal(document, page)
+            dao.clearPageOcr(page.id)
+            searchIndex.deletePage(page.id)
+            applied += additions.size
+            changed += page
+        }
+
+        if (changed.isNotEmpty()) {
+            refreshDocumentSummary(documentId, processing = true)
+            appScope.launch(Dispatchers.IO) {
+                val originalBookIds = if (
+                    ScanMode.fromStored(document.scanMode) == ScanMode.BOOK
+                ) {
+                    changed
+                        .filter { it.sourceSpreadPageId == null }
+                        .map { it.id }
+                } else {
+                    emptyList()
+                }
+
+                if (originalBookIds.isNotEmpty()) {
+                    processBookPagesAndRecognize(
+                        documentId,
+                        originalBookIds
+                    )
+                } else {
+                    recognizePagesAndRefresh(
+                        documentId,
+                        changed.map { it.id }
+                    )
+                }
+            }
+        }
+        applied
+    }
+
+    private fun cleanupStrokeKey(stroke: CleanupStroke): String {
+        val normalized = stroke.normalized()
+        val first = normalized.points.firstOrNull() ?: return normalized.kind.name
+        val last = normalized.points.lastOrNull() ?: first
+        return listOf(
+            normalized.kind.name,
+            (first.x * 100f).roundToInt(),
+            (first.y * 100f).roundToInt(),
+            (last.x * 100f).roundToInt(),
+            (last.y * 100f).roundToInt(),
+            (normalized.radius * 100f).roundToInt()
+        ).joinToString(":")
+    }
+
     suspend fun duplicatePage(documentId: String, pageId: String) {
         duplicatePages(documentId, listOf(pageId))
     }
