@@ -87,6 +87,7 @@ fun BookSpreadReviewDialog(
     visualRecipe: String?,
     analysis: BookSpreadAnalysis,
     onDismiss: () -> Unit,
+    onKeepSingle: () -> Unit,
     onSplit: (gutterX: Float, dewarp: Boolean) -> Unit
 ) {
     var gutter by remember(analysis.gutterX) {
@@ -175,8 +176,13 @@ fun BookSpreadReviewDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Keep single page")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+                TextButton(onClick = onKeepSingle) {
+                    Text("Keep single page")
+                }
             }
         }
     )
