@@ -2221,6 +2221,19 @@ class ScanRepository(
     ): Boolean {
         val document = dao.getDocument(session.documentId) ?: return true
         val mode = ScanMode.fromStored(session.scanMode)
+
+        if (dao.getActiveCaptureSessionCount() > 0) {
+            dao.updateCaptureSessionState(
+                sessionId = session.id,
+                status = CaptureSessionStatus.PAUSED.name,
+                updatedAt = System.currentTimeMillis(),
+                completedAt = null,
+                pausedReason = "Background processing deferred while rapid capture is active."
+            )
+            scheduleHighSpeedRetry(30_000L)
+            return false
+        }
+
         val budget = highSpeedPolicy.currentBudget(mode)
 
         if (!budget.canProcess) {
