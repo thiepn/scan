@@ -19,7 +19,7 @@ object ScanModeProfiles {
             mode = ScanMode.DOCUMENT,
             description = "General multipage documents",
             captureHint = "Keep the full page visible and avoid shadows.",
-            pageLimit = 50,
+            pageLimit = null,
             defaultPreset = ScanPreset.AUTO,
             defaultDocumentType = DocumentType.UNSPECIFIED,
             defaultPdfQuality = PdfQuality.ORIGINAL
