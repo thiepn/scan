@@ -523,6 +523,11 @@ fun DocumentScreen(
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
+                    displayLabel = when {
+                        scanMode == ScanMode.ID_CARD && index == 0 -> "ID front"
+                        scanMode == ScanMode.ID_CARD && index == 1 -> "ID back"
+                        else -> "Page ${index + 1}"
+                    },
                     selectionMode = selectionMode,
                     selected = page.id in selectedPageIds,
                     highlightQuery = documentSearchQuery.takeIf {
@@ -1168,6 +1173,7 @@ fun DocumentScreen(
 private fun PageCard(
     page: PageEntity,
     displayNumber: Int,
+    displayLabel: String,
     selectionMode: Boolean,
     selected: Boolean,
     highlightQuery: String?,
@@ -1247,7 +1253,7 @@ private fun PageCard(
                     )
                 }
                 Text(
-                    "Page $displayNumber",
+                    displayLabel,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
@@ -1308,7 +1314,7 @@ private fun PageCard(
                 highlightWords = highlightWords,
                 highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
                 highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,
-                contentDescription = "Page $displayNumber"
+                contentDescription = displayLabel
             )
             if (page.ocrText.isNotBlank()) {
                 Column(Modifier.padding(14.dp)) {
