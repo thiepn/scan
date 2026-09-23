@@ -69,6 +69,7 @@ import com.thiepn.scan.data.DocumentType
 import com.thiepn.scan.data.FolderEntity
 import com.thiepn.scan.data.LibraryFilter
 import com.thiepn.scan.data.LibrarySort
+import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.data.SmartCollection
 import com.thiepn.scan.data.TagEntity
@@ -86,7 +87,7 @@ fun LibraryScreen(
     contentPadding: PaddingValues,
     busy: Boolean,
     onOpenDocument: (String) -> Unit,
-    onScan: () -> Unit,
+    onScan: (ScanMode) -> Unit,
     onImportPdf: () -> Unit,
     onMessage: (String) -> Unit
 ) {
@@ -122,6 +123,7 @@ fun LibraryScreen(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedDocumentIds by remember { mutableStateOf(emptySet<String>()) }
     var bulkOrganizeOpen by remember { mutableStateOf(false) }
+    var scanModeOpen by remember { mutableStateOf(false) }
 
     val documentsFlow = remember(filter) { repository.observeDocuments(filter, "") }
     val liveDocuments by documentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -341,7 +343,7 @@ fun LibraryScreen(
         floatingActionButton = {
             if (!selectionMode) {
                 ExtendedFloatingActionButton(
-                    onClick = onScan,
+                    onClick = { scanModeOpen = true },
                     expanded = true,
                     icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
                     text = { Text("Scan") }
@@ -483,6 +485,16 @@ fun LibraryScreen(
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
+    }
+
+    if (scanModeOpen) {
+        ScanModeChooserDialog(
+            onDismiss = { scanModeOpen = false },
+            onChoose = { mode ->
+                scanModeOpen = false
+                onScan(mode)
+            }
+        )
     }
 
     if (mergeOpen) {
