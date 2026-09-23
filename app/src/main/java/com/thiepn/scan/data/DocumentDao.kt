@@ -316,6 +316,15 @@ interface DocumentDao {
     )
 
     @Query(
+        "UPDATE page_processing SET status = 'QUEUED', updatedAt = :updatedAt, " +
+            "lastError = NULL WHERE sessionId = :sessionId AND status = 'FAILED'"
+    )
+    suspend fun retryFailedProcessingJobs(
+        sessionId: String,
+        updatedAt: Long
+    )
+
+    @Query(
         "UPDATE page_processing SET status = :status, fingerprintHash = :fingerprintHash, " +
             "meanLuma = :meanLuma, edgeEnergy = :edgeEnergy, aspectRatio = :aspectRatio, " +
             "qualityScore = :qualityScore, duplicateOfPageId = :duplicateOfPageId, " +
