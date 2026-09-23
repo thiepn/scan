@@ -193,6 +193,16 @@ interface DocumentDao {
     @Query("UPDATE pages SET visualRecipe = :visualRecipe WHERE id = :pageId")
     suspend fun setPageVisualRecipe(pageId: String, visualRecipe: String?)
 
+    @Query(
+        "UPDATE pages SET bookSplitConfidence = :confidence, " +
+            "bookDewarpStrength = :dewarpStrength WHERE id = :pageId"
+    )
+    suspend fun setBookAnalysis(
+        pageId: String,
+        confidence: Float?,
+        dewarpStrength: Float
+    )
+
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
 
