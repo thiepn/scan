@@ -16,11 +16,19 @@
 
 ### Capture
 
-`MainActivity` launches `GmsDocumentScanner` with `SCANNER_MODE_FULL`, JPEG and PDF output, and gallery import. Page limit is deliberately not set, leaving scan completion to the user.
+`MainActivity` launches `GmsDocumentScanner` with JPEG/PDF output and gallery import through a mode-aware adapter. General Document mode remains resource-bound with no explicit page limit; specialized modes may set single-page or bounded multipage limits and can choose a lighter scanner mode where appropriate.
 
 ### Persistence
 
 `ScanRepository` coordinates all writes. `FileStore` owns the app-private hierarchy. Room owns document/page metadata. Page identity is UUID based and independent of visible order.
+
+### Book processing
+
+`BookSpreadProcessor` analyzes bounded derivatives for landscape spread geometry, center-gutter contrast/seam strength, and vertical consistency. `BookSpreadScoring` converts those signals into conservative spread confidence; only high-confidence spreads are auto-split.
+
+Book splitting is non-destructive. The original `PageEntity` is marked as a hidden `preservedBookSource`, while two new active pages reference it through `sourceSpreadPageId` and store side, split confidence, and dewarp strength. Left/right insertion and source hiding occur in one Room transaction. Restoration deletes the derived pages and reactivates the source in one transaction.
+
+Dewarping uses a bounded cylindrical bitmap mesh concentrated near the gutter. It is intentionally conservative and optional during manual review. Derived pages then pass through normal crop, enhancement, OCR, search, ordering, and PDF pipelines. Preserved source spreads never participate in active-page OCR/search/export and are excluded from normal Deleted pages.
 
 ### OCR
 
