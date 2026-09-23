@@ -171,6 +171,9 @@ interface DocumentDao {
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 0 ORDER BY sortKey, position")
     suspend fun getPages(documentId: String): List<PageEntity>
 
+    @Query("SELECT * FROM pages WHERE documentId = :documentId ORDER BY sortKey, position")
+    suspend fun getAllDocumentPages(documentId: String): List<PageEntity>
+
     @Query("SELECT * FROM pages WHERE id = :pageId LIMIT 1")
     suspend fun getPage(pageId: String): PageEntity?
 
@@ -308,6 +311,20 @@ interface DocumentDao {
     suspend fun setComplianceRecipe(
         documentId: String,
         recipe: String?,
+        updatedAt: Long
+    )
+
+    @Query("UPDATE documents SET securityRecipe = :recipe, updatedAt = :updatedAt WHERE id = :documentId")
+    suspend fun setSecurityRecipe(
+        documentId: String,
+        recipe: String?,
+        updatedAt: Long
+    )
+
+    @Query("UPDATE documents SET integrityManifest = :manifest, updatedAt = :updatedAt WHERE id = :documentId")
+    suspend fun setIntegrityManifest(
+        documentId: String,
+        manifest: String?,
         updatedAt: Long
     )
 
@@ -719,6 +736,21 @@ interface DocumentDao {
             }
         }
         if (links.isNotEmpty()) insertDocumentTags(links)
+    }
+
+    @Transaction
+    suspend fun restoreSecurityBackup(
+        document: DocumentEntity,
+        pages: List<PageEntity>,
+        fields: List<DocumentFieldEntity>
+    ) {
+        insertDocument(document)
+        if (pages.isNotEmpty()) {
+            insertPages(pages)
+        }
+        if (fields.isNotEmpty()) {
+            insertDocumentFields(fields)
+        }
     }
 
     @Transaction

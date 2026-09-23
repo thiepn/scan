@@ -39,7 +39,9 @@ data class DocumentEntity(
     @ColumnInfo(defaultValue = "'DOCUMENT'")
     val scanMode: String = ScanMode.DOCUMENT.name,
     val publishingRecipe: String? = null,
-    val complianceRecipe: String? = null
+    val complianceRecipe: String? = null,
+    val securityRecipe: String? = null,
+    val integrityManifest: String? = null
 )
 
 @Entity(
