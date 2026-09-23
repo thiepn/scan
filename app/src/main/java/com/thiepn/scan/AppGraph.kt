@@ -8,6 +8,7 @@ import com.thiepn.scan.data.PdfEngine
 import com.thiepn.scan.data.PdfPageRasterizer
 import com.thiepn.scan.data.ScanDatabase
 import com.thiepn.scan.data.ScanRepository
+import com.thiepn.scan.data.SecurityVaultManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +20,12 @@ class AppGraph(context: Context) {
     private val files = FileStore(appContext)
     private val ocr = OcrEngine(appContext)
     private val searchIndex = OcrSearchIndex(database)
+    val vault = SecurityVaultManager(
+        context = appContext,
+        dao = database.documentDao(),
+        files = files,
+        scope = scope
+    )
 
     val repository = ScanRepository(
         context = appContext,
@@ -28,6 +35,7 @@ class AppGraph(context: Context) {
         rasterizer = PdfPageRasterizer(),
         pdfEngine = PdfEngine(appContext, ocr),
         searchIndex = searchIndex,
+        vault = vault,
         appScope = scope
     )
 }

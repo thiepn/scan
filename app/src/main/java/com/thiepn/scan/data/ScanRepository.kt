@@ -26,6 +26,7 @@ class ScanRepository(
     private val rasterizer: PdfPageRasterizer,
     private val pdfEngine: PdfEngine,
     private val searchIndex: OcrSearchIndex,
+    private val vault: SecurityVaultManager,
     private val appScope: CoroutineScope
 ) {
     private val highSpeedPolicy = HighSpeedProcessingPolicy(context)
@@ -61,6 +62,8 @@ class ScanRepository(
     fun observeFormTemplates(): Flow<List<FormTemplateEntity>> = dao.observeFormTemplates()
     fun observeExtractionSchemas(): Flow<List<ExtractionSchemaEntity>> =
         dao.observeExtractionSchemas()
+    fun observeVaultState(): kotlinx.coroutines.flow.StateFlow<VaultState> =
+        vault.state
 
     fun observeLatestCaptureSession(
         documentId: String
@@ -86,6 +89,7 @@ class ScanRepository(
 
             dao.getProcessingDocuments()
                 .filterNot { it.id in queuedDocumentIds }
+                .filter { vault.isUnlocked(it.id) }
                 .forEach { document ->
                     val pages = dao.getPages(document.id)
                     val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
@@ -2702,6 +2706,7 @@ class ScanRepository(
         query: String
     ): List<DocumentEntity> = withContext(Dispatchers.IO) {
         searchIndex.searchDocumentIds(filter, query)
+            .filter { vault.isUnlocked(it) }
             .mapNotNull { dao.getDocument(it) }
     }
 
@@ -2709,6 +2714,7 @@ class ScanRepository(
         documentId: String,
         query: String
     ): List<DocumentPageSearchHit> = withContext(Dispatchers.IO) {
+        requireVaultUnlocked(documentId)
         val pages = orderedPages(dao.getPages(documentId))
         val numberById = pages.mapIndexed { index, page -> page.id to (index + 1) }.toMap()
         searchIndex.searchPages(documentId, query).mapNotNull { indexed ->
@@ -2722,6 +2728,161 @@ class ScanRepository(
                 matchingWords = OcrSearchTerms.matchingWords(layout, query)
             )
         }
+    }
+
+    suspend fun securitySettings(
+        documentId: String
+    ): DocumentSecuritySettings = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId)
+            ?: throw IllegalArgumentException("Document not found")
+        DocumentSecuritySettingsCodec.decode(
+            document.securityRecipe
+        )
+    }
+
+    suspend fun updateSecuritySettings(
+        documentId: String,
+        settings: DocumentSecuritySettings
+    ) = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId)
+            ?: throw IllegalArgumentException("Document not found")
+        require(document.trashedAt == null) {
+            "Restore the document before changing security settings"
+        }
+        require(!document.processing) {
+            "Document is still processing"
+        }
+
+        val current = DocumentSecuritySettingsCodec.decode(
+            document.securityRecipe
+        )
+        val normalized = settings.normalized()
+
+        when {
+            !current.vaultEnabled && normalized.vaultEnabled -> {
+                dao.setSecurityRecipe(
+                    documentId,
+                    DocumentSecuritySettingsCodec.encode(normalized),
+                    System.currentTimeMillis()
+                )
+                vault.enable(documentId)
+            }
+            current.vaultEnabled && !normalized.vaultEnabled -> {
+                require(vault.isUnlocked(documentId)) {
+                    "Unlock the document before disabling the vault"
+                }
+                vault.disable(documentId)
+                dao.setSecurityRecipe(
+                    documentId,
+                    DocumentSecuritySettingsCodec.encode(normalized),
+                    System.currentTimeMillis()
+                )
+            }
+            else -> {
+                dao.setSecurityRecipe(
+                    documentId,
+                    DocumentSecuritySettingsCodec.encode(normalized),
+                    System.currentTimeMillis()
+                )
+            }
+        }
+    }
+
+    suspend fun unlockVaultDocument(
+        documentId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val valid = vault.unlock(documentId)
+        if (valid) {
+            kickProcessingQueue()
+        }
+        valid
+    }
+
+    suspend fun lockVaultDocument(
+        documentId: String
+    ) = withContext(Dispatchers.IO) {
+        vault.lock(documentId)
+    }
+
+    fun lockAllVaultsAsync() {
+        vault.lockAllAsync()
+    }
+
+    suspend fun securityAudit(
+        documentId: String
+    ): SecurityAuditReport = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId)
+            ?: throw IllegalArgumentException("Document not found")
+        val settings = DocumentSecuritySettingsCodec.decode(
+            document.securityRecipe
+        )
+        val state = vault.state.value
+        val issues = mutableListOf<SecurityAuditIssue>()
+
+        if (settings.vaultEnabled) {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.PASS,
+                "VAULT_FILES",
+                if (documentId in state.lockedDocumentIds) {
+                    "Document files are sealed with AES-256-GCM."
+                } else {
+                    "Vault is open; files will be re-sealed on lock/background."
+                }
+            )
+        } else {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.WARNING,
+                "VAULT_DISABLED",
+                "Document files are stored unsealed in app-private storage."
+            )
+        }
+
+        issues += SecurityAuditIssue(
+            SecurityAuditSeverity.WARNING,
+            "ROOM_METADATA",
+            "Room metadata and OCR text are not encrypted by the Phase 16 file vault."
+        )
+
+        if (
+            documentId in
+            state.integrityFailedDocumentIds
+        ) {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.ERROR,
+                "INTEGRITY",
+                "The document file integrity manifest does not match."
+            )
+        } else if (document.integrityManifest != null) {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.PASS,
+                "INTEGRITY",
+                "Document file integrity matches the last sealed manifest."
+            )
+        } else {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.INFO,
+                "INTEGRITY",
+                "No sealed integrity baseline exists yet."
+            )
+        }
+
+        if (settings.blockScreenshots) {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.PASS,
+                "SCREEN_CAPTURE",
+                "Screen capture is blocked while this vault document is open."
+            )
+        }
+
+        if (settings.bestEffortSecureDelete) {
+            issues += SecurityAuditIssue(
+                SecurityAuditSeverity.INFO,
+                "SECURE_DELETE",
+                "Deletion performs best-effort overwrite before removal; flash wear-leveling can prevent guaranteed physical erasure."
+            )
+        }
+
+        SecurityAuditReport(issues)
     }
 
     suspend fun rename(id: String, title: String) {
@@ -2756,10 +2917,20 @@ class ScanRepository(
 
     suspend fun deleteForever(id: String) = withContext(Dispatchers.IO) {
         val document = dao.getDocument(id) ?: return@withContext
-        require(document.trashedAt != null) { "Move the document to Trash before deleting it forever" }
+        require(document.trashedAt != null) {
+            "Move the document to Trash before deleting it forever"
+        }
+        val security = DocumentSecuritySettingsCodec.decode(
+            document.securityRecipe
+        )
         searchIndex.deleteDocument(id)
         dao.deleteDocument(id)
-        files.deleteDocument(id)
+        if (security.bestEffortSecureDelete) {
+            vault.bestEffortSecureDelete(id)
+        } else {
+            files.deleteDocument(id)
+            vault.forgetDocument(id)
+        }
         files.deleteExportsForDocument(id)
     }
 
@@ -3466,6 +3637,16 @@ class ScanRepository(
         session: CaptureSessionEntity
     ): Boolean {
         val document = dao.getDocument(session.documentId) ?: return true
+        if (!vault.isUnlocked(session.documentId)) {
+            dao.updateCaptureSessionState(
+                sessionId = session.id,
+                status = CaptureSessionStatus.PAUSED.name,
+                updatedAt = System.currentTimeMillis(),
+                completedAt = null,
+                pausedReason = "Secure vault is locked."
+            )
+            return false
+        }
         val mode = ScanMode.fromStored(session.scanMode)
 
         if (dao.getActiveCaptureSessionCount() > 0) {
@@ -3783,9 +3964,19 @@ class ScanRepository(
     }
 
     private suspend fun requireEditableDocument(id: String): DocumentEntity {
-        val document = dao.getDocument(id) ?: throw IllegalArgumentException("Document not found")
-        require(document.trashedAt == null) { "Restore the document before editing it" }
+        requireVaultUnlocked(id)
+        val document = dao.getDocument(id)
+            ?: throw IllegalArgumentException("Document not found")
+        require(document.trashedAt == null) {
+            "Restore the document before editing it"
+        }
         return document
+    }
+
+    private fun requireVaultUnlocked(documentId: String) {
+        require(vault.isUnlocked(documentId)) {
+            "Secure vault is locked"
+        }
     }
 
     private fun requireNoTextEdits(
