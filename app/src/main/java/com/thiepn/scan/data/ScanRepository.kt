@@ -2322,7 +2322,7 @@ class ScanRepository(
             protected = !password.isNullOrBlank()
         )
 
-        val requiresRaster = pages.any { it.requiresRasterizedExport() }
+        val requiresRaster = pages.any(PdfExportPolicy::requiresRasterization)
 
         if (
             source != null &&
