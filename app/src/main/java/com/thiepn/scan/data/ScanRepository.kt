@@ -1864,6 +1864,9 @@ class ScanRepository(
         val oldProfile = ScanModeProfiles.forMode(oldMode)
         val profile = ScanModeProfiles.forMode(scanMode)
         val pages = orderedPages(dao.getPages(documentId))
+        if (!profile.ocrEnabled || scanMode == ScanMode.BOOK) {
+            pages.forEach { requireNoTextEdits(it, "changing to this scan mode") }
+        }
         dao.setDocumentScanMode(
             id = documentId,
             scanMode = scanMode.name,
