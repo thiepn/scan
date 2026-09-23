@@ -22,5 +22,6 @@ class BookPageProvenanceTest {
         assertNull(page.bookSplitConfidence)
         assertEquals(0f, page.bookDewarpStrength, 0.0001f)
         assertFalse(page.preservedBookSource)
+        assertFalse(page.bookReviewResolved)
     }
 }
