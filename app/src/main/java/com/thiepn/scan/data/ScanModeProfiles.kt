@@ -56,6 +56,16 @@ object ScanModeProfiles {
             defaultPdfQuality = PdfQuality.HIGH,
             expectedAspectRatioRange = 1.35f..2.15f
         ),
+        ScanMode.BOOK to ScanModeProfile(
+            mode = ScanMode.BOOK,
+            description = "Open books, magazines, and bound pages",
+            captureHint = "Capture the complete spread with the center gutter visible and keep the camera parallel to the book.",
+            pageLimit = 40,
+            defaultPreset = ScanPreset.CLEAN,
+            defaultDocumentType = DocumentType.BOOK,
+            defaultPdfQuality = PdfQuality.BALANCED,
+            minimumLongEdge = 1400
+        ),
         ScanMode.WHITEBOARD to ScanModeProfile(
             mode = ScanMode.WHITEBOARD,
             description = "Boards, diagrams, and meeting notes",
