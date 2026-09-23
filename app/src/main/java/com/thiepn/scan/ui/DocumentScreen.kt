@@ -1565,6 +1565,7 @@ private fun PageCard(
                 rotationDegrees = page.rotationDegrees,
                 cropQuad = page.cropQuad,
                 visualRecipe = page.visualRecipe,
+                cleanupRecipe = page.cleanupRecipe,
                 highlightWords = highlightWords,
                 highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
                 highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,
