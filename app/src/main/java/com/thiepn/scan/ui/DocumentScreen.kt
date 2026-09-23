@@ -860,6 +860,60 @@ fun DocumentScreen(
         )
     }
 
+    val cleanupPage = cleanupPageId?.let { id ->
+        pages.firstOrNull { it.id == id }
+    }
+    if (cleanupPage != null) {
+        CleanupEditorDialog(
+            page = cleanupPage,
+            suggestions = cleanupSuggestions,
+            detectingSuggestions = cleanupDetecting,
+            onDetectSuggestions = {
+                cleanupDetecting = true
+                scope.launch {
+                    runCatching {
+                        repository.detectCleanupSuggestions(
+                            documentId = doc.id,
+                            pageId = cleanupPage.id
+                        )
+                    }
+                        .onSuccess { cleanupSuggestions = it }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not detect cleanup suggestions"
+                            )
+                        }
+                    cleanupDetecting = false
+                }
+            },
+            onDismiss = {
+                cleanupPageId = null
+                cleanupSuggestions = emptyList()
+                cleanupDetecting = false
+            },
+            onSave = { recipe ->
+                cleanupPageId = null
+                cleanupSuggestions = emptyList()
+                cleanupDetecting = false
+                scope.launch {
+                    runCatching {
+                        repository.updatePageCleanup(
+                            documentId = doc.id,
+                            pageId = cleanupPage.id,
+                            recipe = recipe
+                        )
+                    }
+                        .onSuccess {
+                            onMessage("Cleanup saved; refreshing OCR")
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not save cleanup")
+                        }
+                }
+            }
+        )
+    }
+
     val cropPage = cropPageId?.let { id -> pages.firstOrNull { it.id == id } }
     if (cropPage != null) {
         CropEditorDialog(
@@ -874,7 +928,15 @@ fun DocumentScreen(
                     runCatching {
                         repository.updatePageCrop(doc.id, cropPage.id, quad)
                     }
-                        .onSuccess { onMessage("Crop updated; refreshing OCR") }
+                        .onSuccess {
+                            onMessage(
+                                if (!cropPage.cleanupRecipe.isNullOrBlank()) {
+                                    "Crop updated; cleanup masks reset and OCR refreshed"
+                                } else {
+                                    "Crop updated; refreshing OCR"
+                                }
+                            )
+                        }
                         .onFailure { onMessage(it.message ?: "Could not update crop") }
                 }
             }
