@@ -867,6 +867,7 @@ fun DocumentScreen(
         val selected = selectedPageIds
         SelectedExportDialog(
             selectedCount = selected.size,
+            defaultQuality = scanProfile.defaultPdfQuality,
             onDismiss = { batchExportOpen = false },
             onPdfSave = { quality ->
                 batchExportOpen = false
@@ -936,6 +937,7 @@ fun DocumentScreen(
 
     if (exportOpen) {
         ExportPdfDialog(
+            defaultQuality = scanProfile.defaultPdfQuality,
             onDismiss = { exportOpen = false },
             onShare = { quality ->
                 exportOpen = false
@@ -1004,7 +1006,13 @@ fun DocumentScreen(
             onShare = { password ->
                 protectOpen = false
                 scope.launch {
-                    runCatching { repository.createPdfExport(doc.id, password) }
+                    runCatching {
+                        repository.createPdfExport(
+                            doc.id,
+                            password,
+                            scanProfile.defaultPdfQuality
+                        )
+                    }
                         .onSuccess { file ->
                             if (file != null) shareFile(context, file, "application/pdf")
                             else onMessage("PDF is not available yet")
@@ -1015,7 +1023,13 @@ fun DocumentScreen(
             onSave = { password ->
                 protectOpen = false
                 scope.launch {
-                    runCatching { repository.createPdfExport(doc.id, password) }
+                    runCatching {
+                        repository.createPdfExport(
+                            doc.id,
+                            password,
+                            scanProfile.defaultPdfQuality
+                        )
+                    }
                         .onSuccess { file ->
                             if (file != null) {
                                 pendingPdfSavePath = file.absolutePath
@@ -1446,11 +1460,12 @@ private fun ExtractPagesDialog(
 
 @Composable
 private fun ExportPdfDialog(
+    defaultQuality: PdfQuality,
     onDismiss: () -> Unit,
     onShare: (PdfQuality) -> Unit,
     onSave: (PdfQuality) -> Unit
 ) {
-    var quality by remember { mutableStateOf(PdfQuality.ORIGINAL) }
+    var quality by remember(defaultQuality) { mutableStateOf(defaultQuality) }
     val options = listOf(
         PdfQuality.ORIGINAL to ("Original" to "Best quality; preserves imported native PDFs"),
         PdfQuality.HIGH to ("High" to "Up to 3000 px per page, high JPEG quality"),
