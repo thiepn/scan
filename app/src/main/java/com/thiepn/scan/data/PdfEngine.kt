@@ -7,12 +7,17 @@ import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.common.PDPageLabelRange
+import com.tom_roush.pdfbox.pdmodel.common.PDPageLabels
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.JPEGFactory
+import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import com.tom_roush.pdfbox.pdmodel.graphics.state.RenderingMode
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.util.Matrix
 import java.io.File
 import java.util.UUID
@@ -37,7 +42,9 @@ class PdfEngine(
         destination: File,
         password: String? = null,
         quality: PdfQuality = PdfQuality.ORIGINAL,
-        includeOcrTextLayer: Boolean = true
+        includeOcrTextLayer: Boolean = true,
+        documentTitle: String = "",
+        publishingSettings: PublishingSettings = PublishingSettings()
     ) {
         require(pages.isNotEmpty()) { "Document has no pages" }
         destination.parentFile?.mkdirs()
@@ -221,10 +228,54 @@ class PdfEngine(
                 }
             }
 
+            applyPublishing(
+                document = document,
+                font = font,
+                pages = pages.sortedWith(
+                    compareBy<PageEntity> { it.sortKey }.thenBy { it.position }
+                ),
+                documentTitle = documentTitle,
+                settings = publishingSettings
+            )
+
             if (!password.isNullOrBlank()) {
                 protect(document, password)
             }
 
+            document.documentInformation.producer = "Scan"
+            document.save(destination)
+        }
+    }
+
+    fun publishExisting(
+        source: File,
+        destination: File,
+        pages: List<PageEntity>,
+        documentTitle: String,
+        settings: PublishingSettings,
+        password: String? = null
+    ) {
+        require(source.isFile) { "PDF source is unavailable" }
+        require(pages.isNotEmpty()) { "Document has no pages" }
+        destination.parentFile?.mkdirs()
+
+        PDDocument.load(source).use { document ->
+            require(document.numberOfPages == pages.size) {
+                "PDF page count no longer matches the document"
+            }
+            val font = context.assets
+                .open("com/tom_roush/pdfbox/resources/ttf/LiberationSans-Regular.ttf")
+                .use { PDType0Font.load(document, it) }
+            applyPublishing(
+                document = document,
+                font = font,
+                pages = pages,
+                documentTitle = documentTitle,
+                settings = settings
+            )
+            if (!password.isNullOrBlank()) {
+                protect(document, password)
+            }
             document.documentInformation.producer = "Scan"
             document.save(destination)
         }
@@ -287,6 +338,366 @@ class PdfEngine(
             sources.forEach(::addSource)
             destinationFileName = destination.absolutePath
             mergeDocuments(MemoryUsageSetting.setupTempFileOnly())
+        }
+    }
+
+    private fun applyPublishing(
+        document: PDDocument,
+        font: PDType0Font,
+        pages: List<PageEntity>,
+        documentTitle: String,
+        settings: PublishingSettings
+    ) {
+        val normalized = settings.normalized()
+        val info = document.documentInformation
+        info.producer = "Scan"
+        info.title = normalized.metadataTitle.ifBlank { documentTitle }
+        if (normalized.metadataAuthor.isNotBlank()) {
+            info.author = normalized.metadataAuthor
+        }
+        if (normalized.metadataSubject.isNotBlank()) {
+            info.subject = normalized.metadataSubject
+        }
+        if (normalized.metadataKeywords.isNotBlank()) {
+            info.keywords = normalized.metadataKeywords
+        }
+
+        applyPageLabels(document, pages, normalized)
+        applyBookmarks(document, pages)
+
+        if (!normalized.hasVisualDecorations()) return
+
+        val count = minOf(document.numberOfPages, pages.size)
+        for (index in 0 until count) {
+            val page = document.getPage(index)
+            val entity = pages[index]
+            val metadata = PageAssemblyMetadataCodec.decode(
+                entity.assemblyMetadata
+            )
+            PDPageContentStream(
+                document,
+                page,
+                PDPageContentStream.AppendMode.APPEND,
+                true,
+                true
+            ).use { stream ->
+                drawPublishingOverlay(
+                    stream = stream,
+                    font = font,
+                    page = page,
+                    documentTitle = documentTitle,
+                    pageIndex = index,
+                    pageCount = count,
+                    metadata = metadata,
+                    settings = normalized
+                )
+            }
+        }
+    }
+
+    private fun applyPageLabels(
+        document: PDDocument,
+        pages: List<PageEntity>,
+        settings: PublishingSettings
+    ) {
+        if (pages.isEmpty()) return
+        val hasCustomLabels = pages.any {
+            PageAssemblyMetadataCodec.decode(it.assemblyMetadata)
+                .label.isNotBlank()
+        }
+        if (!hasCustomLabels && settings.pageNumberPosition == PageNumberPosition.NONE) {
+            return
+        }
+
+        val labels = PDPageLabels(document)
+        pages.forEachIndexed { index, page ->
+            val metadata = PageAssemblyMetadataCodec.decode(
+                page.assemblyMetadata
+            )
+            val range = PDPageLabelRange()
+            if (metadata.label.isNotBlank()) {
+                range.prefix = metadata.label
+                range.style = null
+            } else {
+                range.style = when (settings.pageNumberStyle) {
+                    PageNumberStyle.ROMAN_LOWER -> PDPageLabelRange.STYLE_ROMAN_LOWER
+                    PageNumberStyle.ROMAN_UPPER -> PDPageLabelRange.STYLE_ROMAN_UPPER
+                    PageNumberStyle.ARABIC -> PDPageLabelRange.STYLE_DECIMAL
+                }
+                range.start = (settings.pageNumberStart + index)
+                    .coerceAtLeast(1)
+            }
+            labels.setLabelItem(index, range)
+        }
+        document.documentCatalog.pageLabels = labels
+    }
+
+    private fun applyBookmarks(
+        document: PDDocument,
+        pages: List<PageEntity>
+    ) {
+        val bookmarkData = pages.mapIndexedNotNull { index, page ->
+            val metadata = PageAssemblyMetadataCodec.decode(
+                page.assemblyMetadata
+            )
+            val title = metadata.bookmarkTitle.ifBlank {
+                if (metadata.kind == AssemblyPageKind.DIVIDER) {
+                    metadata.generatedTitle
+                } else {
+                    ""
+                }
+            }.trim()
+            title.takeIf { it.isNotBlank() }?.let {
+                Triple(index, metadata.bookmarkLevel.coerceIn(0, 3), it)
+            }
+        }
+        if (bookmarkData.isEmpty()) return
+
+        val outline = PDDocumentOutline()
+        document.documentCatalog.documentOutline = outline
+        val lastAtLevel = arrayOfNulls<PDOutlineItem>(4)
+
+        bookmarkData.forEach { (pageIndex, requestedLevel, title) ->
+            val item = PDOutlineItem().apply {
+                this.title = title
+                setDestination(document.getPage(pageIndex))
+            }
+            var level = requestedLevel
+            while (level > 0 && lastAtLevel[level - 1] == null) {
+                level--
+            }
+            val parent = if (level == 0) null else lastAtLevel[level - 1]
+            if (parent == null) {
+                outline.addLast(item)
+            } else {
+                parent.addLast(item)
+                parent.openNode()
+            }
+            lastAtLevel[level] = item
+            for (deeper in level + 1 until lastAtLevel.size) {
+                lastAtLevel[deeper] = null
+            }
+        }
+    }
+
+    private fun drawPublishingOverlay(
+        stream: PDPageContentStream,
+        font: PDType0Font,
+        page: PDPage,
+        documentTitle: String,
+        pageIndex: Int,
+        pageCount: Int,
+        metadata: PageAssemblyMetadata,
+        settings: PublishingSettings
+    ) {
+        val width = page.mediaBox.width
+        val height = page.mediaBox.height
+        val marginX = 24f
+        val headerY = height - 20f
+        val footerY = 14f
+        val fontSize = 9f
+
+        val slots = linkedMapOf(
+            PageNumberPosition.HEADER_LEFT to PublishingText.resolve(
+                settings.headerLeft,
+                documentTitle,
+                pageIndex,
+                pageCount,
+                metadata,
+                settings
+            ),
+            PageNumberPosition.HEADER_CENTER to PublishingText.resolve(
+                settings.headerCenter,
+                documentTitle,
+                pageIndex,
+                pageCount,
+                metadata,
+                settings
+            ),
+            PageNumberPosition.HEADER_RIGHT to PublishingText.resolve(
+                settings.headerRight,
+                documentTitle,
+                pageIndex,
+                pageCount,
+                metadata,
+                settings
+            ),
+            PageNumberPosition.FOOTER_LEFT to PublishingText.resolve(
+                settings.footerLeft,
+                documentTitle,
+                pageIndex,
+                pageCount,
+                metadata,
+                settings
+            ),
+            PageNumberPosition.FOOTER_CENTER to PublishingText.resolve(
+                settings.footerCenter,
+                documentTitle,
+                pageIndex,
+                pageCount,
+                metadata,
+                settings
+            ),
+            PageNumberPosition.FOOTER_RIGHT to PublishingText.resolve(
+                settings.footerRight,
+                documentTitle,
+                pageIndex,
+                pageCount,
+                metadata,
+                settings
+            )
+        )
+
+        if (settings.pageNumberPosition != PageNumberPosition.NONE) {
+            val number = PublishingText.pageNumber(
+                pageIndex,
+                pageCount,
+                settings
+            )
+            val current = slots[settings.pageNumberPosition].orEmpty()
+            slots[settings.pageNumberPosition] = listOf(current, number)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+        }
+
+        drawSlot(
+            stream,
+            font,
+            slots[PageNumberPosition.HEADER_LEFT].orEmpty(),
+            marginX,
+            headerY,
+            width - 2 * marginX,
+            fontSize,
+            TextAlign.LEFT
+        )
+        drawSlot(
+            stream,
+            font,
+            slots[PageNumberPosition.HEADER_CENTER].orEmpty(),
+            marginX,
+            headerY,
+            width - 2 * marginX,
+            fontSize,
+            TextAlign.CENTER
+        )
+        drawSlot(
+            stream,
+            font,
+            slots[PageNumberPosition.HEADER_RIGHT].orEmpty(),
+            marginX,
+            headerY,
+            width - 2 * marginX,
+            fontSize,
+            TextAlign.RIGHT
+        )
+        drawSlot(
+            stream,
+            font,
+            slots[PageNumberPosition.FOOTER_LEFT].orEmpty(),
+            marginX,
+            footerY,
+            width - 2 * marginX,
+            fontSize,
+            TextAlign.LEFT
+        )
+        drawSlot(
+            stream,
+            font,
+            slots[PageNumberPosition.FOOTER_CENTER].orEmpty(),
+            marginX,
+            footerY,
+            width - 2 * marginX,
+            fontSize,
+            TextAlign.CENTER
+        )
+        drawSlot(
+            stream,
+            font,
+            slots[PageNumberPosition.FOOTER_RIGHT].orEmpty(),
+            marginX,
+            footerY,
+            width - 2 * marginX,
+            fontSize,
+            TextAlign.RIGHT
+        )
+
+        if (settings.watermarkText.isNotBlank()) {
+            val text = encodableText(font, settings.watermarkText)
+            if (text.isNotBlank()) {
+                val size = (minOf(width, height) * 0.075f)
+                    .coerceIn(24f, 72f)
+                val naturalWidth = runCatching {
+                    font.getStringWidth(text) / 1000f * size
+                }.getOrDefault(width * 0.5f)
+                val alpha = PDExtendedGraphicsState().apply {
+                    nonStrokingAlphaConstant = settings.watermarkOpacity
+                }
+                stream.saveGraphicsState()
+                stream.setGraphicsStateParameters(alpha)
+                stream.setNonStrokingColor(0.35f, 0.35f, 0.38f)
+                stream.beginText()
+                stream.setFont(font, size)
+                stream.setTextMatrix(
+                    Matrix.getRotateInstance(
+                        Math.toRadians(settings.watermarkAngle.toDouble()),
+                        width / 2f,
+                        height / 2f
+                    )
+                )
+                stream.newLineAtOffset(-naturalWidth / 2f, -size / 3f)
+                stream.showText(text)
+                stream.endText()
+                stream.restoreGraphicsState()
+            }
+        }
+    }
+
+    private enum class TextAlign {
+        LEFT,
+        CENTER,
+        RIGHT
+    }
+
+    private fun drawSlot(
+        stream: PDPageContentStream,
+        font: PDType0Font,
+        value: String,
+        x: Float,
+        y: Float,
+        maxWidth: Float,
+        fontSize: Float,
+        align: TextAlign
+    ) {
+        val text = encodableText(font, value.trim())
+        if (text.isBlank()) return
+        val naturalWidth = runCatching {
+            font.getStringWidth(text) / 1000f * fontSize
+        }.getOrDefault(0f)
+        val textX = when (align) {
+            TextAlign.LEFT -> x
+            TextAlign.CENTER -> x + (maxWidth - naturalWidth) / 2f
+            TextAlign.RIGHT -> x + maxWidth - naturalWidth
+        }.coerceAtLeast(x)
+
+        stream.saveGraphicsState()
+        stream.setNonStrokingColor(0.18f, 0.18f, 0.20f)
+        stream.beginText()
+        stream.setFont(font, fontSize)
+        stream.setTextMatrix(Matrix.getTranslateInstance(textX, y))
+        stream.showText(text)
+        stream.endText()
+        stream.restoreGraphicsState()
+    }
+
+    private fun encodableText(
+        font: PDType0Font,
+        value: String
+    ): String = buildString {
+        value.forEach { ch ->
+            val text = ch.toString()
+            if (runCatching { font.encode(text) }.isSuccess) {
+                append(ch)
+            }
         }
     }
 
