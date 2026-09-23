@@ -841,8 +841,15 @@ private fun DocumentCard(
 
                 val folderLabel = folderPath(document.folderId, folders)
                 val type = DocumentType.fromStored(document.documentType)
+                val cardScanMode = ScanMode.fromStored(document.scanMode)
                 val organizationLine = buildString {
-                    if (folderLabel != null) append(folderLabel)
+                    if (cardScanMode != ScanMode.DOCUMENT) {
+                        append(cardScanMode.label)
+                    }
+                    if (folderLabel != null) {
+                        if (isNotEmpty()) append(" · ")
+                        append(folderLabel)
+                    }
                     if (type != DocumentType.UNSPECIFIED) {
                         if (isNotEmpty()) append(" · ")
                         append(type.label)
