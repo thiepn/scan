@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -97,6 +98,7 @@ import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.OcrScript
 import com.thiepn.scan.data.OcrSearchTerms
 import com.thiepn.scan.data.PageCleanupRecipeCodec
+import com.thiepn.scan.data.PageMarkupRecipeCodec
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
@@ -194,6 +196,7 @@ fun DocumentScreen(
     var enhancePageId by rememberSaveable { mutableStateOf<String?>(null) }
     var cleanupPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var textEditPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var markupPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var cleanupSuggestions by remember {
         mutableStateOf<List<CleanupSuggestion>>(emptyList())
     }
@@ -221,7 +224,7 @@ fun DocumentScreen(
     LaunchedEffect(
         documentSearchOpen,
         documentSearchQuery,
-        pages.map { it.ocrFingerprint to it.textEditRecipe }
+        pages.map { Triple(it.ocrFingerprint, it.textEditRecipe, it.markupRecipe) }
     ) {
         if (!documentSearchOpen || documentSearchQuery.isBlank()) {
             documentSearchBusy = false
@@ -280,7 +283,8 @@ fun DocumentScreen(
             !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
             !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
             !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
-            !page.textEditRecipe.isNullOrBlank()
+            !page.textEditRecipe.isNullOrBlank() ||
+            !PageMarkupRecipeCodec.decode(page.markupRecipe).isEmpty()
     }
 
     Scaffold(
@@ -672,12 +676,16 @@ fun DocumentScreen(
 
             itemsIndexed(pages, key = { _, page -> page.id }) { index, page ->
                 val editable = doc.trashedAt == null && !doc.processing
+                val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
+                val hasCoordinateOverlays =
+                    !page.textEditRecipe.isNullOrBlank() || !markup.isEmpty()
                 val pageHasEdits =
                     page.rotationDegrees != 0 ||
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
                         !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
                         !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
-                        !page.textEditRecipe.isNullOrBlank()
+                        !page.textEditRecipe.isNullOrBlank() ||
+                        !markup.isEmpty()
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
@@ -699,11 +707,12 @@ fun DocumentScreen(
                     },
                     canMoveUp = editable && index > 0,
                     canMoveDown = editable && index < pages.lastIndex,
-                    canRotate = editable,
-                    canCrop = editable,
+                    canRotate = editable && !hasCoordinateOverlays,
+                    canCrop = editable && !hasCoordinateOverlays,
                     canEnhance = editable,
-                    canCleanup = editable,
+                    canCleanup = editable && !hasCoordinateOverlays,
                     canEditText = editable && page.ocrLayout?.isNotBlank() == true,
+                    canMarkup = editable,
                     canDuplicate = editable,
                     canReplace = editable,
                     canRetake = editable,
@@ -777,6 +786,7 @@ fun DocumentScreen(
                         }
                     },
                     onEditText = { textEditPageId = page.id },
+                    onMarkup = { markupPageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -949,6 +959,26 @@ fun DocumentScreen(
                         .onFailure {
                             onMessage(it.message ?: "Could not save text edits")
                         }
+                }
+            }
+        )
+    }
+
+    val markupPage = markupPageId?.let { id -> pages.firstOrNull { it.id == id } }
+    if (markupPage != null) {
+        MarkupEditorDialog(
+            page = markupPage,
+            onDismiss = { markupPageId = null },
+            onSave = { recipe ->
+                markupPageId = null
+                scope.launch {
+                    runCatching {
+                        repository.updatePageMarkup(doc.id, markupPage.id, recipe)
+                    }
+                        .onSuccess {
+                            onMessage(if (recipe.isEmpty()) "Markup reverted" else "Markup saved")
+                        }
+                        .onFailure { onMessage(it.message ?: "Could not save markup") }
                 }
             }
         )
@@ -1577,6 +1607,7 @@ private fun PageCard(
     canEnhance: Boolean,
     canCleanup: Boolean,
     canEditText: Boolean,
+    canMarkup: Boolean,
     canDuplicate: Boolean,
     canReplace: Boolean,
     canRetake: Boolean,
@@ -1594,6 +1625,7 @@ private fun PageCard(
     onEnhance: () -> Unit,
     onCleanup: () -> Unit,
     onEditText: () -> Unit,
+    onMarkup: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
@@ -1694,6 +1726,9 @@ private fun PageCard(
                         IconButton(onClick = onEditText, enabled = canEditText) {
                             Icon(Icons.Default.TextFields, contentDescription = "Edit recognized text")
                         }
+                        IconButton(onClick = onMarkup, enabled = canMarkup) {
+                            Icon(Icons.Default.Draw, contentDescription = "Markup, redact, or sign")
+                        }
                         IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
                         }
@@ -1736,6 +1771,7 @@ private fun PageCard(
                 visualRecipe = page.visualRecipe,
                 cleanupRecipe = page.cleanupRecipe,
                 textEditRecipe = page.textEditRecipe,
+                markupRecipe = page.markupRecipe,
                 highlightWords = highlightWords,
                 highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
                 highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,
