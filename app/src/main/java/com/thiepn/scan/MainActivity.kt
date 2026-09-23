@@ -40,7 +40,19 @@ import java.io.File
 import java.util.UUID
 
 private sealed interface PendingScanAction {
-    data class NewDocument(val mode: ScanMode) : PendingScanAction
+    data class NewDocument(
+        val mode: ScanMode,
+        val rapid: Boolean = false
+    ) : PendingScanAction
+    data class RapidExistingStart(
+        val documentId: String,
+        val mode: ScanMode
+    ) : PendingScanAction
+    data class RapidContinue(
+        val documentId: String,
+        val mode: ScanMode,
+        val sessionId: String
+    ) : PendingScanAction
     data class IdBack(val stagedFrontPath: String) : PendingScanAction
     data class Append(
         val documentId: String,
