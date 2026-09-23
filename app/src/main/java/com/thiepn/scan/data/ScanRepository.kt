@@ -2317,6 +2317,20 @@ class ScanRepository(
             }
         }
 
+        dao.getSessionProcessingJobsByStatus(
+            session.id,
+            listOf(PageProcessingStatus.QUEUED.name)
+        )
+            .filter { it.fingerprintHash != null }
+            .forEach { job ->
+                dao.updateProcessingJobState(
+                    pageId = job.pageId,
+                    status = PageProcessingStatus.PROCESSING.name,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = null
+                )
+            }
+
         dao.refreshCaptureSessionCounters(
             session.id,
             System.currentTimeMillis()
