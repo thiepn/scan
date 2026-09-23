@@ -358,8 +358,8 @@ object PdfComplianceValidator {
                     ) {
                         issues += ComplianceIssue(
                             "PDFA_VERSION",
-                            ComplianceSeverity.WARNING,
-                            "PDF/A-1b should use PDF 1.4."
+                            ComplianceSeverity.ERROR,
+                            "PDF/A-1b requires PDF 1.4."
                         )
                     }
 
