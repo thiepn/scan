@@ -229,7 +229,21 @@ interface DocumentDao {
     )
 
     @Query(
+        "UPDATE pages SET ocrText = :text, ocrLayout = :layout, " +
+            "ocrBaseLayout = :baseLayout, textEditRecipe = :recipe " +
+            "WHERE id = :pageId"
+    )
+    suspend fun updatePageTextEdits(
+        pageId: String,
+        text: String,
+        layout: String?,
+        baseLayout: String?,
+        recipe: String?
+    )
+
+    @Query(
         "UPDATE pages SET ocrText = '', ocrLayout = NULL, " +
+            "ocrBaseLayout = NULL, textEditRecipe = NULL, " +
             "ocrFingerprint = NULL, ocrScript = NULL WHERE id = :pageId"
     )
     suspend fun clearPageOcr(pageId: String)
