@@ -109,6 +109,220 @@ class ScanRepository(
         }
     }
 
+    suspend fun ingestHighSpeedCapture(
+        pageUris: List<Uri>,
+        scanMode: ScanMode
+    ): HighSpeedCaptureResult = withContext(Dispatchers.IO) {
+        require(pageUris.isNotEmpty()) { "No pages were captured" }
+        val profile = ScanModeProfiles.forMode(scanMode)
+        require(profile.supportsHighSpeedCapture) {
+            "${scanMode.label} mode does not support continuous capture"
+        }
+
+        val now = System.currentTimeMillis()
+        val documentId = UUID.randomUUID().toString()
+        val sessionId = UUID.randomUUID().toString()
+        dao.insertDocument(
+            DocumentEntity(
+                id = documentId,
+                title = defaultTitle(now, scanMode),
+                createdAt = now,
+                updatedAt = now,
+                pdfPath = null,
+                pageCount = 0,
+                processing = true,
+                documentType = profile.defaultDocumentType.name,
+                scanMode = scanMode.name
+            )
+        )
+        dao.insertCaptureSession(
+            CaptureSessionEntity(
+                id = sessionId,
+                documentId = documentId,
+                scanMode = scanMode.name,
+                startedAt = now,
+                updatedAt = now
+            )
+        )
+
+        val count = persistHighSpeedBatch(
+            documentId = documentId,
+            sessionId = sessionId,
+            pageUris = pageUris
+        )
+        HighSpeedCaptureResult(documentId, sessionId, count)
+    }
+
+    suspend fun startHighSpeedCaptureForDocument(
+        documentId: String,
+        pageUris: List<Uri>
+    ): HighSpeedCaptureResult = withContext(Dispatchers.IO) {
+        require(pageUris.isNotEmpty()) { "No pages were captured" }
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val mode = ScanMode.fromStored(document.scanMode)
+        require(ScanModeProfiles.forMode(mode).supportsHighSpeedCapture) {
+            "${mode.label} mode does not support continuous capture"
+        }
+
+        val now = System.currentTimeMillis()
+        val sessionId = UUID.randomUUID().toString()
+        dao.insertCaptureSession(
+            CaptureSessionEntity(
+                id = sessionId,
+                documentId = documentId,
+                scanMode = mode.name,
+                startedAt = now,
+                updatedAt = now
+            )
+        )
+        dao.setProcessing(documentId, true, now)
+
+        val count = persistHighSpeedBatch(
+            documentId = documentId,
+            sessionId = sessionId,
+            pageUris = pageUris
+        )
+        HighSpeedCaptureResult(documentId, sessionId, count)
+    }
+
+    suspend fun appendHighSpeedCapture(
+        sessionId: String,
+        pageUris: List<Uri>
+    ): HighSpeedCaptureResult = withContext(Dispatchers.IO) {
+        require(pageUris.isNotEmpty()) { "No pages were captured" }
+        val session = dao.getCaptureSession(sessionId)
+            ?: throw IllegalArgumentException("Capture session not found")
+        require(session.status == CaptureSessionStatus.CAPTURING.name) {
+            "Capture session is no longer accepting pages"
+        }
+        val count = persistHighSpeedBatch(
+            documentId = session.documentId,
+            sessionId = session.id,
+            pageUris = pageUris
+        )
+        HighSpeedCaptureResult(session.documentId, session.id, count)
+    }
+
+    suspend fun finishHighSpeedCaptureSession(sessionId: String) =
+        withContext(Dispatchers.IO) {
+            val session = dao.getCaptureSession(sessionId)
+                ?: return@withContext
+            if (session.isTerminal) return@withContext
+
+            val now = System.currentTimeMillis()
+            dao.refreshCaptureSessionCounters(sessionId, now)
+            val latest = dao.getCaptureSession(sessionId) ?: return@withContext
+            if (latest.capturedCount == 0) {
+                dao.updateCaptureSessionState(
+                    sessionId = sessionId,
+                    status = CaptureSessionStatus.COMPLETE.name,
+                    updatedAt = now,
+                    completedAt = now,
+                    pausedReason = null
+                )
+                refreshDocumentSummary(latest.documentId)
+                return@withContext
+            }
+
+            dao.updateCaptureSessionState(
+                sessionId = sessionId,
+                status = CaptureSessionStatus.PROCESSING.name,
+                updatedAt = now,
+                completedAt = null,
+                pausedReason = null
+            )
+            dao.setProcessing(latest.documentId, true, now)
+            kickProcessingQueue()
+        }
+
+    suspend fun retryHighSpeedCaptureFailures(sessionId: String) =
+        withContext(Dispatchers.IO) {
+            val session = dao.getCaptureSession(sessionId)
+                ?: throw IllegalArgumentException("Capture session not found")
+            val now = System.currentTimeMillis()
+            dao.retryFailedProcessingJobs(sessionId, now)
+            dao.updateCaptureSessionState(
+                sessionId = sessionId,
+                status = CaptureSessionStatus.PROCESSING.name,
+                updatedAt = now,
+                completedAt = null,
+                pausedReason = null
+            )
+            dao.setProcessing(session.documentId, true, now)
+            dao.refreshCaptureSessionCounters(sessionId, now)
+            kickProcessingQueue()
+        }
+
+    private suspend fun persistHighSpeedBatch(
+        documentId: String,
+        sessionId: String,
+        pageUris: List<Uri>
+    ): Int {
+        val document = requireEditableDocument(documentId)
+        val mode = ScanMode.fromStored(document.scanMode)
+        val profile = ScanModeProfiles.forMode(mode)
+        val currentPages = orderedPages(dao.getPages(documentId))
+        var nextPosition = dao.getMaxPagePosition(documentId) + 1
+        var nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
+        val copiedFiles = mutableListOf<File>()
+        val pages = mutableListOf<PageEntity>()
+        val jobs = mutableListOf<PageProcessingEntity>()
+        val now = System.currentTimeMillis()
+
+        try {
+            pageUris.forEachIndexed { index, uri ->
+                val pageId = UUID.randomUUID().toString()
+                val file = files.copyUri(
+                    uri,
+                    files.pageFile(documentId, pageId)
+                )
+                copiedFiles += file
+                val size = imageSize(file)
+                pages += PageEntity(
+                    id = pageId,
+                    documentId = documentId,
+                    position = nextPosition++,
+                    sortKey = nextSortKey,
+                    visualRecipe = PageVisualRecipeCodec.encode(
+                        PageVisualRecipe.forPreset(profile.defaultPreset)
+                    ),
+                    imagePath = file.absolutePath,
+                    width = size.first,
+                    height = size.second
+                )
+                jobs += PageProcessingEntity(
+                    pageId = pageId,
+                    documentId = documentId,
+                    sessionId = sessionId,
+                    queuedAt = now + index,
+                    updatedAt = now
+                )
+                nextSortKey += 1000L
+            }
+
+            val newOrder = currentPages.map { it.id } + pages.map { it.id }
+            dao.insertCapturedPagesAndJobs(
+                pages = pages,
+                jobs = jobs,
+                orderedPageIds = newOrder
+            )
+            dao.updatePageCount(
+                documentId,
+                newOrder.size,
+                System.currentTimeMillis()
+            )
+            dao.refreshCaptureSessionCounters(
+                sessionId,
+                System.currentTimeMillis()
+            )
+            return pages.size
+        } catch (error: Throwable) {
+            copiedFiles.forEach { it.delete() }
+            throw error
+        }
+    }
+
     suspend fun ingestScan(
         pageUris: List<Uri>,
         pdfUri: Uri?,
