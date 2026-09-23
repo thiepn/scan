@@ -97,6 +97,21 @@ fun LibraryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var pendingMergedSavePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var restoreBackupUri by remember {
+        mutableStateOf<android.net.Uri?>(null)
+    }
+    var restoreBackupDialogOpen by remember {
+        mutableStateOf(false)
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            restoreBackupUri = uri
+            restoreBackupDialogOpen = true
+        }
+    }
 
     val saveMergedPdfLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
@@ -336,6 +351,22 @@ fun LibraryScreen(
                         ) {
                             Icon(Icons.Default.SelectAll, contentDescription = "Select documents")
                         }
+                        IconButton(
+                            onClick = {
+                                restoreBackupLauncher.launch(
+                                    arrayOf(
+                                        "application/octet-stream",
+                                        "application/zip"
+                                    )
+                                )
+                            },
+                            enabled = !busy && !mergeBusy
+                        ) {
+                            Icon(
+                                Icons.Default.SettingsBackupRestore,
+                                contentDescription = "Restore encrypted backup"
+                            )
+                        }
                         if (mergeCandidates.size >= 2) {
                             IconButton(
                                 onClick = { mergeOpen = true },
@@ -499,6 +530,47 @@ fun LibraryScreen(
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
+    }
+
+    if (
+        restoreBackupDialogOpen &&
+        restoreBackupUri != null
+    ) {
+        RestoreSecureBackupDialog(
+            onDismiss = {
+                restoreBackupDialogOpen = false
+                restoreBackupUri = null
+            },
+            onRestore = { password ->
+                val uri = restoreBackupUri
+                restoreBackupDialogOpen = false
+                restoreBackupUri = null
+                if (uri != null) {
+                    scope.launch {
+                        runCatching {
+                            repository.restoreSecureBackup(
+                                uri,
+                                password
+                            )
+                        }
+                            .onSuccess { restoredId ->
+                                onMessage(
+                                    "Encrypted backup restored"
+                                )
+                                onOpenDocument(restoredId)
+                            }
+                            .onFailure {
+                                onMessage(
+                                    it.message
+                                        ?: "Could not restore encrypted backup"
+                                )
+                            }
+                    }
+                } else {
+                    password.fill('\u0000')
+                }
+            }
+        )
     }
 
     if (scanModeOpen) {
