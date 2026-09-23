@@ -99,6 +99,7 @@ import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.ExternalPdfValidationResult
 import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.DocumentPageSearchHit
+import com.thiepn.scan.data.DocumentSecuritySettingsCodec
 import com.thiepn.scan.data.FormTemplateEntity
 import com.thiepn.scan.data.FormValidator
 import com.thiepn.scan.data.OcrLayoutCodec
@@ -117,6 +118,7 @@ import com.thiepn.scan.data.PublishingSettingsCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanModeProfiles
 import com.thiepn.scan.data.ScanRepository
+import com.thiepn.scan.data.SecurityAuditReport
 import com.thiepn.scan.data.SignedPdfResult
 import com.thiepn.scan.data.StandardsExportResult
 import com.thiepn.scan.util.shareFile
@@ -281,6 +283,8 @@ fun DocumentScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val extractionSchemas by repository.observeExtractionSchemas()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val vaultState by repository.observeVaultState()
+        .collectAsStateWithLifecycle()
     val activeDocuments by repository.observeDocuments(
         LibraryFilter.ACTIVE,
         ""
@@ -315,6 +319,11 @@ fun DocumentScreen(
     }
     var publishingOpen by remember { mutableStateOf(false) }
     var complianceOpen by remember { mutableStateOf(false) }
+    var securityOpen by remember { mutableStateOf(false) }
+    var backupPasswordOpen by remember { mutableStateOf(false) }
+    var securityAuditReport by remember {
+        mutableStateOf<SecurityAuditReport?>(null)
+    }
     var assemblyPageId by rememberSaveable {
         mutableStateOf<String?>(null)
     }
@@ -734,6 +743,93 @@ fun DocumentScreen(
                                 validatePdfLauncher.launch(
                                     arrayOf("application/pdf")
                                 )
+                            }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        val securitySettings =
+                            DocumentSecuritySettingsCodec.decode(
+                                doc.securityRecipe
+                            )
+                        val vaultLocked =
+                            doc.id in
+                                vaultState.lockedDocumentIds
+                        SecurityTools(
+                            settings = securitySettings,
+                            locked = vaultLocked,
+                            integrityFailed =
+                                doc.id in
+                                    vaultState.integrityFailedDocumentIds,
+                            enabled = !doc.processing,
+                            onSettings = {
+                                securityOpen = true
+                            },
+                            onLock = {
+                                scope.launch {
+                                    runCatching {
+                                        repository
+                                            .lockVaultDocument(
+                                                doc.id
+                                            )
+                                    }
+                                        .onSuccess {
+                                            onMessage(
+                                                "Secure vault locked"
+                                            )
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Could not lock secure vault"
+                                            )
+                                        }
+                                }
+                            },
+                            onBackup = {
+                                backupPasswordOpen = true
+                            },
+                            onPrivacyExport = {
+                                scope.launch {
+                                    runCatching {
+                                        repository
+                                            .createPrivacyPdfExport(
+                                                doc.id
+                                            )
+                                    }
+                                        .onSuccess { file ->
+                                            if (file != null) {
+                                                shareFile(
+                                                    context,
+                                                    file,
+                                                    "application/pdf"
+                                                )
+                                            }
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Could not create privacy export"
+                                            )
+                                        }
+                                }
+                            },
+                            onAudit = {
+                                scope.launch {
+                                    runCatching {
+                                        repository.securityAudit(
+                                            doc.id
+                                        )
+                                    }
+                                        .onSuccess {
+                                            securityAuditReport =
+                                                it
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Could not run security audit"
+                                            )
+                                        }
+                                }
                             }
                         )
                         captureSession?.takeIf {
@@ -1587,6 +1683,82 @@ fun DocumentScreen(
                             )
                         }
                 }
+            }
+        )
+    }
+
+    if (securityOpen) {
+        SecuritySettingsDialog(
+            initial = DocumentSecuritySettingsCodec.decode(
+                doc.securityRecipe
+            ),
+            onDismiss = { securityOpen = false },
+            onSave = { settings ->
+                securityOpen = false
+                scope.launch {
+                    runCatching {
+                        repository.updateSecuritySettings(
+                            doc.id,
+                            settings
+                        )
+                    }
+                        .onSuccess {
+                            onMessage(
+                                if (settings.vaultEnabled) {
+                                    "Security settings saved"
+                                } else {
+                                    "Security settings saved · vault disabled"
+                                }
+                            )
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message
+                                    ?: "Could not save security settings"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    if (backupPasswordOpen) {
+        CreateSecureBackupDialog(
+            onDismiss = {
+                backupPasswordOpen = false
+            },
+            onCreate = { password ->
+                backupPasswordOpen = false
+                scope.launch {
+                    runCatching {
+                        repository.createSecureBackup(
+                            doc.id,
+                            password
+                        )
+                    }
+                        .onSuccess { result ->
+                            shareFile(
+                                context,
+                                result.file,
+                                "application/octet-stream"
+                            )
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message
+                                    ?: "Could not create encrypted backup"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    securityAuditReport?.let { report ->
+        SecurityAuditDialog(
+            report = report,
+            onDismiss = {
+                securityAuditReport = null
             }
         )
     }
