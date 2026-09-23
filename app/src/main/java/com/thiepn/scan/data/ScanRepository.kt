@@ -597,7 +597,15 @@ class ScanRepository(
             val newOrder = targetPages.map { it.id }.toMutableList().apply {
                 addAll(targetIndex, copies.map { it.id })
             }
-            dao.insertPagesWithOrder(copies, newOrder)
+            dao.transferPagesAtomically(
+                targetPages = copies,
+                targetOrder = newOrder,
+                sourcePageIdsToDeactivate = if (move) {
+                    selected.map { it.id }
+                } else {
+                    emptyList()
+                }
+            )
             copies.forEach { copy ->
                 if (copy.ocrText.isNotBlank()) {
                     searchIndex.upsertPage(
@@ -609,7 +617,6 @@ class ScanRepository(
             }
 
             if (move) {
-                dao.setPagesDeleted(selected.map { it.id }, true)
                 selected.forEach { source ->
                     searchIndex.upsertPage(
                         sourceDocumentId,
