@@ -58,6 +58,22 @@ The rendering order is:
 
 Cleanup changes OCR truth. The cleanup recipe participates in `OcrFingerprint`; repository mutations clear stale OCR/FTS and recognize the cleaned semantic bitmap. PDF generation applies cleanup before enhancement and builds its invisible text layer from the same cleaned geometry. Native imported-PDF passthrough is prohibited whenever cleanup exists.
 
+### OCR-driven text editing
+
+Text replacement is a second reversible semantic operation layer. The canonical page image is never overwritten. `PageEntity.textEditRecipe` stores normalized word/line/block replacement operations, while `ocrBaseLayout` preserves the untouched spatial OCR result that those operations reference.
+
+The editor always selects regions from the preserved base OCR layout. Saved replacements patch blocks, lines, words, and full text into `ocrLayout`/`ocrText`, so document search, text export, highlights, classification, and specialized-field extraction observe the edited text rather than stale recognition. Clearing the recipe restores the base OCR layout exactly without another recognition pass.
+
+Replacement rendering uses normalized OCR boxes in the final semantic page orientation. The renderer samples local ink color/density, reconstructs only the selected background rectangle from surrounding page texture, fits replacement text to the original region, preserves OCR angle, supports multiline line/block edits, and offers automatic or explicit left/center/right alignment plus bounded size adjustment.
+
+For pages with text replacement the visual/export pipeline is:
+
+`source → crop/perspective → cleanup/inpainting → display rotation → text replacement → enhancement → preview/PDF raster`
+
+Crop, rotation, cleanup, OCR-language changes, and OCR-regenerating scan-mode changes are rejected while saved text replacements exist, because those operations would invalidate the coordinate basis. The user can revert text replacements first; page-reset restores the original OCR truth and clears the text recipe.
+
+PDF generation never uses native imported-PDF passthrough when text replacements exist. It rasterizes the edited page and writes the stored edited OCR layout as the invisible searchable text layer, keeping visual output and search/copy truth synchronized.
+
 ### OCR
 
 `OcrEngine` wraps ML Kit Text Recognition. The bundled Latin model makes recognition available without a first-use model download. Recognition runs after capture/import on an application coroutine scope.
