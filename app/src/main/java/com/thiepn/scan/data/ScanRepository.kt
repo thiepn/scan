@@ -2308,9 +2308,8 @@ class ScanRepository(
                 }
 
             if (duplicate != null) {
-                dao.updateProcessingFingerprint(
+                dao.markCapturedPageDuplicate(
                     pageId = job.pageId,
-                    status = PageProcessingStatus.DUPLICATE.name,
                     fingerprintHash = fingerprint.hashHex,
                     meanLuma = fingerprint.meanLuma,
                     edgeEnergy = fingerprint.edgeEnergy,
@@ -2321,7 +2320,6 @@ class ScanRepository(
                 )
                 searchIndex.deletePage(job.pageId)
                 File(page.imagePath).delete()
-                dao.deletePageRecord(job.pageId)
             } else {
                 dao.updateProcessingFingerprint(
                     pageId = job.pageId,
