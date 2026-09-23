@@ -118,6 +118,7 @@ object PdfStandardsSupport {
                 append(description)
                 append("</rdf:li></rdf:Alt></dc:description>")
             }
+            append("<dc:format>application/pdf</dc:format>")
             append("<dc:language><rdf:Bag><rdf:li>")
             append(safeLanguage)
             append("</rdf:li></rdf:Bag></dc:language>")
@@ -134,12 +135,28 @@ object PdfStandardsSupport {
         }
     }
 
-    private fun xml(value: String): String = value
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&apos;")
+    private fun xml(value: String): String {
+        val clean = buildString {
+            value.forEach { ch ->
+                val code = ch.code
+                if (
+                    code == 0x9 ||
+                    code == 0xA ||
+                    code == 0xD ||
+                    code in 0x20..0xD7FF ||
+                    code in 0xE000..0xFFFD
+                ) {
+                    append(ch)
+                }
+            }
+        }
+        return clean
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
+    }
 }
 
 class TaggedOcrBuilder(
