@@ -1114,6 +1114,9 @@ class ScanRepository(
         val pages = orderedPages(dao.getPages(id))
         val deletedPages = dao.getDeletedPages(id)
         val source = nativePdfSource(document, pages)
+        val includeOcrTextLayer = ScanModeProfiles.forMode(
+            ScanMode.fromStored(document.scanMode)
+        ).ocrEnabled
 
         val destination = files.pdfExportFile(
             documentId = id,
@@ -1173,7 +1176,8 @@ class ScanRepository(
                     pages = pages,
                     destination = temporary,
                     password = password,
-                    quality = quality
+                    quality = quality,
+                    includeOcrTextLayer = includeOcrTextLayer
                 )
                 files.commitGeneratedExport(temporary, destination)
             }.getOrElse {
@@ -1197,6 +1201,9 @@ class ScanRepository(
         val destination = files.extractedPdfExportFile(id, document.title)
         val temporary = files.temporaryExport(destination)
         val source = nativePdfSource(document, pages)
+        val includeOcrTextLayer = ScanModeProfiles.forMode(
+            ScanMode.fromStored(document.scanMode)
+        ).ocrEnabled
 
         runCatching {
             val hasGeometryEdits = selectedPages.any {
@@ -1215,7 +1222,8 @@ class ScanRepository(
             } else {
                 pdfEngine.createSearchablePdf(
                     pages = selectedPages,
-                    destination = temporary
+                    destination = temporary,
+                    includeOcrTextLayer = includeOcrTextLayer
                 )
             }
             files.commitGeneratedExport(temporary, destination)
@@ -1243,6 +1251,9 @@ class ScanRepository(
         val destination = files.selectedPdfExportFile(id, document.title)
         val temporary = files.temporaryExport(destination)
         val source = nativePdfSource(document, pages)
+        val includeOcrTextLayer = ScanModeProfiles.forMode(
+            ScanMode.fromStored(document.scanMode)
+        ).ocrEnabled
         val hasGeometryEdits = selected.any {
             !CropQuadCodec.decode(it.cropQuad).isFullFrame()
         }
@@ -1267,7 +1278,8 @@ class ScanRepository(
                 pdfEngine.createSearchablePdf(
                     pages = selected,
                     destination = temporary,
-                    quality = quality
+                    quality = quality,
+                    includeOcrTextLayer = includeOcrTextLayer
                 )
             }
             files.commitGeneratedExport(temporary, destination)
@@ -1317,6 +1329,9 @@ class ScanRepository(
                 val pages = orderedPages(dao.getPages(id))
                 val deleted = dao.getDeletedPages(id)
                 val nativeSource = nativePdfSource(document, pages)
+                val includeOcrTextLayer = ScanModeProfiles.forMode(
+                    ScanMode.fromStored(document.scanMode)
+                ).ocrEnabled
 
                 if (nativeSource != null) {
                     val nativeOrder = pages.map { it.position }
@@ -1347,14 +1362,22 @@ class ScanRepository(
                         temporaryInputs += working
                     } else {
                         val working = files.temporaryWorkingPdf("scan-geometry")
-                        pdfEngine.createSearchablePdf(pages, working)
+                        pdfEngine.createSearchablePdf(
+                            pages = pages,
+                            destination = working,
+                            includeOcrTextLayer = includeOcrTextLayer
+                        )
                         mergeInputs += working
                         temporaryInputs += working
                     }
                 } else {
                     require(pages.isNotEmpty()) { "${document.title} has no pages" }
                     val working = files.temporaryWorkingPdf("scan-merge")
-                    pdfEngine.createSearchablePdf(pages, working)
+                    pdfEngine.createSearchablePdf(
+                        pages = pages,
+                        destination = working,
+                        includeOcrTextLayer = includeOcrTextLayer
+                    )
                     mergeInputs += working
                     temporaryInputs += working
                 }
