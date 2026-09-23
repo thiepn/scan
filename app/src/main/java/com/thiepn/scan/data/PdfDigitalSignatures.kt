@@ -3,6 +3,7 @@ package com.thiepn.scan.data
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.PDSignature
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface
+import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.cms.CMSObjectIdentifiers
 import org.bouncycastle.cert.X509CertificateHolder
@@ -102,9 +103,18 @@ object PdfDigitalSigner {
             val signer = SignatureInterface { content ->
                 createCmsSignature(content, material)
             }
-            document.addSignature(signature, signer)
-            destination.outputStream().buffered().use { output ->
-                document.saveIncremental(output)
+            SignatureOptions().use { options ->
+                options.preferredSignatureSize = 64 * 1024
+                document.addSignature(
+                    signature,
+                    signer,
+                    options
+                )
+                destination.outputStream()
+                    .buffered()
+                    .use { output ->
+                        document.saveIncremental(output)
+                    }
             }
         }
 
@@ -354,7 +364,7 @@ object PdfSignatureInspector {
                     !coversWhole ->
                         "Signature covers an earlier PDF revision; later changes or signatures exist."
                     trusted ->
-                        "Signature is valid and chains to a device-trusted certificate authority."
+                        "Signature is valid and chains to a device-trusted certificate authority; revocation status was not checked."
                     else ->
                         "Signature is cryptographically valid, but the certificate chain is not trusted by this device."
                 }
