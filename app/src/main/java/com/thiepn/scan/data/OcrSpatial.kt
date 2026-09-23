@@ -267,6 +267,7 @@ object OcrFingerprint {
         file: File,
         cropQuad: String?,
         rotationDegrees: Int,
+        cleanupRecipe: String?,
         script: OcrScript
     ): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -280,6 +281,7 @@ object OcrFingerprint {
         }
         digest.update((cropQuad ?: "FULL").toByteArray())
         digest.update(rotationDegrees.toString().toByteArray())
+        digest.update((cleanupRecipe ?: "NO_CLEANUP").toByteArray())
         digest.update(script.name.toByteArray())
         digest.update(MODEL_VERSION.toByteArray())
         return digest.digest().joinToString("") { "%02x".format(it) }
