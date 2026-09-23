@@ -22,7 +22,9 @@ import androidx.compose.ui.layout.ContentScale
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.OcrWordBox
+import com.thiepn.scan.data.OcrTextEditRenderer
 import com.thiepn.scan.data.PageCleanupRecipeCodec
+import com.thiepn.scan.data.PageTextEditRecipeCodec
 import com.thiepn.scan.data.PageCleanupRenderer
 import com.thiepn.scan.data.PageGeometryRenderer
 import com.thiepn.scan.data.PageVisualRecipeCodec
@@ -40,6 +42,7 @@ fun FileImage(
     cropQuad: String? = null,
     visualRecipe: String? = null,
     cleanupRecipe: String? = null,
+    textEditRecipe: String? = null,
     highlightWords: List<OcrWordBox> = emptyList(),
     highlightSourceWidth: Int = 0,
     highlightSourceHeight: Int = 0,
@@ -52,7 +55,8 @@ fun FileImage(
         rotationDegrees,
         cropQuad,
         visualRecipe,
-        cleanupRecipe
+        cleanupRecipe,
+        textEditRecipe
     ) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -66,17 +70,37 @@ fun FileImage(
                     PageCleanupRecipeCodec.decode(cleanupRecipe)
                 )
                 if (cleaned !== geometry) geometry.recycle()
-                val enhanced = ImageEnhancementRenderer.apply(
-                    cleaned,
-                    PageVisualRecipeCodec.decode(visualRecipe)
-                )
-                if (enhanced !== cleaned) cleaned.recycle()
-                val rotated = PageGeometryRenderer.rotateBitmap(
-                    enhanced,
-                    rotationDegrees
-                )
-                if (rotated !== enhanced) enhanced.recycle()
-                rotated
+                val textEdits = PageTextEditRecipeCodec.decode(textEditRecipe)
+                if (textEdits.isEmpty()) {
+                    val enhanced = ImageEnhancementRenderer.apply(
+                        cleaned,
+                        PageVisualRecipeCodec.decode(visualRecipe)
+                    )
+                    if (enhanced !== cleaned) cleaned.recycle()
+                    val rotated = PageGeometryRenderer.rotateBitmap(
+                        enhanced,
+                        rotationDegrees
+                    )
+                    if (rotated !== enhanced) enhanced.recycle()
+                    rotated
+                } else {
+                    val rotated = PageGeometryRenderer.rotateBitmap(
+                        cleaned,
+                        rotationDegrees
+                    )
+                    if (rotated !== cleaned) cleaned.recycle()
+                    val edited = OcrTextEditRenderer.apply(
+                        rotated,
+                        textEdits
+                    )
+                    if (edited !== rotated) rotated.recycle()
+                    val enhanced = ImageEnhancementRenderer.apply(
+                        edited,
+                        PageVisualRecipeCodec.decode(visualRecipe)
+                    )
+                    if (enhanced !== edited) edited.recycle()
+                    enhanced
+                }
             }.getOrNull()
         }
     }
