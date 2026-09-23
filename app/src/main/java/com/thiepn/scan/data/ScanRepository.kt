@@ -3112,25 +3112,29 @@ class ScanRepository(
         documentId: String,
         password: CharArray
     ): SecureBackupResult = withContext(Dispatchers.IO) {
-        requireVaultUnlocked(documentId)
-        val document = dao.getDocument(documentId)
-            ?: throw IllegalArgumentException(
-                "Document not found"
+        try {
+            requireVaultUnlocked(documentId)
+            val document = dao.getDocument(documentId)
+                ?: throw IllegalArgumentException(
+                    "Document not found"
+                )
+            require(document.trashedAt == null) {
+                "Restore the document before backing it up"
+            }
+            require(!document.processing) {
+                "Document is still processing"
+            }
+            SecureDocumentBackup(
+                dao = dao,
+                files = files,
+                searchIndex = searchIndex
+            ).create(
+                documentId = documentId,
+                password = password
             )
-        require(document.trashedAt == null) {
-            "Restore the document before backing it up"
+        } finally {
+            password.fill('\u0000')
         }
-        require(!document.processing) {
-            "Document is still processing"
-        }
-        SecureDocumentBackup(
-            dao = dao,
-            files = files,
-            searchIndex = searchIndex
-        ).create(
-            documentId = documentId,
-            password = password
-        )
     }
 
     suspend fun restoreSecureBackup(
@@ -3702,7 +3706,9 @@ class ScanRepository(
                 }
             }
 
-            val destination = files.mergedPdfExportFile()
+            val destination = files.mergedPdfExportFile(
+            orderedIds
+        )
             val temporaryOutput = files.temporaryExport(destination)
             runCatching {
                 pdfEngine.merge(mergeInputs, temporaryOutput)

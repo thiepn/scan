@@ -50,8 +50,19 @@ class FileStore(private val context: Context) {
     fun selectedPdfExportFile(documentId: String, title: String): File =
         File(exports, "${safeName(title)}-${documentId.take(8)}-selected.pdf")
 
-    fun mergedPdfExportFile(): File =
-        File(exports, "Merged-${System.currentTimeMillis()}.pdf")
+    fun mergedPdfExportFile(
+        documentIds: List<String>
+    ): File {
+        val markers = documentIds
+            .distinct()
+            .joinToString("") {
+                "-${it.take(8)}"
+            }
+        return File(
+            exports,
+            "Merged$markers-${System.currentTimeMillis()}.pdf"
+        )
+    }
 
     fun temporaryWorkingPdf(prefix: String = "scan-work"): File {
         context.cacheDir.mkdirs()
