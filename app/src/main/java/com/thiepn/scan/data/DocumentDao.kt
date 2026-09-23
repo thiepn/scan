@@ -72,9 +72,13 @@ interface DocumentDao {
     ): List<PageProcessingEntity>
 
     @Query(
-        "SELECT * FROM page_processing WHERE documentId = :documentId " +
-            "AND status IN ('PROCESSING', 'COMPLETE') " +
-            "AND fingerprintHash IS NOT NULL ORDER BY queuedAt, pageId"
+        "SELECT q.* FROM page_processing q " +
+            "JOIN pages p ON p.id = q.pageId " +
+            "WHERE q.documentId = :documentId " +
+            "AND q.status IN ('PROCESSING', 'COMPLETE') " +
+            "AND q.fingerprintHash IS NOT NULL " +
+            "AND (p.deleted = 0 OR p.preservedBookSource = 1) " +
+            "ORDER BY q.queuedAt, q.pageId"
     )
     suspend fun getReferenceFingerprints(
         documentId: String
@@ -513,6 +517,9 @@ interface DocumentDao {
 
     @Query("DELETE FROM documents WHERE id = :id")
     suspend fun deleteDocument(id: String)
+
+    @Query("DELETE FROM capture_sessions WHERE id = :sessionId")
+    suspend fun deleteCaptureSession(sessionId: String)
 
     @Query("DELETE FROM pages WHERE id = :pageId")
     suspend fun deletePageRecord(pageId: String)
