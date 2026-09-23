@@ -151,14 +151,18 @@ class PdfEngine(
                         val recognition = if (includeOcrTextLayer) {
                             if (!textEdits.isEmpty() || !markup.isEmpty()) {
                                 OcrLayoutCodec.decode(pageEntity.ocrLayout)
-                                    ?: runCatching {
-                                        requireNotNull(geometryBitmap).let { geometry ->
-                                            ocr.recognizeDetailed(
-                                                geometry,
-                                                OcrScript.fromStored(pageEntity.ocrScript)
-                                            )
-                                        }
-                                    }.getOrNull()
+                                    ?: if (markup.hasRedactions()) {
+                                        null
+                                    } else {
+                                        runCatching {
+                                            requireNotNull(geometryBitmap).let { geometry ->
+                                                ocr.recognizeDetailed(
+                                                    geometry,
+                                                    OcrScript.fromStored(pageEntity.ocrScript)
+                                                )
+                                            }
+                                        }.getOrNull()
+                                    }
                             } else {
                                 runCatching {
                                     val geometry = geometryBitmap

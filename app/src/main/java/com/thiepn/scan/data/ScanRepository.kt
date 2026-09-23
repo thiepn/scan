@@ -787,8 +787,33 @@ class ScanRepository(
         val textRecipe = PageTextEditRecipeCodec.decode(page.textEditRecipe)
 
         if (base == null) {
-            dao.setPageMarkupRecipe(pageId, encodedMarkup)
-            dao.touchDocument(documentId, System.currentTimeMillis())
+            if (normalized.hasRedactions()) {
+                dao.updatePageSemanticEdits(
+                    pageId = pageId,
+                    text = "",
+                    layout = null,
+                    baseLayout = null,
+                    textRecipe = page.textEditRecipe,
+                    markupRecipe = encodedMarkup,
+                    fingerprint = page.ocrFingerprint,
+                    script = page.ocrScript
+                )
+                searchIndex.deletePage(pageId)
+                val ocrEnabled = ScanModeProfiles.forMode(
+                    ScanMode.fromStored(document.scanMode)
+                ).ocrEnabled
+                if (ocrEnabled) {
+                    refreshDocumentSummary(documentId, processing = true)
+                    appScope.launch(Dispatchers.IO) {
+                        recognizePageAndRefresh(documentId, pageId)
+                    }
+                } else {
+                    refreshDocumentSummary(documentId)
+                }
+            } else {
+                dao.setPageMarkupRecipe(pageId, encodedMarkup)
+                dao.touchDocument(documentId, System.currentTimeMillis())
+            }
             return@withContext
         }
 
