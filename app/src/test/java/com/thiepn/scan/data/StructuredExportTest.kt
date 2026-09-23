@@ -32,7 +32,7 @@ class StructuredExportTest {
     )
 
     @Test fun csvAndJsonEscapeStructuredValues() {
-        val dir=createTempDir(prefix="structured-export")
+        val dir=kotlin.io.path.createTempDirectory("structured-export").toFile()
         try {
             val csv=File(dir,"data.csv")
             val json=File(dir,"data.json")
@@ -47,7 +47,7 @@ class StructuredExportTest {
     }
 
     @Test fun xlsxContainsWorkbookAndWorksheets() {
-        val dir=createTempDir(prefix="structured-xlsx")
+        val dir=kotlin.io.path.createTempDirectory("structured-xlsx").toFile()
         try {
             val file=File(dir,"data.xlsx")
             StructuredDataExport.writeXlsx(pages,file)
