@@ -211,13 +211,14 @@ fun InsertPagesDialog(
 @Composable
 fun SelectedExportDialog(
     selectedCount: Int,
+    defaultQuality: PdfQuality,
     onDismiss: () -> Unit,
     onPdfSave: (PdfQuality) -> Unit,
     onPdfShare: (PdfQuality) -> Unit,
     onTextSave: () -> Unit,
     onTextShare: () -> Unit
 ) {
-    var quality by remember { mutableStateOf(PdfQuality.ORIGINAL) }
+    var quality by remember(defaultQuality) { mutableStateOf(defaultQuality) }
     val options = listOf(
         PdfQuality.ORIGINAL to "Original",
         PdfQuality.HIGH to "High",
