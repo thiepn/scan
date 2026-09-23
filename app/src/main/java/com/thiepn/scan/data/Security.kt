@@ -319,6 +319,7 @@ class SecurityVaultManager(
 
     suspend fun lock(documentId: String) = mutex.withLock {
         if (documentId !in registeredIds()) return
+        if (documentId in _state.value.lockedDocumentIds) return
         _state.value = _state.value.copy(
             lockedDocumentIds =
                 _state.value.lockedDocumentIds + documentId,

@@ -58,6 +58,14 @@ class FileStore(private val context: Context) {
         return File.createTempFile(prefix.take(24).padEnd(3, '_'), ".pdf", context.cacheDir)
     }
 
+    fun temporaryDirectory(prefix: String): File {
+        context.cacheDir.mkdirs()
+        return File(
+            context.cacheDir,
+            prefix.take(32) + "-" + java.util.UUID.randomUUID()
+        ).apply { mkdirs() }
+    }
+
     fun temporaryExport(destination: File): File =
         File(destination.parentFile, destination.name + ".tmp").also { it.delete() }
 

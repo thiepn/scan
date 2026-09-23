@@ -147,7 +147,9 @@ class SecureDocumentBackup(
         password: CharArray
     ): String {
         require(source.isFile) { "Backup file is unavailable" }
-        val staging = createTempDirSecure()
+        val staging = files.temporaryDirectory(
+            "scan-restore"
+        )
         try {
             decryptArchive(source, staging, password)
             val manifestFile = File(staging, "manifest.json")
@@ -644,11 +646,6 @@ class SecureDocumentBackup(
             }
         }
     }
-
-    private fun createTempDirSecure(): File =
-        kotlin.io.path.createTempDirectory(
-            "scan-restore"
-        ).toFile()
 
     private fun JSONObject.nullableString(
         key: String
