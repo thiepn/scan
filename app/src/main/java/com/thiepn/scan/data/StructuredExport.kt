@@ -13,7 +13,8 @@ data class StructuredExportPage(
 object StructuredDataExport {
     fun writeCsv(pages:List<StructuredExportPage>,destination:File):File {
         destination.parentFile?.mkdirs()
-        destination.bufferedWriter().use { out ->
+        destination.bufferedWriter(Charsets.UTF_8).use { out ->
+            out.write("\uFEFF")
             out.appendLine("KEY_VALUES")
             out.appendLine(csvRow(listOf(
                 "Page","Key","Label","Value","Confidence","Reviewed","Source"
@@ -200,12 +201,27 @@ object StructuredDataExport {
                 ",\"right\":" + it.right +
                 ",\"bottom\":" + it.bottom + "}"
         } ?: "null"
-    private fun json(v:String)="\"" + v
-        .replace("\\","\\\\")
-        .replace("\"","\\\"")
-        .replace("\n","\\n")
-        .replace("\r","\\r")
-        .replace("\t","\\t") + "\""
+    private fun json(v:String):String=buildString {
+        append('\"')
+        v.forEach { ch ->
+            when(ch) {
+                '\"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> if(ch.code<0x20) {
+                    append("\\u")
+                    append(ch.code.toString(16).padStart(4,'0'))
+                } else {
+                    append(ch)
+                }
+            }
+        }
+        append('\"')
+    }
 
     private fun uniqueSheetNames(names:List<String>):List<String> {
         val used=mutableSetOf<String>()
