@@ -33,6 +33,59 @@ interface DocumentDao {
     @Query("SELECT * FROM document_fields WHERE documentId = :documentId ORDER BY fieldKey")
     fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>>
 
+    @Query(
+        "SELECT * FROM capture_sessions WHERE documentId = :documentId " +
+            "ORDER BY startedAt DESC LIMIT 1"
+    )
+    fun observeLatestCaptureSession(documentId: String): Flow<CaptureSessionEntity?>
+
+    @Query(
+        "SELECT * FROM capture_sessions WHERE documentId = :documentId " +
+            "ORDER BY startedAt DESC LIMIT 1"
+    )
+    suspend fun getLatestCaptureSession(documentId: String): CaptureSessionEntity?
+
+    @Query("SELECT * FROM capture_sessions WHERE id = :sessionId LIMIT 1")
+    suspend fun getCaptureSession(sessionId: String): CaptureSessionEntity?
+
+    @Query(
+        "SELECT * FROM capture_sessions WHERE status IN (:statuses) " +
+            "ORDER BY updatedAt, startedAt"
+    )
+    suspend fun getCaptureSessionsByStatus(
+        statuses: List<String>
+    ): List<CaptureSessionEntity>
+
+    @Query(
+        "SELECT * FROM page_processing WHERE sessionId = :sessionId " +
+            "ORDER BY queuedAt, pageId"
+    )
+    suspend fun getSessionProcessingJobs(sessionId: String): List<PageProcessingEntity>
+
+    @Query(
+        "SELECT * FROM page_processing WHERE sessionId = :sessionId " +
+            "AND status IN (:statuses) ORDER BY queuedAt, pageId"
+    )
+    suspend fun getSessionProcessingJobsByStatus(
+        sessionId: String,
+        statuses: List<String>
+    ): List<PageProcessingEntity>
+
+    @Query(
+        "SELECT * FROM page_processing WHERE documentId = :documentId " +
+            "AND status IN ('PROCESSING', 'COMPLETE') " +
+            "AND fingerprintHash IS NOT NULL ORDER BY queuedAt, pageId"
+    )
+    suspend fun getReferenceFingerprints(
+        documentId: String
+    ): List<PageProcessingEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM page_processing WHERE documentId = :documentId " +
+            "AND status IN ('QUEUED', 'FINGERPRINTING', 'PROCESSING')"
+    )
+    suspend fun getPendingProcessingJobCount(documentId: String): Int
+
     @Query("SELECT * FROM document_fields WHERE documentId = :documentId ORDER BY fieldKey")
     suspend fun getDocumentFields(documentId: String): List<DocumentFieldEntity>
 
@@ -139,6 +192,15 @@ interface DocumentDao {
     suspend fun insertDocumentFields(fields: List<DocumentFieldEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCaptureSession(session: CaptureSessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPageProcessing(job: PageProcessingEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPageProcessingJobs(jobs: List<PageProcessingEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPage(page: PageEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -214,6 +276,99 @@ interface DocumentDao {
             "bookReviewResolved = 0 WHERE id = :pageId"
     )
     suspend fun clearBookAnalysis(pageId: String)
+
+    @Query(
+        "UPDATE capture_sessions SET status = :status, updatedAt = :updatedAt, " +
+            "completedAt = :completedAt, pausedReason = :pausedReason WHERE id = :sessionId"
+    )
+    suspend fun updateCaptureSessionState(
+        sessionId: String,
+        status: String,
+        updatedAt: Long,
+        completedAt: Long?,
+        pausedReason: String?
+    )
+
+    @Query(
+        "UPDATE capture_sessions SET status = 'INTERRUPTED', updatedAt = :updatedAt, " +
+            "pausedReason = 'Capture session interrupted; queued pages were preserved.' " +
+            "WHERE status = 'CAPTURING'"
+    )
+    suspend fun markCapturingSessionsInterrupted(updatedAt: Long)
+
+    @Query(
+        "UPDATE page_processing SET status = 'QUEUED', updatedAt = :updatedAt, " +
+            "lastError = NULL WHERE status IN ('FINGERPRINTING', 'PROCESSING')"
+    )
+    suspend fun resetInterruptedProcessingJobs(updatedAt: Long)
+
+    @Query(
+        "UPDATE page_processing SET status = :status, updatedAt = :updatedAt, " +
+            "attemptCount = attemptCount + :attemptIncrement, lastError = :lastError " +
+            "WHERE pageId = :pageId"
+    )
+    suspend fun updateProcessingJobState(
+        pageId: String,
+        status: String,
+        updatedAt: Long,
+        attemptIncrement: Int = 0,
+        lastError: String? = null
+    )
+
+    @Query(
+        "UPDATE page_processing SET status = :status, fingerprintHash = :fingerprintHash, " +
+            "meanLuma = :meanLuma, edgeEnergy = :edgeEnergy, aspectRatio = :aspectRatio, " +
+            "qualityScore = :qualityScore, duplicateOfPageId = :duplicateOfPageId, " +
+            "updatedAt = :updatedAt, lastError = :lastError WHERE pageId = :pageId"
+    )
+    suspend fun updateProcessingFingerprint(
+        pageId: String,
+        status: String,
+        fingerprintHash: String?,
+        meanLuma: Float?,
+        edgeEnergy: Float?,
+        aspectRatio: Float?,
+        qualityScore: Float?,
+        duplicateOfPageId: String?,
+        updatedAt: Long,
+        lastError: String? = null
+    )
+
+    @Query(
+        """
+        UPDATE capture_sessions SET
+            capturedCount = (
+                SELECT COUNT(*) FROM page_processing
+                WHERE sessionId = :sessionId
+            ),
+            processedCount = (
+                SELECT COUNT(*) FROM page_processing
+                WHERE sessionId = :sessionId
+                  AND status IN ('COMPLETE', 'DUPLICATE', 'FAILED')
+            ),
+            duplicateCount = (
+                SELECT COUNT(*) FROM page_processing
+                WHERE sessionId = :sessionId AND status = 'DUPLICATE'
+            ),
+            lowQualityCount = (
+                SELECT COUNT(*) FROM page_processing
+                WHERE sessionId = :sessionId
+                  AND qualityScore IS NOT NULL
+                  AND qualityScore < 0.35
+                  AND status <> 'DUPLICATE'
+            ),
+            failedCount = (
+                SELECT COUNT(*) FROM page_processing
+                WHERE sessionId = :sessionId AND status = 'FAILED'
+            ),
+            updatedAt = :updatedAt
+        WHERE id = :sessionId
+        """
+    )
+    suspend fun refreshCaptureSessionCounters(
+        sessionId: String,
+        updatedAt: Long
+    )
 
     @Query("UPDATE documents SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: String, title: String, updatedAt: Long)
@@ -355,6 +510,26 @@ interface DocumentDao {
 
     @Query("DELETE FROM pages WHERE id IN (:pageIds)")
     suspend fun deletePageRecords(pageIds: List<String>)
+
+    @Transaction
+    suspend fun insertCapturedPagesAndJobs(
+        pages: List<PageEntity>,
+        jobs: List<PageProcessingEntity>,
+        orderedPageIds: List<String>
+    ) {
+        require(pages.isNotEmpty()) { "No captured pages to insert" }
+        require(pages.size == jobs.size) { "Capture pages and jobs are out of sync" }
+        val documentId = pages.first().documentId
+        require(pages.all { it.documentId == documentId }) {
+            "Captured pages belong to different documents"
+        }
+        require(jobs.all { it.documentId == documentId }) {
+            "Capture jobs belong to a different document"
+        }
+        insertPages(pages)
+        insertPageProcessingJobs(jobs)
+        replacePageOrder(documentId, orderedPageIds)
+    }
 
     @Transaction
     suspend fun replaceDocumentFields(
