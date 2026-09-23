@@ -45,6 +45,12 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Book spread splitting preserves the untouched original source, creates ordered left/right derived pages, applies bounded cylindrical mesh dewarping near the gutter, and auto-detects an independent crop for each resulting page.
 - Book review includes a live gutter preview with manual gutter adjustment, optional dewarping, sequential Review next spread workflow, and one-tap Restore original spread that removes the derived pair and reactivates the source.
 - OCR, FTS search, page editing, text/PDF export, merge, and page ordering operate only on active logical book pages; preserved source spreads stay hidden from normal Deleted pages and remain available solely for reversible restoration.
+- High-Speed Continuous Scanning adds an opt-in Rapid capture loop for Document, Book, Form, and Notes. Each returned scanner batch is copied into app-private storage and committed to Room before the scanner is reopened; cancelling the next scanner ends capture and starts deferred processing.
+- Rapid capture persists capture sessions and per-page processing jobs, so interrupted or force-closed sessions recover on the next app launch instead of losing queued pages.
+- A lightweight perceptual fingerprint stage conservatively suppresses near-identical duplicate frames before OCR while retaining low-quality but non-duplicate captures for user review.
+- Heavy processing is strictly sequential/chunked and adapts to memory class, battery state, and Android thermal status. Severe heat or critically low unplugged battery pauses the queue and resumes it later.
+- Rapid-session progress, duplicate counts, low-quality flags, failures, and retry actions are visible in the document editor. The processing model is designed to avoid retaining page bitmaps between jobs, allowing very large multi-batch sessions without scaling memory use with page count.
+- Live page detection and automatic shutter timing remain provided by the production ML Kit Document Scanner capture UI; Scan's Phase 8 pipeline begins once each captured page image is returned.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
