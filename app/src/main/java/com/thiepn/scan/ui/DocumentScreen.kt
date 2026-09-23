@@ -955,6 +955,7 @@ fun DocumentScreen(
             rotationDegrees = bookReviewPage.rotationDegrees,
             cropQuad = bookReviewPage.cropQuad,
             visualRecipe = bookReviewPage.visualRecipe,
+            cleanupRecipe = bookReviewPage.cleanupRecipe,
             analysis = activeBookAnalysis,
             onDismiss = {
                 bookReviewPageId = null
