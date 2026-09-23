@@ -178,6 +178,11 @@ class PdfEngine(
 
                 try {
                     PDPageContentStream(document, page).use { stream ->
+                        if (tagger != null) {
+                            stream.beginMarkedContent(
+                                COSName.getPDFName("Artifact")
+                            )
+                        }
                         if (directJpeg) {
                             imageFile.inputStream().use { input ->
                                 val image = JPEGFactory.createFromStream(document, input)
@@ -191,6 +196,9 @@ class PdfEngine(
                                 if (quality == PdfQuality.ORIGINAL) 0.94f else quality.jpegQuality
                             )
                             stream.drawImage(image, 0f, 0f, pdfWidth, pdfHeight)
+                        }
+                        if (tagger != null) {
+                            stream.endMarkedContent()
                         }
 
                         val recognition = if (includeOcrTextLayer) {
@@ -530,6 +538,14 @@ class PdfEngine(
         settings: PublishingSettings,
         compliance: ComplianceSettings
     ) {
+        if (
+            compliance.accessibilityMode ==
+            AccessibilityMode.TAGGED_OCR
+        ) {
+            stream.beginMarkedContent(
+                COSName.getPDFName("Artifact")
+            )
+        }
         val width = page.mediaBox.width
         val height = page.mediaBox.height
         val marginX = 24f
@@ -709,6 +725,12 @@ class PdfEngine(
                 stream.endText()
                 stream.restoreGraphicsState()
             }
+        }
+        if (
+            compliance.accessibilityMode ==
+            AccessibilityMode.TAGGED_OCR
+        ) {
+            stream.endMarkedContent()
         }
     }
 
