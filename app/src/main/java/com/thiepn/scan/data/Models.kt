@@ -123,7 +123,9 @@ data class DocumentFieldEntity(
     indices = [
         Index("documentId"),
         Index(value = ["documentId", "position"], unique = true),
-        Index(value = ["documentId", "deleted", "sortKey"])
+        Index(value = ["documentId", "deleted", "sortKey"]),
+        Index("sourceSpreadPageId"),
+        Index("preservedBookSource")
     ]
 )
 data class PageEntity(
