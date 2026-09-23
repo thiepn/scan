@@ -94,7 +94,9 @@ import com.thiepn.scan.data.BookPageSide
 import com.thiepn.scan.data.BookReviewPolicy
 import com.thiepn.scan.data.BookSpreadAnalysis
 import com.thiepn.scan.data.CleanupSuggestion
+import com.thiepn.scan.data.ComplianceSettingsCodec
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.ExternalPdfValidationResult
 import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.DocumentPageSearchHit
 import com.thiepn.scan.data.FormTemplateEntity
@@ -115,6 +117,8 @@ import com.thiepn.scan.data.PublishingSettingsCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanModeProfiles
 import com.thiepn.scan.data.ScanRepository
+import com.thiepn.scan.data.SignedPdfResult
+import com.thiepn.scan.data.StandardsExportResult
 import com.thiepn.scan.util.shareFile
 import kotlinx.coroutines.launch
 import java.io.File
@@ -141,6 +145,21 @@ fun DocumentScreen(
     var pendingTextSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingInsertPdfIndex by rememberSaveable {
         mutableStateOf<Int?>(null)
+    }
+    var signingCertificateUri by remember {
+        mutableStateOf<android.net.Uri?>(null)
+    }
+    var signingDialogOpen by remember {
+        mutableStateOf(false)
+    }
+    var standardsExportResult by remember {
+        mutableStateOf<StandardsExportResult?>(null)
+    }
+    var signedPdfResult by remember {
+        mutableStateOf<SignedPdfResult?>(null)
+    }
+    var externalPdfValidation by remember {
+        mutableStateOf<ExternalPdfValidationResult?>(null)
     }
 
     val savePdfLauncher = rememberLauncherForActivityResult(
@@ -198,6 +217,41 @@ fun DocumentScreen(
             }
         }
     }
+
+    val certificateLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                signingCertificateUri = uri
+                signingDialogOpen = true
+            }
+        }
+
+    val validatePdfLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    runCatching {
+                        repository.validateExternalPdf(
+                            documentId,
+                            uri
+                        )
+                    }
+                        .onSuccess {
+                            externalPdfValidation = it
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message
+                                    ?: "Could not validate PDF"
+                            )
+                        }
+                }
+            }
+        }
 
     var replacePageId by rememberSaveable { mutableStateOf<String?>(null) }
     val replaceImageLauncher = rememberLauncherForActivityResult(
@@ -260,6 +314,7 @@ fun DocumentScreen(
         mutableStateOf<Int?>(null)
     }
     var publishingOpen by remember { mutableStateOf(false) }
+    var complianceOpen by remember { mutableStateOf(false) }
     var assemblyPageId by rememberSaveable {
         mutableStateOf<String?>(null)
     }
@@ -630,6 +685,55 @@ fun DocumentScreen(
                             },
                             onPublishing = {
                                 publishingOpen = true
+                            }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        val complianceSettings =
+                            ComplianceSettingsCodec.decode(
+                                doc.complianceRecipe
+                            )
+                        StandardsTools(
+                            settings = complianceSettings,
+                            enabled = !doc.processing &&
+                                pages.isNotEmpty(),
+                            onSettings = {
+                                complianceOpen = true
+                            },
+                            onExport = {
+                                scope.launch {
+                                    runCatching {
+                                        repository
+                                            .createStandardsPdfExport(
+                                                doc.id
+                                            )
+                                    }
+                                        .onSuccess { result ->
+                                            if (result != null) {
+                                                standardsExportResult =
+                                                    result
+                                            }
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Could not create standards export"
+                                            )
+                                        }
+                                }
+                            },
+                            onSign = {
+                                certificateLauncher.launch(
+                                    arrayOf(
+                                        "application/x-pkcs12",
+                                        "application/pkcs12",
+                                        "application/octet-stream"
+                                    )
+                                )
+                            },
+                            onValidate = {
+                                validatePdfLauncher.launch(
+                                    arrayOf("application/pdf")
+                                )
                             }
                         )
                         captureSession?.takeIf {
@@ -1483,6 +1587,129 @@ fun DocumentScreen(
                             )
                         }
                 }
+            }
+        )
+    }
+
+    if (complianceOpen) {
+        ComplianceSettingsDialog(
+            initial = ComplianceSettingsCodec.decode(
+                doc.complianceRecipe
+            ),
+            onDismiss = { complianceOpen = false },
+            onSave = { settings ->
+                complianceOpen = false
+                scope.launch {
+                    runCatching {
+                        repository.setComplianceSettings(
+                            doc.id,
+                            settings
+                        )
+                    }
+                        .onSuccess {
+                            onMessage(
+                                "PDF standards settings saved"
+                            )
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message
+                                    ?: "Could not save standards settings"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    if (
+        signingDialogOpen &&
+        signingCertificateUri != null
+    ) {
+        CertificateSigningDialog(
+            onDismiss = {
+                signingDialogOpen = false
+                signingCertificateUri = null
+            },
+            onSign = { password, reason, location ->
+                val certificateUri = signingCertificateUri
+                signingDialogOpen = false
+                signingCertificateUri = null
+                if (certificateUri != null) {
+                    scope.launch {
+                        try {
+                            runCatching {
+                                repository.signStandardsPdf(
+                                    documentId = doc.id,
+                                    certificateUri =
+                                        certificateUri,
+                                    password = password,
+                                    reason = reason,
+                                    location = location
+                                )
+                            }
+                                .onSuccess {
+                                    signedPdfResult = it
+                                }
+                                .onFailure {
+                                    onMessage(
+                                        it.message
+                                            ?: "Could not sign PDF"
+                                    )
+                                }
+                        } finally {
+                            password.fill('\u0000')
+                        }
+                    }
+                } else {
+                    password.fill('\u0000')
+                }
+            }
+        )
+    }
+
+    standardsExportResult?.let { result ->
+        PdfValidationDialog(
+            title = "Standards export",
+            compliance = result.report,
+            onDismiss = {
+                standardsExportResult = null
+            },
+            onShare = {
+                shareFile(
+                    context,
+                    result.file,
+                    "application/pdf"
+                )
+            }
+        )
+    }
+
+    signedPdfResult?.let { result ->
+        PdfValidationDialog(
+            title = "Signed PDF",
+            compliance = result.complianceReport,
+            signatures = result.signatureReport,
+            onDismiss = {
+                signedPdfResult = null
+            },
+            onShare = {
+                shareFile(
+                    context,
+                    result.file,
+                    "application/pdf"
+                )
+            }
+        )
+    }
+
+    externalPdfValidation?.let { result ->
+        PdfValidationDialog(
+            title = "PDF validation",
+            compliance = result.complianceReport,
+            signatures = result.signatureReport,
+            onDismiss = {
+                externalPdfValidation = null
             }
         )
     }
