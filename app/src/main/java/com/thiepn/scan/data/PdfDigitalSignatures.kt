@@ -268,7 +268,9 @@ object PdfSignatureInspector {
         return runCatching {
             val signedContent =
                 signature.getSignedContent(pdfBytes)
-            val contents = signature.getContents(pdfBytes)
+            val contents = trimCmsPadding(
+                signature.getContents(pdfBytes)
+            )
             val cms = CMSSignedData(
                 org.bouncycastle.cms.CMSProcessableByteArray(
                     signedContent
@@ -388,6 +390,20 @@ object PdfSignatureInspector {
                 message = error.message
                     ?: "Signature validation failed."
             )
+        }
+    }
+
+    private fun trimCmsPadding(
+        contents: ByteArray
+    ): ByteArray {
+        var end = contents.size
+        while (end > 0 && contents[end - 1] == 0.toByte()) {
+            end--
+        }
+        return if (end == contents.size) {
+            contents
+        } else {
+            contents.copyOf(end)
         }
     }
 
