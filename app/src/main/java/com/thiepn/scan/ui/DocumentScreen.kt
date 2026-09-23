@@ -85,6 +85,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.BookPageSide
+import com.thiepn.scan.data.BookReviewPolicy
 import com.thiepn.scan.data.BookSpreadAnalysis
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.DocumentFieldEntity
@@ -250,12 +251,7 @@ fun DocumentScreen(
     val scanProfile = ScanModeProfiles.forMode(scanMode)
 
     val bookReviewPages = if (scanMode == ScanMode.BOOK) {
-        pages.filter { page ->
-            page.sourceSpreadPageId == null &&
-                !page.bookReviewResolved &&
-                page.width > page.height * 1.12f &&
-                (page.bookSplitConfidence ?: 0f) >= 0.28f
-        }
+        pages.filter(BookReviewPolicy::needsManualReview)
     } else {
         emptyList()
     }
@@ -638,11 +634,7 @@ fun DocumentScreen(
                     canDragReorder = editable && pages.size > 1 && !selectionMode,
                     canReviewBookSpread = editable &&
                         scanMode == ScanMode.BOOK &&
-                        page.sourceSpreadPageId == null &&
-                        (
-                            page.width > page.height * 1.08f ||
-                                (page.bookSplitConfidence ?: 0f) >= 0.28f
-                            ) &&
+                        BookReviewPolicy.canOpenManualReview(page) &&
                         !bookReviewBusy,
                     canRestoreBookSpread = editable &&
                         page.sourceSpreadPageId != null,
