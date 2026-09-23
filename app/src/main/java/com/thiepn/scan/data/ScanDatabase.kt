@@ -21,7 +21,7 @@ import kotlinx.coroutines.Dispatchers
         PageProcessingEntity::class,
         PageEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -356,6 +356,14 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE pages ADD COLUMN cleanupRecipe TEXT"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -372,7 +380,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
-                MIGRATION_11_12
+                MIGRATION_11_12,
+                MIGRATION_12_13
             )
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
