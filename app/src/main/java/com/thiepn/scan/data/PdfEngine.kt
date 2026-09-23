@@ -54,12 +54,14 @@ class PdfEngine(
                 val cropQuad = CropQuadCodec.decode(pageEntity.cropQuad)
                 val recipe = PageVisualRecipeCodec.decode(pageEntity.visualRecipe)
                 val cleanup = PageCleanupRecipeCodec.decode(pageEntity.cleanupRecipe)
+                val textEdits = PageTextEditRecipeCodec.decode(pageEntity.textEditRecipe)
                 val geometryEdited = !cropQuad.isFullFrame()
                 val directJpeg =
                     quality == PdfQuality.ORIGINAL &&
                         !geometryEdited &&
                         recipe.isOriginal() &&
-                        cleanup.isEmpty()
+                        cleanup.isEmpty() &&
+                        textEdits.isEmpty()
 
                 var geometryBitmap: Bitmap? = null
                 var visualBitmap: Bitmap? = null
@@ -82,9 +84,27 @@ class PdfEngine(
                     if (cleanedGeometry !== rawGeometry) {
                         rawGeometry.recycle()
                     }
-                    geometryBitmap = cleanedGeometry
+                    var semanticGeometry = cleanedGeometry
+                    if (!textEdits.isEmpty()) {
+                        val rotated = PageGeometryRenderer.rotateBitmap(
+                            semanticGeometry,
+                            pageEntity.rotationDegrees
+                        )
+                        if (rotated !== semanticGeometry) {
+                            semanticGeometry.recycle()
+                        }
+                        val edited = OcrTextEditRenderer.apply(
+                            rotated,
+                            textEdits
+                        )
+                        if (edited !== rotated) {
+                            rotated.recycle()
+                        }
+                        semanticGeometry = edited
+                    }
+                    geometryBitmap = semanticGeometry
                     visualBitmap = ImageEnhancementRenderer.apply(
-                        cleanedGeometry,
+                        semanticGeometry,
                         recipe
                     )
                     imageWidth = visualBitmap.width
@@ -93,7 +113,11 @@ class PdfEngine(
 
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
                 val page = PDPage(PDRectangle(pdfWidth, pdfHeight)).apply {
-                    rotation = PageRotation.normalize(pageEntity.rotationDegrees)
+                    rotation = if (textEdits.isEmpty()) {
+                        PageRotation.normalize(pageEntity.rotationDegrees)
+                    } else {
+                        0
+                    }
                 }
                 document.addPage(page)
 
@@ -115,20 +139,32 @@ class PdfEngine(
                         }
 
                         val recognition = if (includeOcrTextLayer) {
-                            runCatching {
-                                val geometry = geometryBitmap
-                                if (geometry != null) {
-                                    ocr.recognizeDetailed(
-                                        geometry,
-                                        OcrScript.fromStored(pageEntity.ocrScript)
-                                    )
-                                } else {
-                                    ocr.recognizeDetailed(
-                                        imageFile,
-                                        OcrScript.fromStored(pageEntity.ocrScript)
-                                    )
-                                }
-                            }.getOrNull()
+                            if (!textEdits.isEmpty()) {
+                                OcrLayoutCodec.decode(pageEntity.ocrLayout)
+                                    ?: runCatching {
+                                        requireNotNull(geometryBitmap).let { geometry ->
+                                            ocr.recognizeDetailed(
+                                                geometry,
+                                                OcrScript.fromStored(pageEntity.ocrScript)
+                                            )
+                                        }
+                                    }.getOrNull()
+                            } else {
+                                runCatching {
+                                    val geometry = geometryBitmap
+                                    if (geometry != null) {
+                                        ocr.recognizeDetailed(
+                                            geometry,
+                                            OcrScript.fromStored(pageEntity.ocrScript)
+                                        )
+                                    } else {
+                                        ocr.recognizeDetailed(
+                                            imageFile,
+                                            OcrScript.fromStored(pageEntity.ocrScript)
+                                        )
+                                    }
+                                }.getOrNull()
+                            }
                         } else {
                             null
                         }
@@ -138,8 +174,8 @@ class PdfEngine(
                                 stream = stream,
                                 font = font,
                                 word = word,
-                                sourceWidth = imageWidth,
-                                sourceHeight = imageHeight,
+                                sourceWidth = recognition.sourceWidth,
+                                sourceHeight = recognition.sourceHeight,
                                 pageWidth = pdfWidth,
                                 pageHeight = pdfHeight
                             )
