@@ -592,3 +592,30 @@ class SecurityVaultManager(
         file.delete()
     }
 }
+
+
+enum class SecurityAuditSeverity {
+    PASS,
+    WARNING,
+    ERROR,
+    INFO
+}
+
+data class SecurityAuditIssue(
+    val severity: SecurityAuditSeverity,
+    val code: String,
+    val message: String
+)
+
+data class SecurityAuditReport(
+    val issues: List<SecurityAuditIssue>
+) {
+    val errorCount: Int
+        get() = issues.count {
+            it.severity == SecurityAuditSeverity.ERROR
+        }
+    val warningCount: Int
+        get() = issues.count {
+            it.severity == SecurityAuditSeverity.WARNING
+        }
+}

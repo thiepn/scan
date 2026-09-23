@@ -106,6 +106,21 @@ class FileStore(private val context: Context) {
         )
     }
 
+    fun privacyPdfExportFile(documentId: String): File =
+        File(
+            exports,
+            "Private-${documentId.take(8)}.pdf"
+        )
+
+    fun secureBackupFile(
+        documentId: String,
+        title: String
+    ): File =
+        File(
+            exports,
+            "${safeName(title)}-${documentId.take(8)}.scanbak"
+        )
+
     fun signedPdfExportFile(
         documentId: String,
         title: String

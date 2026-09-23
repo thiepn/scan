@@ -333,6 +333,27 @@ class PdfEngine(
         }
     }
 
+    fun sanitizePrivacy(
+        source: File,
+        destination: File
+    ) {
+        require(source.isFile) { "PDF source is unavailable" }
+        destination.parentFile?.mkdirs()
+        PDDocument.load(source).use { document ->
+            val info = document.documentInformation
+            info.title = ""
+            info.author = ""
+            info.subject = ""
+            info.keywords = ""
+            info.creator = ""
+            info.producer = ""
+            document.documentCatalog.metadata = null
+            document.documentCatalog.documentOutline = null
+            document.documentCatalog.pageLabels = null
+            document.save(destination)
+        }
+    }
+
     fun protectExisting(
         source: File,
         destination: File,
