@@ -2768,7 +2768,18 @@ class ScanRepository(
                     DocumentSecuritySettingsCodec.encode(normalized),
                     System.currentTimeMillis()
                 )
-                vault.enable(documentId)
+                try {
+                    vault.enable(documentId)
+                } catch (error: Throwable) {
+                    if (!vault.isProtected(documentId)) {
+                        dao.setSecurityRecipe(
+                            documentId,
+                            DocumentSecuritySettingsCodec.encode(current),
+                            System.currentTimeMillis()
+                        )
+                    }
+                    throw error
+                }
             }
             current.vaultEnabled && !normalized.vaultEnabled -> {
                 require(vault.isUnlocked(documentId)) {

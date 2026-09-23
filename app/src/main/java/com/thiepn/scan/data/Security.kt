@@ -242,16 +242,52 @@ class SecurityVaultManager(
             DocumentIntegrityManifestCodec.encode(manifest),
             System.currentTimeMillis()
         )
+
+        // Register before sealing so a process death mid-transaction is
+        // recoverable on the next cold start.
         saveRegistered(registeredIds() + documentId)
         _state.value = _state.value.copy(
             protectedDocumentIds = registeredIds(),
-            lockedDocumentIds =
-                _state.value.lockedDocumentIds + documentId,
             busyDocumentIds =
                 _state.value.busyDocumentIds + documentId
         )
+
         try {
             sealDirectory(directory)
+            _state.value = _state.value.copy(
+                lockedDocumentIds =
+                    _state.value.lockedDocumentIds + documentId
+            )
+        } catch (error: Throwable) {
+            val recovered = runCatching {
+                unsealDirectory(directory)
+            }.isSuccess
+            if (recovered) {
+                saveRegistered(
+                    registeredIds() - documentId
+                )
+                dao.setIntegrityManifest(
+                    documentId,
+                    null,
+                    System.currentTimeMillis()
+                )
+                _state.value = _state.value.copy(
+                    protectedDocumentIds =
+                        registeredIds(),
+                    lockedDocumentIds =
+                        _state.value.lockedDocumentIds -
+                            documentId
+                )
+            } else {
+                // Fail closed if rollback itself cannot restore a
+                // consistent plaintext state.
+                _state.value = _state.value.copy(
+                    lockedDocumentIds =
+                        _state.value.lockedDocumentIds +
+                            documentId
+                )
+            }
+            throw error
         } finally {
             _state.value = _state.value.copy(
                 busyDocumentIds =
@@ -327,18 +363,16 @@ class SecurityVaultManager(
         if (documentId !in registeredIds()) return
         if (documentId in _state.value.lockedDocumentIds) return
         _state.value = _state.value.copy(
-            lockedDocumentIds =
-                _state.value.lockedDocumentIds + documentId,
             busyDocumentIds =
                 _state.value.busyDocumentIds + documentId
         )
+        val directory = files.documentDir(documentId)
         try {
             if (purgeExports) {
                 files.deletePlaintextExportsForDocument(
                     documentId
                 )
             }
-            val directory = files.documentDir(documentId)
             if (directory.exists()) {
                 val manifest = DocumentIntegrity.compute(directory)
                 dao.setIntegrityManifest(
@@ -348,6 +382,24 @@ class SecurityVaultManager(
                 )
                 sealDirectory(directory)
             }
+            _state.value = _state.value.copy(
+                lockedDocumentIds =
+                    _state.value.lockedDocumentIds + documentId
+            )
+        } catch (error: Throwable) {
+            val recovered = runCatching {
+                unsealDirectory(directory)
+            }.isSuccess
+            if (!recovered) {
+                // A partial seal must never be exposed as an unlocked
+                // document. Treat rollback failure as locked/fail-closed.
+                _state.value = _state.value.copy(
+                    lockedDocumentIds =
+                        _state.value.lockedDocumentIds +
+                            documentId
+                )
+            }
+            throw error
         } finally {
             _state.value = _state.value.copy(
                 busyDocumentIds =
@@ -437,7 +489,13 @@ class SecurityVaultManager(
             .orEmpty()
 
     private fun saveRegistered(ids: Set<String>) {
-        prefs.edit().putStringSet(PREF_IDS, ids).commit()
+        check(
+            prefs.edit()
+                .putStringSet(PREF_IDS, ids)
+                .commit()
+        ) {
+            "Could not persist secure-vault registry"
+        }
     }
 
     private fun recoverInterruptedTransactions(
