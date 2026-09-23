@@ -1863,7 +1863,11 @@ class ScanRepository(
             }
         }
         profile.pageLimit?.let { limit ->
-            if (!profile.requiresTwoSidedCapture && pages.size > limit) {
+            if (
+                mode != ScanMode.BOOK &&
+                !profile.requiresTwoSidedCapture &&
+                pages.size > limit
+            ) {
                 warnings += "${profile.mode.label} mode expects at most $limit active page${if (limit == 1) "" else "s"}."
             }
         }
