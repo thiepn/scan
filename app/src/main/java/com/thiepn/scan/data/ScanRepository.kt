@@ -2322,19 +2322,12 @@ class ScanRepository(
             protected = !password.isNullOrBlank()
         )
 
-        val hasGeometryEdits = pages.any { !CropQuadCodec.decode(it.cropQuad).isFullFrame() }
-        val hasVisualEdits = pages.any {
-            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
-                !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
-        }
+        val requiresRaster = pages.any { it.requiresRasterizedExport() }
 
         if (
             source != null &&
             quality == PdfQuality.ORIGINAL &&
-            !hasGeometryEdits &&
-            !hasVisualEdits
+            !requiresRaster
         ) {
             val nativeOrder = pages.map { it.position }
             val rotations = pages.map { it.rotationDegrees }
@@ -2407,16 +2400,10 @@ class ScanRepository(
         ).ocrEnabled
 
         runCatching {
-            val hasGeometryEdits = selectedPages.any {
-                !CropQuadCodec.decode(it.cropQuad).isFullFrame()
+            val requiresRaster = selectedPages.any {
+                it.requiresRasterizedExport()
             }
-            val hasVisualEdits = selectedPages.any {
-                !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
-                    !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                    !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                    !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
-            }
-            if (source != null && !hasGeometryEdits && !hasVisualEdits) {
+            if (source != null && !requiresRaster) {
                 pdfEngine.extractPages(
                     source = source,
                     pageIndices = selectedPages.map { it.position },
@@ -2458,22 +2445,15 @@ class ScanRepository(
         val includeOcrTextLayer = ScanModeProfiles.forMode(
             ScanMode.fromStored(document.scanMode)
         ).ocrEnabled
-        val hasGeometryEdits = selected.any {
-            !CropQuadCodec.decode(it.cropQuad).isFullFrame()
-        }
-        val hasVisualEdits = selected.any {
-            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
-                !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+        val requiresRaster = selected.any {
+            it.requiresRasterizedExport()
         }
 
         runCatching {
             if (
                 source != null &&
                 quality == PdfQuality.ORIGINAL &&
-                !hasGeometryEdits &&
-                !hasVisualEdits
+                !requiresRaster
             ) {
                 pdfEngine.extractPages(
                     source = source,
@@ -2543,24 +2523,17 @@ class ScanRepository(
                 if (nativeSource != null) {
                     val nativeOrder = pages.map { it.position }
                     val rotations = pages.map { it.rotationDegrees }
-                    val hasGeometryEdits = pages.any {
-                        !CropQuadCodec.decode(it.cropQuad).isFullFrame()
-                    }
-                    val hasVisualEdits = pages.any {
-                        !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
-                            !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                            !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                            !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+                    val requiresRaster = pages.any {
+                        it.requiresRasterizedExport()
                     }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
                         rotations.all { it == 0 } &&
-                        !hasGeometryEdits &&
-                        !hasVisualEdits
+                        !requiresRaster
 
                     if (unchanged) {
                         mergeInputs += nativeSource
-                    } else if (!hasGeometryEdits && !hasVisualEdits) {
+                    } else if (!requiresRaster) {
                         val working = files.temporaryWorkingPdf("scan-native-edit")
                         pdfEngine.extractPages(
                             source = nativeSource,
@@ -2994,6 +2967,13 @@ class ScanRepository(
             kickProcessingQueue()
         }
     }
+
+    private fun PageEntity.requiresRasterizedExport(): Boolean =
+        !CropQuadCodec.decode(cropQuad).isFullFrame() ||
+            !PageVisualRecipeCodec.decode(visualRecipe).isOriginal() ||
+            !PageCleanupRecipeCodec.decode(cleanupRecipe).isEmpty() ||
+            !PageTextEditRecipeCodec.decode(textEditRecipe).isEmpty() ||
+            !PageMarkupRecipeCodec.decode(markupRecipe).isEmpty()
 
     private suspend fun requireEditableDocument(id: String): DocumentEntity {
         val document = dao.getDocument(id) ?: throw IllegalArgumentException("Document not found")
