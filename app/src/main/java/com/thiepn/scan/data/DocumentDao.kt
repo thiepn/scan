@@ -90,11 +90,29 @@ interface DocumentDao {
     @Query("SELECT * FROM pages WHERE id = :pageId LIMIT 1")
     suspend fun getPage(pageId: String): PageEntity?
 
-    @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 1 ORDER BY sortKey, position")
+    @Query(
+        "SELECT * FROM pages WHERE documentId = :documentId AND deleted = 1 " +
+            "AND preservedBookSource = 0 ORDER BY sortKey, position"
+    )
     fun observeDeletedPages(documentId: String): Flow<List<PageEntity>>
 
-    @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 1 ORDER BY sortKey, position")
+    @Query(
+        "SELECT * FROM pages WHERE documentId = :documentId AND deleted = 1 " +
+            "AND preservedBookSource = 0 ORDER BY sortKey, position"
+    )
     suspend fun getDeletedPages(documentId: String): List<PageEntity>
+
+    @Query(
+        "SELECT * FROM pages WHERE documentId = :documentId AND preservedBookSource = 1 " +
+            "ORDER BY sortKey, position"
+    )
+    suspend fun getPreservedBookSources(documentId: String): List<PageEntity>
+
+    @Query(
+        "SELECT * FROM pages WHERE sourceSpreadPageId = :sourcePageId " +
+            "ORDER BY bookSide, sortKey, position"
+    )
+    suspend fun getBookDerivedPages(sourcePageId: String): List<PageEntity>
 
     @Query("SELECT COALESCE(MAX(position), -1) FROM pages WHERE documentId = :documentId")
     suspend fun getMaxPagePosition(documentId: String): Int
@@ -152,6 +170,16 @@ interface DocumentDao {
 
     @Query("UPDATE pages SET deleted = :deleted WHERE id = :pageId")
     suspend fun setPageDeleted(pageId: String, deleted: Boolean)
+
+    @Query(
+        "UPDATE pages SET deleted = :deleted, preservedBookSource = :preserved " +
+            "WHERE id = :pageId"
+    )
+    suspend fun setBookSourceState(
+        pageId: String,
+        deleted: Boolean,
+        preserved: Boolean
+    )
 
     @Query("UPDATE pages SET deleted = :deleted WHERE id IN (:pageIds)")
     suspend fun setPagesDeleted(pageIds: List<String>, deleted: Boolean)
@@ -303,6 +331,9 @@ interface DocumentDao {
     @Query("DELETE FROM pages WHERE id = :pageId")
     suspend fun deletePageRecord(pageId: String)
 
+    @Query("DELETE FROM pages WHERE id IN (:pageIds)")
+    suspend fun deletePageRecords(pageIds: List<String>)
+
     @Transaction
     suspend fun replaceDocumentFields(
         documentId: String,
@@ -365,6 +396,38 @@ interface DocumentDao {
         require(pages.all { it.documentId == documentId }) { "Pages belong to different documents" }
         insertPages(pages)
         replacePageOrder(documentId, orderedPageIds)
+    }
+
+    @Transaction
+    suspend fun replaceActivePageWithBookPages(
+        sourcePageId: String,
+        derivedPages: List<PageEntity>,
+        orderedPageIds: List<String>
+    ) {
+        require(derivedPages.size == 2) { "Book spread must produce two pages" }
+        val source = getPage(sourcePageId) ?: error("Book source page not found")
+        require(!source.deleted) { "Book source page is already inactive" }
+        require(derivedPages.all { it.documentId == source.documentId }) {
+            "Derived pages belong to a different document"
+        }
+        insertPages(derivedPages)
+        setBookSourceState(sourcePageId, deleted = true, preserved = true)
+        replacePageOrder(source.documentId, orderedPageIds)
+    }
+
+    @Transaction
+    suspend fun restoreBookSource(
+        sourcePageId: String,
+        derivedPageIds: List<String>,
+        orderedPageIds: List<String>
+    ) {
+        val source = getPage(sourcePageId) ?: error("Book source page not found")
+        require(source.preservedBookSource) { "Page is not a preserved book source" }
+        if (derivedPageIds.isNotEmpty()) {
+            deletePageRecords(derivedPageIds)
+        }
+        setBookSourceState(sourcePageId, deleted = false, preserved = false)
+        replacePageOrder(source.documentId, orderedPageIds)
     }
 
     @Transaction
