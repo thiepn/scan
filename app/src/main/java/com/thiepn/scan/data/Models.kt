@@ -144,7 +144,14 @@ data class PageEntity(
     val ocrText: String = "",
     val ocrLayout: String? = null,
     val ocrFingerprint: String? = null,
-    val ocrScript: String? = null
+    val ocrScript: String? = null,
+    val sourceSpreadPageId: String? = null,
+    val bookSide: String? = null,
+    val bookSplitConfidence: Float? = null,
+    @ColumnInfo(defaultValue = "0")
+    val bookDewarpStrength: Float = 0f,
+    @ColumnInfo(defaultValue = "0")
+    val preservedBookSource: Boolean = false
 )
 
 enum class LibraryFilter { ACTIVE, FAVORITES, ARCHIVED, TRASH }
@@ -154,6 +161,7 @@ enum class ScanMode(val label: String) {
     RECEIPT("Receipt"),
     ID_CARD("ID Card"),
     BUSINESS_CARD("Business Card"),
+    BOOK("Book"),
     WHITEBOARD("Whiteboard"),
     FORM("Form"),
     PHOTO("Photo"),
@@ -164,6 +172,11 @@ enum class ScanMode(val label: String) {
         fun fromStored(value: String?): ScanMode =
             entries.firstOrNull { it.name == value } ?: DOCUMENT
     }
+}
+
+enum class BookPageSide {
+    LEFT,
+    RIGHT
 }
 
 enum class DocumentType(val label: String) {
