@@ -133,3 +133,9 @@ data class StandardsExportResult(
     val file: java.io.File,
     val report: ComplianceReport
 )
+
+
+data class ExternalPdfValidationResult(
+    val complianceReport: ComplianceReport,
+    val signatureReport: PdfSignatureReport
+)

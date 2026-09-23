@@ -90,6 +90,31 @@ class FileStore(private val context: Context) {
     fun structuredXlsxExportFile(documentId: String, title: String): File =
         File(exports, "${safeName(title)}-${documentId.take(8)}-data.xlsx")
 
+    fun standardsPdfExportFile(
+        documentId: String,
+        title: String,
+        standard: PdfStandard
+    ): File {
+        val suffix = when (standard) {
+            PdfStandard.STANDARD -> "standards"
+            PdfStandard.PDF_A_1B -> "pdfa-1b"
+            PdfStandard.PDF_A_2B -> "pdfa-2b"
+        }
+        return File(
+            exports,
+            "${safeName(title)}-${documentId.take(8)}-$suffix.pdf"
+        )
+    }
+
+    fun signedPdfExportFile(
+        documentId: String,
+        title: String
+    ): File =
+        File(
+            exports,
+            "${safeName(title)}-${documentId.take(8)}-signed.pdf"
+        )
+
     fun deleteDocument(documentId: String) {
         File(root, documentId).deleteRecursively()
     }

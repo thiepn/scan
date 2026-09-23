@@ -402,6 +402,21 @@ class ScanRepository(
     suspend fun appendScan(documentId: String, pageUris: List<Uri>): Int =
         insertScan(documentId, pageUris, Int.MAX_VALUE)
 
+    suspend fun setComplianceSettings(
+        documentId: String,
+        settings: ComplianceSettings
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        dao.setComplianceRecipe(
+            documentId = documentId,
+            recipe = ComplianceSettingsCodec.encode(
+                settings.normalized()
+            ),
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     suspend fun setPublishingSettings(
         documentId: String,
         settings: PublishingSettings
@@ -2826,6 +2841,152 @@ class ScanRepository(
         }
 
     suspend fun document(id: String): DocumentEntity? = dao.getDocument(id)
+
+    suspend fun createStandardsPdfExport(
+        documentId: String
+    ): StandardsExportResult? = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId)
+            ?: return@withContext null
+        require(document.trashedAt == null) {
+            "Restore the document before exporting it"
+        }
+        require(!document.processing) {
+            "Document is still processing"
+        }
+        val pages = orderedPages(dao.getPages(documentId))
+        if (pages.isEmpty()) return@withContext null
+
+        val compliance = ComplianceSettingsCodec.decode(
+            document.complianceRecipe
+        )
+        val publishing = PublishingSettingsCodec.decode(
+            document.publishingRecipe
+        )
+        val includeOcr =
+            ScanModeProfiles.forMode(
+                ScanMode.fromStored(document.scanMode)
+            ).ocrEnabled ||
+                compliance.accessibilityMode ==
+                AccessibilityMode.TAGGED_OCR
+        val destination = files.standardsPdfExportFile(
+            documentId,
+            document.title,
+            compliance.pdfStandard
+        )
+        val temporary = files.temporaryExport(destination)
+
+        runCatching {
+            pdfEngine.createSearchablePdf(
+                pages = pages,
+                destination = temporary,
+                quality = compliance.pdfQuality(),
+                includeOcrTextLayer = includeOcr,
+                documentTitle = document.title,
+                publishingSettings = publishing,
+                complianceSettings = compliance
+            )
+            val file = files.commitGeneratedExport(
+                temporary,
+                destination
+            )
+            StandardsExportResult(
+                file = file,
+                report = PdfComplianceValidator.validate(
+                    file,
+                    compliance
+                )
+            )
+        }.getOrElse {
+            temporary.delete()
+            throw it
+        }
+    }
+
+    suspend fun signStandardsPdf(
+        documentId: String,
+        certificateUri: Uri,
+        password: CharArray,
+        reason: String = "",
+        location: String = ""
+    ): SignedPdfResult = withContext(Dispatchers.IO) {
+        val document = dao.getDocument(documentId)
+            ?: throw IllegalArgumentException(
+                "Document not found"
+            )
+        val compliance = ComplianceSettingsCodec.decode(
+            document.complianceRecipe
+        )
+        val export = createStandardsPdfExport(documentId)
+            ?: throw IllegalStateException(
+                "Could not create standards export"
+            )
+        require(export.report.passed) {
+            "Standards export has compliance errors; fix them before signing"
+        }
+
+        val destination = files.signedPdfExportFile(
+            documentId,
+            document.title
+        )
+        val input = context.contentResolver
+            .openInputStream(certificateUri)
+            ?: throw IllegalArgumentException(
+                "Could not open PKCS#12 certificate"
+            )
+        PdfDigitalSigner.sign(
+            source = export.file,
+            destination = destination,
+            pkcs12Input = input,
+            password = password,
+            reason = reason,
+            location = location
+        )
+        SignedPdfResult(
+            file = destination,
+            complianceReport =
+                PdfComplianceValidator.validate(
+                    destination,
+                    compliance
+                ),
+            signatureReport =
+                PdfSignatureInspector.inspect(destination)
+        )
+    }
+
+    suspend fun validateExternalPdf(
+        documentId: String,
+        uri: Uri
+    ): ExternalPdfValidationResult =
+        withContext(Dispatchers.IO) {
+            val document = dao.getDocument(documentId)
+                ?: throw IllegalArgumentException(
+                    "Document not found"
+                )
+            val compliance =
+                ComplianceSettingsCodec.decode(
+                    document.complianceRecipe
+                )
+            val temporary =
+                files.temporaryWorkingPdf(
+                    "scan-validate"
+                )
+            try {
+                files.copyUri(uri, temporary)
+                ExternalPdfValidationResult(
+                    complianceReport =
+                        PdfComplianceValidator.validate(
+                            temporary,
+                            compliance
+                        ),
+                    signatureReport =
+                        PdfSignatureInspector.inspect(
+                            temporary
+                        )
+                )
+            } finally {
+                temporary.delete()
+            }
+        }
 
     suspend fun createPdfExport(
         id: String,
