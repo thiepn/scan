@@ -30,6 +30,12 @@ interface DocumentDao {
     @Query("SELECT * FROM document_tags")
     fun observeDocumentTags(): Flow<List<DocumentTagCrossRef>>
 
+    @Query("SELECT * FROM document_fields WHERE documentId = :documentId ORDER BY fieldKey")
+    fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>>
+
+    @Query("SELECT * FROM document_fields WHERE documentId = :documentId ORDER BY fieldKey")
+    suspend fun getDocumentFields(documentId: String): List<DocumentFieldEntity>
+
     @Query("SELECT * FROM folders ORDER BY parentId, name COLLATE NOCASE")
     suspend fun getFolders(): List<FolderEntity>
 
@@ -110,6 +116,9 @@ interface DocumentDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertDocumentTags(links: List<DocumentTagCrossRef>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDocumentFields(fields: List<DocumentFieldEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPage(page: PageEntity)
@@ -243,6 +252,9 @@ interface DocumentDao {
     @Query("DELETE FROM tags WHERE id = :id")
     suspend fun deleteTag(id: String)
 
+    @Query("DELETE FROM document_fields WHERE documentId = :documentId")
+    suspend fun deleteDocumentFields(documentId: String)
+
     @Query("DELETE FROM document_tags WHERE documentId = :documentId AND tagId = :tagId")
     suspend fun deleteDocumentTag(documentId: String, tagId: String)
 
@@ -251,6 +263,18 @@ interface DocumentDao {
 
     @Query("UPDATE documents SET ocrScript = :script, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setDocumentOcrScript(id: String, script: String, updatedAt: Long)
+
+    @Query(
+        "UPDATE documents SET scanMode = :scanMode, documentType = :documentType, " +
+            "suggestedType = NULL, needsReview = :needsReview, updatedAt = :updatedAt WHERE id = :id"
+    )
+    suspend fun setDocumentScanMode(
+        id: String,
+        scanMode: String,
+        documentType: String,
+        needsReview: Boolean,
+        updatedAt: Long
+    )
 
     @Query("UPDATE documents SET favorite = :favorite, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setFavorite(id: String, favorite: Boolean, updatedAt: Long)
@@ -278,6 +302,15 @@ interface DocumentDao {
 
     @Query("DELETE FROM pages WHERE id = :pageId")
     suspend fun deletePageRecord(pageId: String)
+
+    @Transaction
+    suspend fun replaceDocumentFields(
+        documentId: String,
+        fields: List<DocumentFieldEntity>
+    ) {
+        deleteDocumentFields(documentId)
+        if (fields.isNotEmpty()) insertDocumentFields(fields)
+    }
 
     @Transaction
     suspend fun deleteFolderAndPromoteContents(folderId: String) {
