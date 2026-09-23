@@ -261,8 +261,12 @@ object PdfSignatureInspector {
                 ?: throw IllegalStateException(
                     "CMS signature contains no signer"
                 )
-            val holder = cms.certificates
-                .getMatches(signer.sid)
+            val certificateStore = cms.certificates
+            @Suppress("UNCHECKED_CAST")
+            val signerSelector = signer.sid as
+                org.bouncycastle.util.Selector<X509CertificateHolder>
+            val holder = certificateStore
+                .getMatches(signerSelector)
                 .firstOrNull()
                 ?: throw IllegalStateException(
                     "Signing certificate is missing"
@@ -279,15 +283,13 @@ object PdfSignatureInspector {
                     .build(certificate)
             )
 
-            val allCertificates = cms.certificates
-                .matches(null)
+            val allCertificates = certificateStore
+                .getMatches(null)
                 .mapNotNull { certHolder ->
                     runCatching {
                         JcaX509CertificateConverter()
                             .setProvider(provider)
-                            .getCertificate(
-                                certHolder as X509CertificateHolder
-                            )
+                            .getCertificate(certHolder)
                     }.getOrNull()
                 }
 

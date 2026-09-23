@@ -2,6 +2,7 @@ package com.thiepn.scan.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
