@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -103,6 +104,7 @@ import com.thiepn.scan.data.OcrSearchTerms
 import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageMarkupRecipeCodec
 import com.thiepn.scan.data.PageFormRecipeCodec
+import com.thiepn.scan.data.PageStructuredDataCodec
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
@@ -188,6 +190,8 @@ fun DocumentScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val formTemplates by repository.observeFormTemplates()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val extractionSchemas by repository.observeExtractionSchemas()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val captureSession by repository.observeLatestCaptureSession(documentId)
         .collectAsStateWithLifecycle(initialValue = null)
     var renameOpen by remember { mutableStateOf(false) }
@@ -206,6 +210,10 @@ fun DocumentScreen(
     var formPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var formTemplateNameOpen by remember { mutableStateOf(false) }
     var formTemplatesOpen by remember { mutableStateOf(false) }
+    var structuredReviewPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var structuredExportOpen by remember { mutableStateOf(false) }
+    var extractionSchemaNameOpen by remember { mutableStateOf(false) }
+    var extractionSchemasOpen by remember { mutableStateOf(false) }
     var cleanupSuggestions by remember {
         mutableStateOf<List<CleanupSuggestion>>(emptyList())
     }
@@ -305,6 +313,18 @@ fun DocumentScreen(
         recipe.fields.count { it.isFilled() }
     }
     val formIssueCount = pageFormRecipes.sumOf { FormValidator.validate(it).size }
+
+    val structuredPages = pages.map { page ->
+        page to PageStructuredDataCodec.decode(page.structuredData)
+    }
+    val structuredTableCount = structuredPages.sumOf { it.second.tables.size }
+    val structuredFieldCount = structuredPages.sumOf { it.second.keyValues.size }
+    val structuredReviewCount = structuredPages.sumOf { it.second.reviewCount() }
+    val structuredStaleCount = structuredPages.count { pair ->
+        pair.second.isStale(
+            OcrLayoutCodec.decode(pair.first.ocrLayout ?: pair.first.ocrBaseLayout)
+        )
+    }
 
     Scaffold(
         modifier = Modifier.padding(contentPadding),
@@ -479,6 +499,49 @@ fun DocumentScreen(
                                 },
                                 onSaveTemplate = { formTemplateNameOpen = true },
                                 onTemplates = { formTemplatesOpen = true }
+                            )
+                        }
+                        if (scanProfile.ocrEnabled) {
+                            Spacer(Modifier.height(8.dp))
+                            StructuredDataTools(
+                                tableCount = structuredTableCount,
+                                fieldCount = structuredFieldCount,
+                                reviewCount = structuredReviewCount,
+                                staleCount = structuredStaleCount,
+                                schemaCount = extractionSchemas.size,
+                                enabled = !doc.processing && pages.isNotEmpty(),
+                                hasData = structuredTableCount + structuredFieldCount > 0,
+                                onExtract = {
+                                    scope.launch {
+                                        runCatching { repository.detectStructuredData(doc.id) }
+                                            .onSuccess { count ->
+                                                val message = if (count == 0) {
+                                                    "No structured data detected"
+                                                } else {
+                                                    count.toString() + " structured item" +
+                                                        if (count == 1) "" else "s" +
+                                                        " extracted"
+                                                }
+                                                onMessage(message)
+                                            }
+                                            .onFailure {
+                                                onMessage(
+                                                    it.message ?: "Could not extract structured data"
+                                                )
+                                            }
+                                    }
+                                },
+                                onReview = {
+                                    structuredReviewPageId =
+                                        pages.firstOrNull {
+                                            !PageStructuredDataCodec.decode(
+                                                it.structuredData
+                                            ).isEmpty()
+                                        }?.id ?: pages.firstOrNull()?.id
+                                },
+                                onExport = { structuredExportOpen = true },
+                                onSaveSchema = { extractionSchemaNameOpen = true },
+                                onSchemas = { extractionSchemasOpen = true }
                             )
                         }
                         captureSession?.takeIf {
@@ -767,6 +830,7 @@ fun DocumentScreen(
                     canEditText = editable && page.ocrLayout?.isNotBlank() == true,
                     canMarkup = editable,
                     canFillForm = editable,
+                    canStructuredData = editable && page.ocrLayout?.isNotBlank() == true,
                     canDuplicate = editable,
                     canReplace = editable,
                     canRetake = editable,
@@ -842,6 +906,7 @@ fun DocumentScreen(
                     onEditText = { textEditPageId = page.id },
                     onMarkup = { markupPageId = page.id },
                     onFillForm = { formPageId = page.id },
+                    onStructuredData = { structuredReviewPageId = page.id },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
@@ -1097,6 +1162,172 @@ fun DocumentScreen(
                 scope.launch {
                     runCatching { repository.deleteFormTemplate(template.id) }
                         .onFailure { onMessage(it.message ?: "Could not delete form profile") }
+                }
+            }
+        )
+    }
+
+    val structuredPage = structuredReviewPageId?.let { id ->
+        pages.firstOrNull { it.id == id }
+    }
+    if (structuredPage != null) {
+        val structuredIndex = pages.indexOfFirst { it.id == structuredPage.id }
+        StructuredDataReviewDialog(
+            page = structuredPage,
+            pageNumber = structuredIndex + 1,
+            onDismiss = { structuredReviewPageId = null },
+            onSave = { value ->
+                scope.launch {
+                    runCatching {
+                        repository.updateStructuredData(
+                            doc.id,
+                            structuredPage.id,
+                            value
+                        )
+                    }
+                        .onSuccess { onMessage("Structured data saved") }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not save structured data")
+                        }
+                }
+            },
+            onRedetect = {
+                scope.launch {
+                    runCatching {
+                        repository.detectStructuredData(
+                            doc.id,
+                            structuredPage.id
+                        )
+                    }
+                        .onSuccess { result ->
+                            val tableText = result.tables.size.toString() +
+                                " table" +
+                                if (result.tables.size == 1) "" else "s"
+                            val fieldText = result.keyValues.size.toString() +
+                                " field" +
+                                if (result.keyValues.size == 1) "" else "s"
+                            onMessage(tableText + " · " + fieldText + " extracted")
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not re-extract page data")
+                        }
+                }
+            },
+            onPrevious = pages.getOrNull(structuredIndex - 1)?.let { previous ->
+                { structuredReviewPageId = previous.id }
+            },
+            onNext = pages.getOrNull(structuredIndex + 1)?.let { next ->
+                { structuredReviewPageId = next.id }
+            }
+        )
+    }
+
+    if (structuredExportOpen) {
+        StructuredExportDialog(
+            onDismiss = { structuredExportOpen = false },
+            onCsv = {
+                structuredExportOpen = false
+                scope.launch {
+                    runCatching { repository.createStructuredCsvExport(doc.id) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                shareFile(context, file, "text/csv")
+                            }
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not export CSV")
+                        }
+                }
+            },
+            onXlsx = {
+                structuredExportOpen = false
+                scope.launch {
+                    runCatching { repository.createStructuredXlsxExport(doc.id) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                shareFile(
+                                    context,
+                                    file,
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                            }
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not export XLSX")
+                        }
+                }
+            },
+            onJson = {
+                structuredExportOpen = false
+                scope.launch {
+                    runCatching { repository.createStructuredJsonExport(doc.id) }
+                        .onSuccess { file ->
+                            if (file != null) {
+                                shareFile(context, file, "application/json")
+                            }
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Could not export JSON")
+                        }
+                }
+            }
+        )
+    }
+
+    if (extractionSchemaNameOpen) {
+        ExtractionSchemaNameDialog(
+            onDismiss = { extractionSchemaNameOpen = false },
+            onSave = { name ->
+                extractionSchemaNameOpen = false
+                scope.launch {
+                    runCatching {
+                        repository.saveExtractionSchema(doc.id, name)
+                    }
+                        .onSuccess { onMessage("Extraction schema saved") }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not save extraction schema"
+                            )
+                        }
+                }
+            }
+        )
+    }
+
+    if (extractionSchemasOpen) {
+        ExtractionSchemaPickerDialog(
+            schemas = extractionSchemas,
+            onDismiss = { extractionSchemasOpen = false },
+            onApply = { schema ->
+                extractionSchemasOpen = false
+                scope.launch {
+                    runCatching {
+                        repository.applyExtractionSchema(doc.id, schema.id)
+                    }
+                        .onSuccess { count ->
+                            onMessage(
+                                count.toString() + " structured item" +
+                                    if (count == 1) "" else "s" +
+                                    " extracted with schema"
+                            )
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not apply extraction schema"
+                            )
+                        }
+                }
+            },
+            onDelete = { schema ->
+                scope.launch {
+                    runCatching {
+                        repository.deleteExtractionSchema(schema.id)
+                    }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not delete extraction schema"
+                            )
+                        }
                 }
             }
         )
@@ -1727,6 +1958,7 @@ private fun PageCard(
     canEditText: Boolean,
     canMarkup: Boolean,
     canFillForm: Boolean,
+    canStructuredData: Boolean,
     canDuplicate: Boolean,
     canReplace: Boolean,
     canRetake: Boolean,
@@ -1746,6 +1978,7 @@ private fun PageCard(
     onEditText: () -> Unit,
     onMarkup: () -> Unit,
     onFillForm: () -> Unit,
+    onStructuredData: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
@@ -1851,6 +2084,15 @@ private fun PageCard(
                         }
                         IconButton(onClick = onFillForm, enabled = canFillForm) {
                             Icon(Icons.Default.CheckBox, contentDescription = "Fill form fields")
+                        }
+                        IconButton(
+                            onClick = onStructuredData,
+                            enabled = canStructuredData
+                        ) {
+                            Icon(
+                                Icons.Default.TableChart,
+                                contentDescription = "Structured data"
+                            )
                         }
                         IconButton(onClick = onDuplicate, enabled = canDuplicate) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
