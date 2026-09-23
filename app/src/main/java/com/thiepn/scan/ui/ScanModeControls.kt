@@ -22,8 +22,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanModeProfiles
 
@@ -178,3 +181,84 @@ fun ChangeScanModeDialog(
         }
     )
 }
+
+@Composable
+fun SpecializedModeSummary(
+    mode: ScanMode,
+    pageCount: Int,
+    fields: List<DocumentFieldEntity>,
+    modifier: Modifier = Modifier
+) {
+    val profile = ScanModeProfiles.forMode(mode)
+    val clipboard = LocalClipboardManager.current
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "${mode.label} mode",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            profile.description,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            when {
+                profile.requiresTwoSidedCapture && pageCount >= 2 ->
+                    "Front and back captured."
+                profile.requiresTwoSidedCapture ->
+                    "Front captured. Add or insert the back side to complete the ID."
+                !profile.ocrEnabled ->
+                    "OCR is disabled in Photo mode to preserve a visual-first workflow."
+                else -> profile.captureHint
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (fields.isNotEmpty()) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp))
+            Text(
+                "Extracted details",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            fields.forEach { field ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            field.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (field.fieldKey == "capture_warning") {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                        Text(
+                            field.value,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    if (field.fieldKey != "capture_warning") {
+                        TextButton(
+                            onClick = {
+                                clipboard.setText(AnnotatedString(field.value))
+                            }
+                        ) {
+                            Text("Copy")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
