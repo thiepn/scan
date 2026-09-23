@@ -1141,10 +1141,8 @@ class ScanRepository(
                         searchIndex.deletePage(page.id)
                     }
 
-                    hasTextEdits || hasMarkup -> {
-                        val base = OcrLayoutCodec.decode(
-                            page.ocrBaseLayout ?: page.ocrPreRedactionLayout
-                        )
+                    hasTextEdits -> {
+                        val base = OcrLayoutCodec.decode(page.ocrBaseLayout)
                         if (base == null) {
                             requiresOcr += page.id
                             dao.clearPageOcr(page.id)
@@ -1163,6 +1161,32 @@ class ScanRepository(
                                 content = base.text
                             )
                         }
+                    }
+
+                    hasMarkup && !page.ocrPreRedactionLayout.isNullOrBlank() -> {
+                        val base = OcrLayoutCodec.decode(page.ocrPreRedactionLayout)
+                        if (base == null) {
+                            requiresOcr += page.id
+                            dao.clearPageOcr(page.id)
+                            searchIndex.deletePage(page.id)
+                        } else {
+                            dao.updatePageTextEdits(
+                                pageId = page.id,
+                                text = base.text,
+                                layout = OcrLayoutCodec.encode(base),
+                                baseLayout = null,
+                                recipe = null
+                            )
+                            searchIndex.upsertPage(
+                                documentId = documentId,
+                                pageId = page.id,
+                                content = base.text
+                            )
+                        }
+                    }
+
+                    hasMarkup -> {
+                        // Annotation-only markup does not alter OCR truth.
                     }
                 }
 
@@ -1503,6 +1527,8 @@ class ScanRepository(
             require(!page.deleted && page.sourceSpreadPageId == null) {
                 "Only an active original spread can be split"
             }
+            requireNoTextEdits(page, "splitting this book spread")
+            requireNoCoordinateMarkup(page, "splitting this book spread")
 
             val working = prepareBookWorkingSource(page)
             val analysis = try {
@@ -1564,6 +1590,10 @@ class ScanRepository(
                     it.sourceSpreadPageId == null &&
                         !it.bookReviewResolved
                 }
+            candidates.forEach {
+                requireNoTextEdits(it, "auto-processing book spreads")
+                requireNoCoordinateMarkup(it, "auto-processing book spreads")
+            }
             val before = dao.getPreservedBookSources(documentId).size
             dao.setProcessing(documentId, true, System.currentTimeMillis())
             try {
@@ -1597,6 +1627,10 @@ class ScanRepository(
 
         val derived = dao.getBookDerivedPages(sourcePageId)
         require(derived.isNotEmpty()) { "No derived book pages found" }
+        derived.forEach {
+            requireNoTextEdits(it, "restoring the original book spread")
+            requireNoCoordinateMarkup(it, "restoring the original book spread")
+        }
         val active = orderedPages(dao.getPages(documentId))
         val derivedIds = derived.map { it.id }.toSet()
         val derivedIndex = active.indexOfFirst { it.id in derivedIds }
