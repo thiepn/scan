@@ -59,6 +59,9 @@ class ScanRepository(
     fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>> =
         dao.observeDocumentFields(documentId)
 
+    fun observeSavedSignatures(): Flow<List<SavedSignatureEntity>> =
+        dao.observeSavedSignatures()
+
     fun observeLatestCaptureSession(
         documentId: String
     ): Flow<CaptureSessionEntity?> =
@@ -500,6 +503,8 @@ class ScanRepository(
                 ocrLayout = null,
                 ocrBaseLayout = null,
                 textEditRecipe = null,
+                markupRecipe = null,
+                ocrPreRedactionLayout = null,
                 ocrFingerprint = null,
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
@@ -740,6 +745,7 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page does not belong to this document"
         }
+        requireNoSecureRedactions(page, "editing OCR text")
 
         val baseEncoded = page.ocrBaseLayout ?: page.ocrLayout
         val base = OcrLayoutCodec.decode(baseEncoded)
@@ -775,6 +781,114 @@ class ScanRepository(
             )
         }
         refreshDocumentSummary(documentId)
+    }
+
+
+    suspend fun updatePageMarkup(
+        documentId: String,
+        pageId: String,
+        recipe: PageMarkupRecipe
+    ): RedactionVerification = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+
+        val normalized = recipe.normalized()
+        val previous = PageMarkupRecipeCodec.decode(page.markupRecipe)
+        val hadRedactions = previous.hasRedactions()
+        val hasRedactions = normalized.hasRedactions()
+
+        var nextText = page.ocrText
+        var nextLayout = page.ocrLayout
+        var preRedactionLayout = page.ocrPreRedactionLayout
+        val baseForRedaction = OcrLayoutCodec.decode(
+            page.ocrPreRedactionLayout ?: page.ocrLayout
+        )
+
+        if (hasRedactions && baseForRedaction != null) {
+            val redacted = OcrRedactionEngine.apply(
+                baseForRedaction,
+                normalized
+            )
+            nextText = redacted.text
+            nextLayout = OcrLayoutCodec.encode(redacted)
+            if (preRedactionLayout.isNullOrBlank()) {
+                preRedactionLayout = OcrLayoutCodec.encode(baseForRedaction)
+            }
+        } else if (!hasRedactions && hadRedactions) {
+            OcrLayoutCodec.decode(page.ocrPreRedactionLayout)?.let { restored ->
+                nextText = restored.text
+                nextLayout = OcrLayoutCodec.encode(restored)
+            }
+            preRedactionLayout = null
+        }
+
+        dao.updatePageMarkup(
+            pageId = pageId,
+            markupRecipe = PageMarkupRecipeCodec.encode(normalized),
+            text = nextText,
+            layout = nextLayout,
+            preRedactionLayout = preRedactionLayout
+        )
+
+        if (nextText.isBlank()) {
+            searchIndex.deletePage(pageId)
+        } else {
+            searchIndex.upsertPage(
+                documentId = documentId,
+                pageId = pageId,
+                content = nextText
+            )
+        }
+        refreshDocumentSummary(documentId)
+
+        OcrRedactionEngine.verify(baseForRedaction, normalized)
+    }
+
+    suspend fun verifyPageRedactions(
+        documentId: String,
+        pageId: String,
+        recipe: PageMarkupRecipe
+    ): RedactionVerification = withContext(Dispatchers.IO) {
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+        val base = OcrLayoutCodec.decode(
+            page.ocrPreRedactionLayout ?: page.ocrLayout
+        )
+        OcrRedactionEngine.verify(base, recipe)
+    }
+
+    suspend fun saveSignature(
+        label: String,
+        kind: SavedSignatureKind,
+        points: List<NormalizedPoint>
+    ): String = withContext(Dispatchers.IO) {
+        val normalized = SignaturePathCodec.normalize(points)
+        require(normalized.size >= 2) { "Draw a signature before saving it" }
+        val now = System.currentTimeMillis()
+        val id = UUID.randomUUID().toString()
+        dao.insertSavedSignature(
+            SavedSignatureEntity(
+                id = id,
+                label = label.trim().ifBlank { kind.label },
+                kind = kind.name,
+                pathData = SignaturePathCodec.encode(normalized),
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+        id
+    }
+
+    suspend fun deleteSavedSignature(id: String) = withContext(Dispatchers.IO) {
+        dao.deleteSavedSignature(id)
     }
 
     suspend fun autoCleanupPages(
@@ -1006,6 +1120,9 @@ class ScanRepository(
                 val hasTextEdits =
                     !page.textEditRecipe.isNullOrBlank() ||
                         !page.ocrBaseLayout.isNullOrBlank()
+                val hasMarkup =
+                    !page.markupRecipe.isNullOrBlank() ||
+                        !page.ocrPreRedactionLayout.isNullOrBlank()
 
                 when {
                     semanticGeometryChanged -> {
@@ -1015,8 +1132,10 @@ class ScanRepository(
                         searchIndex.deletePage(page.id)
                     }
 
-                    hasTextEdits -> {
-                        val base = OcrLayoutCodec.decode(page.ocrBaseLayout)
+                    hasTextEdits || hasMarkup -> {
+                        val base = OcrLayoutCodec.decode(
+                            page.ocrBaseLayout ?: page.ocrPreRedactionLayout
+                        )
                         if (base == null) {
                             requiresOcr += page.id
                             dao.clearPageOcr(page.id)
@@ -1042,6 +1161,7 @@ class ScanRepository(
                 dao.setPageCropQuad(page.id, null)
                 dao.setPageVisualRecipe(page.id, null)
                 dao.setPageCleanupRecipe(page.id, null)
+                dao.clearPageMarkup(page.id)
             }
 
             if (requiresOcr.isEmpty()) {
@@ -2147,7 +2267,8 @@ class ScanRepository(
         val hasVisualEdits = pages.any {
             !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                 !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
-                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
+                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
         }
 
         if (
@@ -2824,6 +2945,24 @@ class ScanRepository(
     ) {
         require(page.textEditRecipe.isNullOrBlank()) {
             "Revert OCR text edits before $action"
+        }
+    }
+
+    private fun requireNoCoordinateMarkup(
+        page: PageEntity,
+        action: String
+    ) {
+        require(PageMarkupRecipeCodec.decode(page.markupRecipe).isEmpty()) {
+            "Revert annotations, form fields, signatures, and redactions before $action"
+        }
+    }
+
+    private fun requireNoSecureRedactions(
+        page: PageEntity,
+        action: String
+    ) {
+        require(!PageMarkupRecipeCodec.decode(page.markupRecipe).hasRedactions()) {
+            "Revert secure redactions before $action"
         }
     }
 
