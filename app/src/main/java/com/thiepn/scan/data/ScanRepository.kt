@@ -2547,6 +2547,51 @@ class ScanRepository(
             )?.let(warnings::add)
         }
 
+        val rapidFields = mutableListOf<DocumentFieldEntity>()
+        val latestCaptureSession = dao.getLatestCaptureSession(documentId)
+        if (
+            latestCaptureSession != null &&
+            latestCaptureSession.capturedCount > 0
+        ) {
+            rapidFields += DocumentFieldEntity(
+                documentId = documentId,
+                fieldKey = "rapid_capture_summary",
+                label = "Rapid capture",
+                value = buildString {
+                    append("${latestCaptureSession.capturedCount} frames captured")
+                    if (latestCaptureSession.duplicateCount > 0) {
+                        append(" · ${latestCaptureSession.duplicateCount} duplicates suppressed")
+                    }
+                    if (latestCaptureSession.lowQualityCount > 0) {
+                        append(" · ${latestCaptureSession.lowQualityCount} low-quality pages")
+                    }
+                    if (latestCaptureSession.failedCount > 0) {
+                        append(" · ${latestCaptureSession.failedCount} failed")
+                    }
+                },
+                confidence = 1f,
+                source = "RAPID_CAPTURE"
+            )
+            if (latestCaptureSession.lowQualityCount > 0) {
+                warnings +=
+                    "${latestCaptureSession.lowQualityCount} rapid-capture page" +
+                        if (latestCaptureSession.lowQualityCount == 1) {
+                            " was flagged as low quality."
+                        } else {
+                            "s were flagged as low quality."
+                        }
+            }
+            if (latestCaptureSession.failedCount > 0) {
+                warnings +=
+                    "${latestCaptureSession.failedCount} rapid-capture page" +
+                        if (latestCaptureSession.failedCount == 1) {
+                            " failed background processing."
+                        } else {
+                            "s failed background processing."
+                        }
+            }
+        }
+
         val bookFields = mutableListOf<DocumentFieldEntity>()
         if (mode == ScanMode.BOOK) {
             val preservedSources = dao.getPreservedBookSources(documentId)
@@ -2592,6 +2637,7 @@ class ScanRepository(
                 )
             }
             addAll(bookFields)
+            addAll(rapidFields)
             warnings.distinct().takeIf { it.isNotEmpty() }?.let { distinctWarnings ->
                 add(
                     DocumentFieldEntity(
