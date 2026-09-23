@@ -789,6 +789,8 @@ private fun DocumentCard(
                         cropQuad = coverPage.cropQuad,
                         visualRecipe = coverPage.visualRecipe,
                         cleanupRecipe = coverPage.cleanupRecipe,
+                        textEditRecipe = coverPage.textEditRecipe,
+                        markupRecipe = coverPage.markupRecipe,
                         contentDescription = "Preview of ${document.title}"
                     )
                     if (document.favorite) {

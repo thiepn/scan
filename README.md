@@ -56,6 +56,8 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Conservative automatic cleanup suggestions detect likely punch holes, border shadows, finger/hand regions, and stains/spots. Per-page suggestions show confidence and require acceptance; batch Auto clean applies only high-confidence detections.
 - Cleanup is semantic rather than cosmetic: OCR fingerprints include the cleanup recipe, OCR/FTS are refreshed after cleanup changes, searchable PDF text is regenerated from the cleaned geometry, and native-PDF passthrough is disabled when a page has cleanup masks.
 - Cleanup coordinates are stored in crop-corrected, unrotated page space so 90° rotation remains aligned. Changing crop/perspective clears cleanup masks explicitly because their coordinate system is no longer compatible; Reset page edits also removes cleanup masks.
+- Annotation & form editing adds pen/highlighter, text boxes, rectangles/arrows, stamps, reusable signatures/initials, text/date/checkbox/radio fields, and undoable page-space operations.
+- Secure redaction removes intersecting OCR/search text, flattens black redaction regions into generated PDF pixels, strips PDF metadata fields, avoids native-PDF passthrough, and includes an explicit verification check.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.

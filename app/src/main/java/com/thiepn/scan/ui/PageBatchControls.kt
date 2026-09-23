@@ -39,6 +39,8 @@ import com.thiepn.scan.data.ScanPreset
 @Composable
 fun BatchActionBar(
     selectedCount: Int,
+    canRotate: Boolean,
+    canCleanup: Boolean,
     canDelete: Boolean,
     onRotate: () -> Unit,
     onFilter: () -> Unit,
@@ -55,7 +57,10 @@ fun BatchActionBar(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        OutlinedButton(onClick = onRotate, enabled = selectedCount > 0) {
+        OutlinedButton(
+            onClick = onRotate,
+            enabled = selectedCount > 0 && canRotate
+        ) {
             androidx.compose.material3.Icon(Icons.Default.RotateRight, contentDescription = null)
             Text(" Rotate")
         }
@@ -63,7 +68,10 @@ fun BatchActionBar(
             androidx.compose.material3.Icon(Icons.Default.FilterAlt, contentDescription = null)
             Text(" Filter")
         }
-        OutlinedButton(onClick = onCleanup, enabled = selectedCount > 0) {
+        OutlinedButton(
+            onClick = onCleanup,
+            enabled = selectedCount > 0 && canCleanup
+        ) {
             androidx.compose.material3.Icon(Icons.Default.AutoFixHigh, contentDescription = null)
             Text(" Auto clean")
         }

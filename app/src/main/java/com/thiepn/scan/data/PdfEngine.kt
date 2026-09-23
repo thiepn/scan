@@ -55,13 +55,15 @@ class PdfEngine(
                 val recipe = PageVisualRecipeCodec.decode(pageEntity.visualRecipe)
                 val cleanup = PageCleanupRecipeCodec.decode(pageEntity.cleanupRecipe)
                 val textEdits = PageTextEditRecipeCodec.decode(pageEntity.textEditRecipe)
+                val markup = PageMarkupRecipeCodec.decode(pageEntity.markupRecipe)
                 val geometryEdited = !cropQuad.isFullFrame()
                 val directJpeg =
                     quality == PdfQuality.ORIGINAL &&
                         !geometryEdited &&
                         recipe.isOriginal() &&
                         cleanup.isEmpty() &&
-                        textEdits.isEmpty()
+                        textEdits.isEmpty() &&
+                        markup.isEmpty()
 
                 var geometryBitmap: Bitmap? = null
                 var visualBitmap: Bitmap? = null
@@ -103,17 +105,38 @@ class PdfEngine(
                         semanticGeometry = edited
                     }
                     geometryBitmap = semanticGeometry
-                    visualBitmap = ImageEnhancementRenderer.apply(
+                    var rendered = ImageEnhancementRenderer.apply(
                         semanticGeometry,
                         recipe
                     )
-                    imageWidth = visualBitmap.width
-                    imageHeight = visualBitmap.height
+                    if (!markup.isEmpty()) {
+                        if (textEdits.isEmpty()) {
+                            val rotated = PageGeometryRenderer.rotateBitmap(
+                                rendered,
+                                pageEntity.rotationDegrees
+                            )
+                            if (rotated !== rendered) {
+                                rendered.recycle()
+                            }
+                            rendered = rotated
+                        }
+                        val marked = PageMarkupRenderer.apply(
+                            rendered,
+                            markup
+                        )
+                        if (marked !== rendered) {
+                            rendered.recycle()
+                        }
+                        rendered = marked
+                    }
+                    visualBitmap = rendered
+                    imageWidth = rendered.width
+                    imageHeight = rendered.height
                 }
 
                 val (pdfWidth, pdfHeight) = pageSize(imageWidth, imageHeight)
                 val page = PDPage(PDRectangle(pdfWidth, pdfHeight)).apply {
-                    rotation = if (textEdits.isEmpty()) {
+                    rotation = if (textEdits.isEmpty() && markup.isEmpty()) {
                         PageRotation.normalize(pageEntity.rotationDegrees)
                     } else {
                         0
@@ -139,7 +162,7 @@ class PdfEngine(
                         }
 
                         val recognition = if (includeOcrTextLayer) {
-                            if (!textEdits.isEmpty()) {
+                            if (!textEdits.isEmpty() || !markup.isEmpty()) {
                                 OcrLayoutCodec.decode(pageEntity.ocrLayout)
                                     ?: runCatching {
                                         requireNotNull(geometryBitmap).let { geometry ->
@@ -193,6 +216,16 @@ class PdfEngine(
                 protect(document, password)
             }
 
+            val hasSecureRedactions = pages.any {
+                PageMarkupRecipeCodec.decode(it.markupRecipe).hasRedactions()
+            }
+            if (hasSecureRedactions) {
+                document.documentInformation.title = ""
+                document.documentInformation.author = ""
+                document.documentInformation.subject = ""
+                document.documentInformation.keywords = ""
+                document.documentInformation.creator = ""
+            }
             document.documentInformation.producer = "Scan"
             document.save(destination)
         }

@@ -33,6 +33,9 @@ interface DocumentDao {
     @Query("SELECT * FROM document_fields WHERE documentId = :documentId ORDER BY fieldKey")
     fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>>
 
+    @Query("SELECT * FROM saved_signatures ORDER BY updatedAt DESC")
+    fun observeSavedSignatures(): Flow<List<SavedSignatureEntity>>
+
     @Query(
         "SELECT * FROM capture_sessions WHERE documentId = :documentId " +
             "ORDER BY startedAt DESC LIMIT 1"
@@ -199,6 +202,9 @@ interface DocumentDao {
     suspend fun insertDocumentFields(fields: List<DocumentFieldEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSavedSignature(signature: SavedSignatureEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCaptureSession(session: CaptureSessionEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -242,8 +248,28 @@ interface DocumentDao {
     )
 
     @Query(
+        "UPDATE pages SET markupRecipe = :markupRecipe, ocrText = :text, " +
+            "ocrLayout = :layout, ocrPreRedactionLayout = :preRedactionLayout " +
+            "WHERE id = :pageId"
+    )
+    suspend fun updatePageMarkup(
+        pageId: String,
+        markupRecipe: String?,
+        text: String,
+        layout: String?,
+        preRedactionLayout: String?
+    )
+
+    @Query(
+        "UPDATE pages SET markupRecipe = NULL, ocrPreRedactionLayout = NULL " +
+            "WHERE id = :pageId"
+    )
+    suspend fun clearPageMarkup(pageId: String)
+
+    @Query(
         "UPDATE pages SET ocrText = '', ocrLayout = NULL, " +
             "ocrBaseLayout = NULL, textEditRecipe = NULL, " +
+            "ocrPreRedactionLayout = NULL, " +
             "ocrFingerprint = NULL, ocrScript = NULL WHERE id = :pageId"
     )
     suspend fun clearPageOcr(pageId: String)
@@ -489,6 +515,9 @@ interface DocumentDao {
 
     @Query("DELETE FROM tags WHERE id = :id")
     suspend fun deleteTag(id: String)
+
+    @Query("DELETE FROM saved_signatures WHERE id = :id")
+    suspend fun deleteSavedSignature(id: String)
 
     @Query("DELETE FROM document_fields WHERE documentId = :documentId")
     suspend fun deleteDocumentFields(documentId: String)

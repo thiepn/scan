@@ -111,6 +111,19 @@ data class DocumentFieldEntity(
 )
 
 @Entity(
+    tableName = "saved_signatures",
+    indices = [Index("updatedAt")]
+)
+data class SavedSignatureEntity(
+    @PrimaryKey val id: String,
+    val label: String,
+    val kind: String,
+    val pathData: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+@Entity(
     tableName = "capture_sessions",
     foreignKeys = [
         ForeignKey(
@@ -220,6 +233,8 @@ data class PageEntity(
     val ocrLayout: String? = null,
     val ocrBaseLayout: String? = null,
     val textEditRecipe: String? = null,
+    val markupRecipe: String? = null,
+    val ocrPreRedactionLayout: String? = null,
     val ocrFingerprint: String? = null,
     val ocrScript: String? = null,
     val sourceSpreadPageId: String? = null,
