@@ -239,6 +239,9 @@ fun DocumentScreen(
         return
     }
 
+    val scanMode = ScanMode.fromStored(doc.scanMode)
+    val scanProfile = ScanModeProfiles.forMode(scanMode)
+
     val hasAnyPageEdits = pages.any { page ->
         page.rotationDegrees != 0 ||
             !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
@@ -289,6 +292,12 @@ fun DocumentScreen(
                         }
                     } else if (doc.trashedAt == null) {
                         IconButton(
+                            onClick = { scanModeOpen = true },
+                            enabled = !doc.processing
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = "Scan mode")
+                        }
+                        IconButton(
                             onClick = { organizeDocumentOpen = true },
                             enabled = !doc.processing
                         ) {
@@ -296,13 +305,15 @@ fun DocumentScreen(
                         }
                         IconButton(
                             onClick = { documentSearchOpen = true },
-                            enabled = !doc.processing && pages.isNotEmpty()
+                            enabled = !doc.processing &&
+                                scanProfile.ocrEnabled &&
+                                pages.isNotEmpty()
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "Find in document")
                         }
                         IconButton(
                             onClick = { ocrScriptOpen = true },
-                            enabled = !doc.processing
+                            enabled = !doc.processing && scanProfile.ocrEnabled
                         ) {
                             Icon(Icons.Default.Language, contentDescription = "OCR language model")
                         }
@@ -368,7 +379,10 @@ fun DocumentScreen(
                             Spacer(Modifier.height(12.dp))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { textExportOpen = true }) {
+                            OutlinedButton(
+                                onClick = { textExportOpen = true },
+                                enabled = scanProfile.ocrEnabled && !doc.processing
+                            ) {
                                 Text("Text")
                             }
                             OutlinedButton(onClick = {
@@ -394,7 +408,7 @@ fun DocumentScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
-                                onClick = onAddPages,
+                                onClick = { onAddPages(scanMode) },
                                 enabled = !doc.processing
                             ) {
                                 Icon(Icons.Default.AddAPhoto, contentDescription = null)
@@ -561,7 +575,7 @@ fun DocumentScreen(
                         replacePageId = page.id
                         replaceImageLauncher.launch(arrayOf("image/*"))
                     },
-                    onRetake = { onRetakePage(page.id) },
+                    onRetake = { onRetakePage(page.id, scanMode) },
                     onReset = {
                         scope.launch {
                             runCatching { repository.resetPageEdits(doc.id, listOf(page.id)) }
