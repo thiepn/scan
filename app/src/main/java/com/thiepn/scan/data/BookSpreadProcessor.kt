@@ -32,6 +32,63 @@ data class BookRenderedPage(
     val dewarpStrength: Float
 )
 
+object BookSpreadScoring {
+    fun evaluate(
+        aspect: Float,
+        gutterX: Float,
+        gutterContrast: Float,
+        seamStrength: Float,
+        consistency: Float
+    ): BookSpreadAnalysis {
+        val aspectScore = ((aspect - 1.12f) / 0.72f).coerceIn(0f, 1f)
+        val contrastScore = (gutterContrast / 0.085f).coerceIn(0f, 1f)
+        val seamScore = (seamStrength / 0.16f).coerceIn(0f, 1f)
+        val balanceScore = (
+            1f - abs(gutterX - 0.5f) / 0.17f
+            ).coerceIn(0f, 1f)
+
+        val confidence = (
+            aspectScore * 0.25f +
+                contrastScore * 0.30f +
+                seamScore * 0.18f +
+                consistency.coerceIn(0f, 1f) * 0.17f +
+                balanceScore * 0.10f
+            ).coerceIn(0f, 1f)
+
+        val likely = aspect >= 1.18f &&
+            gutterX in 0.34f..0.66f &&
+            confidence >= 0.48f
+        val auto = likely && confidence >= 0.66f
+        val dewarp = if (likely) {
+            (
+                0.018f +
+                    contrastScore * 0.045f +
+                    seamScore * 0.025f +
+                    consistency.coerceIn(0f, 1f) * 0.018f
+                ).coerceIn(0.018f, 0.105f)
+        } else {
+            0f
+        }
+
+        return BookSpreadAnalysis(
+            likelySpread = likely,
+            autoSplitRecommended = auto,
+            confidence = confidence,
+            gutterX = gutterX.coerceIn(0.32f, 0.68f),
+            gutterContrast = gutterContrast.coerceAtLeast(0f),
+            seamStrength = seamStrength.coerceAtLeast(0f),
+            consistency = consistency.coerceIn(0f, 1f),
+            dewarpStrength = dewarp,
+            reason = when {
+                auto -> "Strong center gutter detected"
+                likely -> "Possible spread; review before splitting"
+                aspect < 1.25f -> "Image may be a single page"
+                else -> "Center gutter confidence is too low"
+            }
+        )
+    }
+}
+
 object BookSpreadProcessor {
     private const val ANALYSIS_EDGE = 760
     private const val MESH_COLUMNS = 32
@@ -139,53 +196,12 @@ object BookSpreadProcessor {
             gutterX = bestX,
             neighborOffset = neighborOffset
         )
-        val aspectScore = ((aspect - 1.12f) / 0.72f).coerceIn(0f, 1f)
-        val contrastScore = (bestContrast / 0.085f).coerceIn(0f, 1f)
-        val seamScore = (bestSeam / 0.16f).coerceIn(0f, 1f)
-        val gutterNormalized = bestX.toFloat() / width
-        val balanceScore = (
-            1f - abs(gutterNormalized - 0.5f) / 0.17f
-            ).coerceIn(0f, 1f)
-
-        val confidence = (
-            aspectScore * 0.25f +
-                contrastScore * 0.30f +
-                seamScore * 0.18f +
-                consistency * 0.17f +
-                balanceScore * 0.10f
-            ).coerceIn(0f, 1f)
-
-        val likely = aspect >= 1.18f &&
-            gutterNormalized in 0.34f..0.66f &&
-            confidence >= 0.48f
-
-        val auto = likely && confidence >= 0.66f
-        val dewarp = if (likely) {
-            (
-                0.018f +
-                    contrastScore * 0.045f +
-                    seamScore * 0.025f +
-                    consistency * 0.018f
-                ).coerceIn(0.018f, 0.105f)
-        } else {
-            0f
-        }
-
-        return BookSpreadAnalysis(
-            likelySpread = likely,
-            autoSplitRecommended = auto,
-            confidence = confidence,
-            gutterX = gutterNormalized.coerceIn(0.32f, 0.68f),
+        return BookSpreadScoring.evaluate(
+            aspect = aspect,
+            gutterX = bestX.toFloat() / width,
             gutterContrast = bestContrast,
             seamStrength = bestSeam,
-            consistency = consistency,
-            dewarpStrength = dewarp,
-            reason = when {
-                auto -> "Strong center gutter detected"
-                likely -> "Possible spread; review before splitting"
-                aspect < 1.25f -> "Image may be a single page"
-                else -> "Center gutter confidence is too low"
-            }
+            consistency = consistency
         )
     }
 
