@@ -36,6 +36,24 @@ class ScanModeProfilesTest {
     }
 
     @Test
+    fun lowResolutionCaptureIsFlaggedByModeQualityRules() {
+        assertNotNull(
+            ScanModeProfiles.resolutionWarning(
+                ScanMode.CERTIFICATE,
+                width = 700,
+                height = 990
+            )
+        )
+        assertNull(
+            ScanModeProfiles.resolutionWarning(
+                ScanMode.CERTIFICATE,
+                width = 1600,
+                height = 2200
+            )
+        )
+    }
+
+    @Test
     fun cardAspectValidationAcceptsNormalCardAndFlagsSquareCapture() {
         assertNull(
             ScanModeProfiles.aspectRatioWarning(
