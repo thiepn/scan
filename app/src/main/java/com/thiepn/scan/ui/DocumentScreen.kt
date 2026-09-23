@@ -252,6 +252,7 @@ fun DocumentScreen(
     val bookReviewPages = if (scanMode == ScanMode.BOOK) {
         pages.filter { page ->
             page.sourceSpreadPageId == null &&
+                !page.bookReviewResolved &&
                 page.width > page.height * 1.12f &&
                 (page.bookSplitConfidence ?: 0f) >= 0.28f
         }
@@ -428,7 +429,11 @@ fun DocumentScreen(
                                             }
                                                 .onSuccess { count ->
                                                     onMessage(
-                                                        "Book analysis complete · $count preserved spread${if (count == 1) "" else "s"}"
+                                                        if (count == 0) {
+                                                            "Book analysis complete · no new spreads auto-split"
+                                                        } else {
+                                                            "Book analysis complete · $count new spread${if (count == 1) "" else "s"} auto-split"
+                                                        }
                                                     )
                                                 }
                                                 .onFailure {
@@ -807,6 +812,24 @@ fun DocumentScreen(
             onDismiss = {
                 bookReviewPageId = null
                 bookReviewAnalysis = null
+            },
+            onKeepSingle = {
+                val pageId = bookReviewPage.id
+                bookReviewPageId = null
+                bookReviewAnalysis = null
+                scope.launch {
+                    runCatching {
+                        repository.keepBookPageSingle(doc.id, pageId)
+                    }
+                        .onSuccess {
+                            onMessage("Kept as a single book page")
+                        }
+                        .onFailure {
+                            onMessage(
+                                it.message ?: "Could not resolve book-page review"
+                            )
+                        }
+                }
             },
             onSplit = { gutterX, dewarp ->
                 val pageId = bookReviewPage.id
