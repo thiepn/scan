@@ -650,26 +650,28 @@ private fun MarkupPreview(
         }
     } else {
         Modifier.pointerInput(tool, sourceWidth, sourceHeight, colorArgb, strokeWidth) {
+            var gesturePoints = emptyList<NormalizedPoint>()
             detectDragGestures(
                 onDragStart = { offset ->
-                    onDragPointsChange(
-                        pointFor(offset, size)?.let(::listOf).orEmpty()
-                    )
+                    gesturePoints = pointFor(offset, size)
+                        ?.let(::listOf)
+                        .orEmpty()
+                    onDragPointsChange(gesturePoints)
                 },
-                onDragCancel = { onDragPointsChange(emptyList()) },
+                onDragCancel = {
+                    gesturePoints = emptyList()
+                    onDragPointsChange(emptyList())
+                },
                 onDragEnd = {
-                    addDragItem(dragPoints)
+                    addDragItem(gesturePoints)
+                    gesturePoints = emptyList()
                     onDragPointsChange(emptyList())
                 },
                 onDrag = { change, _ ->
                     val next = pointFor(change.position, size)
                     if (next != null) {
-                        val updated = if (dragPoints.isEmpty()) {
-                            listOf(next)
-                        } else {
-                            dragPoints + next
-                        }
-                        onDragPointsChange(updated.takeLast(600))
+                        gesturePoints = (gesturePoints + next).takeLast(600)
+                        onDragPointsChange(gesturePoints)
                     }
                 }
             )

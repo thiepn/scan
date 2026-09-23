@@ -833,6 +833,14 @@ class ScanRepository(
             preRedactionLayout = null
         }
 
+        val verification = OcrRedactionEngine.verify(
+            baseForRedaction,
+            normalized
+        )
+        require(!hasRedactions || verification.secure) {
+            "Redaction verification failed; OCR content still intersects a redacted region"
+        }
+
         dao.updatePageMarkup(
             pageId = pageId,
             markupRecipe = PageMarkupRecipeCodec.encode(normalized),
@@ -852,7 +860,7 @@ class ScanRepository(
         }
         refreshDocumentSummary(documentId)
 
-        OcrRedactionEngine.verify(baseForRedaction, normalized)
+        verification
     }
 
     suspend fun verifyPageRedactions(
