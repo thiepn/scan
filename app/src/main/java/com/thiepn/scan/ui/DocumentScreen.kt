@@ -1171,7 +1171,7 @@ fun DocumentScreen(
             title = { Text("Reset all page edits?") },
             text = {
                 Text(
-                    "Rotation, crop/perspective, and enhancement settings will return to their original values. Page order, OCR source files, replacements, duplicates, and deleted-page history are not changed."
+                    "Rotation, crop/perspective, enhancement, and cleanup masks will return to their original values. Page order, source files, replacements, duplicates, and deleted-page history are not changed."
                 )
             },
             confirmButton = {
