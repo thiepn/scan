@@ -571,8 +571,10 @@ object OcrTextEditEngine {
             OcrWordBox(
                 blockIndex = edit.blockIndex,
                 lineIndex = lineIndex,
-                wordIndex = if (tokens.size == 1) edit.wordIndex else {
-                    edit.wordIndex.coerceAtLeast(0) * 100 + index
+                wordIndex = if (tokens.size == 1) {
+                    edit.wordIndex
+                } else {
+                    1_000_000 + edit.wordIndex.coerceAtLeast(0) * 100 + index
                 },
                 readingOrder = readingOrder + index,
                 text = token,
@@ -681,13 +683,14 @@ object OcrTextEditRenderer {
             val baseline = lineTop +
                 (slotHeight - (metrics.bottom - metrics.top)) / 2f -
                 metrics.top
-            val x = when (edit.alignment) {
+            val resolvedAlignment = resolveAlignment(edit)
+            val x = when (resolvedAlignment) {
                 OcrTextAlignment.CENTER -> target.centerX().toFloat()
                 OcrTextAlignment.RIGHT -> target.right.toFloat()
                 OcrTextAlignment.AUTO,
                 OcrTextAlignment.LEFT -> target.left.toFloat()
             }
-            paint.textAlign = when (edit.alignment) {
+            paint.textAlign = when (resolvedAlignment) {
                 OcrTextAlignment.CENTER -> Paint.Align.CENTER
                 OcrTextAlignment.RIGHT -> Paint.Align.RIGHT
                 OcrTextAlignment.AUTO,
@@ -696,6 +699,22 @@ object OcrTextEditRenderer {
             canvas.drawText(line, x, baseline, paint)
         }
         canvas.restore()
+    }
+
+    private fun resolveAlignment(edit: OcrTextEdit): OcrTextAlignment {
+        if (edit.alignment != OcrTextAlignment.AUTO) return edit.alignment
+        if (edit.target == OcrTextEditTarget.WORD) return OcrTextAlignment.LEFT
+
+        val width = edit.right - edit.left
+        val center = (edit.left + edit.right) / 2f
+        return when {
+            edit.right >= 0.88f && edit.left >= 0.45f ->
+                OcrTextAlignment.RIGHT
+            width <= 0.70f && abs(center - 0.5f) <= 0.08f ->
+                OcrTextAlignment.CENTER
+            else ->
+                OcrTextAlignment.LEFT
+        }
     }
 
     private data class InkSample(
