@@ -539,8 +539,28 @@ class ScanRepository(
 
     private suspend fun recognizeDocument(documentId: String) {
         val document = dao.getDocument(documentId) ?: return
-        val script = OcrScript.fromStored(document.ocrScript)
+        val mode = ScanMode.fromStored(document.scanMode)
+        val profile = ScanModeProfiles.forMode(mode)
         val pages = dao.getPages(documentId)
+
+        if (!profile.ocrEnabled) {
+            pages.forEach { page ->
+                dao.clearPageOcr(page.id)
+                searchIndex.deletePage(page.id)
+            }
+            dao.finishProcessing(
+                id = documentId,
+                text = "",
+                processing = false,
+                pageCount = pages.size,
+                updatedAt = System.currentTimeMillis()
+            )
+            refreshTypeSuggestion(documentId)
+            refreshSpecializedFields(documentId)
+            return
+        }
+
+        val script = OcrScript.fromStored(document.ocrScript)
         val recognized = mutableListOf<String>()
 
         pages.forEach { page ->
@@ -564,6 +584,7 @@ class ScanRepository(
             updatedAt = System.currentTimeMillis()
         )
         refreshTypeSuggestion(documentId)
+        refreshSpecializedFields(documentId)
     }
 
     private suspend fun recognizePageAndRefresh(documentId: String, pageId: String) {
@@ -576,6 +597,16 @@ class ScanRepository(
     ) {
         try {
             val document = dao.getDocument(documentId) ?: return
+            val mode = ScanMode.fromStored(document.scanMode)
+            val profile = ScanModeProfiles.forMode(mode)
+            if (!profile.ocrEnabled) {
+                pageIds.distinct().forEach { pageId ->
+                    dao.clearPageOcr(pageId)
+                    searchIndex.deletePage(pageId)
+                }
+                return
+            }
+
             val script = OcrScript.fromStored(document.ocrScript)
             pageIds.distinct().forEach { pageId ->
                 val page = dao.getPage(pageId) ?: return@forEach
@@ -817,6 +848,8 @@ class ScanRepository(
             val document = dao.getDocument(documentId) ?: return@withContext
             if (document.trashedAt != null || document.processing) return@withContext
 
+            val mode = ScanMode.fromStored(document.scanMode)
+            if (!ScanModeProfiles.forMode(mode).ocrEnabled) return@withContext
             val script = OcrScript.fromStored(document.ocrScript)
             val stalePages = orderedPages(dao.getPages(documentId)).filter { page ->
                 page.ocrLayout.isNullOrBlank() ||
