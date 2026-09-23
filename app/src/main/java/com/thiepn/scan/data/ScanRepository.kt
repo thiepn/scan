@@ -234,9 +234,9 @@ class ScanRepository(
                 ocrLayout = null,
                 ocrFingerprint = null,
                 ocrScript = null,
-                sourceSpreadPageId = null,
-                bookSide = null,
-                bookSplitConfidence = null,
+                sourceSpreadPageId = source.sourceSpreadPageId,
+                bookSide = source.bookSide,
+                bookSplitConfidence = source.bookSplitConfidence,
                 bookDewarpStrength = 0f,
                 preservedBookSource = false
             )
