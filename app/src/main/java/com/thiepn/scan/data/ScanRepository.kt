@@ -1464,7 +1464,7 @@ class ScanRepository(
             page.ocrFingerprint == fingerprint &&
             page.ocrScript == script.name
         ) {
-            OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)?.let {
+            OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)?.let {
                 return RecognizedPage(it, fingerprint)
             }
         }

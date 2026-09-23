@@ -171,9 +171,12 @@ class PdfEngine(
                                     } else {
                                         runCatching {
                                             requireNotNull(geometryBitmap).let { geometry ->
-                                                ocr.recognizeDetailed(
-                                                    geometry,
-                                                    OcrScript.fromStored(pageEntity.ocrScript)
+                                                FormFillOcr.apply(
+                                                    ocr.recognizeDetailed(
+                                                        geometry,
+                                                        OcrScript.fromStored(pageEntity.ocrScript)
+                                                    ),
+                                                    form
                                                 )
                                             }
                                         }.getOrNull()
