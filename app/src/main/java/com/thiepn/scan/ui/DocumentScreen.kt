@@ -879,6 +879,7 @@ fun DocumentScreen(
         SelectedExportDialog(
             selectedCount = selected.size,
             defaultQuality = scanProfile.defaultPdfQuality,
+            textExportEnabled = scanProfile.ocrEnabled,
             onDismiss = { batchExportOpen = false },
             onPdfSave = { quality ->
                 batchExportOpen = false
