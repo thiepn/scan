@@ -212,6 +212,7 @@ fun InsertPagesDialog(
 fun SelectedExportDialog(
     selectedCount: Int,
     defaultQuality: PdfQuality,
+    textExportEnabled: Boolean,
     onDismiss: () -> Unit,
     onPdfSave: (PdfQuality) -> Unit,
     onPdfShare: (PdfQuality) -> Unit,
@@ -247,7 +248,11 @@ fun SelectedExportDialog(
                     }
                 }
                 Text(
-                    "Text export contains OCR from only the selected pages, in current page order.",
+                    if (textExportEnabled) {
+                        "Text export contains OCR from only the selected pages, in current page order."
+                    } else {
+                        "OCR text export is disabled for this scan mode."
+                    },
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
@@ -255,8 +260,14 @@ fun SelectedExportDialog(
         confirmButton = {
             Column(horizontalAlignment = Alignment.End) {
                 Row {
-                    TextButton(onClick = onTextSave) { Text("Save text") }
-                    TextButton(onClick = onTextShare) { Text("Share text") }
+                    TextButton(
+                        onClick = onTextSave,
+                        enabled = textExportEnabled
+                    ) { Text("Save text") }
+                    TextButton(
+                        onClick = onTextShare,
+                        enabled = textExportEnabled
+                    ) { Text("Share text") }
                 }
                 Row {
                     TextButton(onClick = { onPdfSave(quality) }) { Text("Save PDF") }
