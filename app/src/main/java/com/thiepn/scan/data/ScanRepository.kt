@@ -986,7 +986,7 @@ class ScanRepository(
         dao.deleteFormTemplate(templateId)
     }
 
-    suspend fun detectStructuredData(
+    suspend fun detectStructuredDataForDocument(
         documentId: String,
         schemaId: String? = null
     ): Int = withContext(Dispatchers.IO) {
@@ -1010,7 +1010,7 @@ class ScanRepository(
         count
     }
 
-    suspend fun detectStructuredData(
+    suspend fun detectStructuredDataForPage(
         documentId: String,
         pageId: String,
         schemaId: String? = null
@@ -1086,7 +1086,7 @@ class ScanRepository(
         }
 
     suspend fun applyExtractionSchema(documentId:String,schemaId:String):Int =
-        detectStructuredData(documentId,schemaId)
+        detectStructuredDataForDocument(documentId,schemaId)
 
     suspend fun deleteExtractionSchema(schemaId:String)=withContext(Dispatchers.IO){
         dao.deleteExtractionSchema(schemaId)
