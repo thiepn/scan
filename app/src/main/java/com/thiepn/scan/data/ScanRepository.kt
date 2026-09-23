@@ -2272,7 +2272,9 @@ class ScanRepository(
             !CropQuadCodec.decode(it.cropQuad).isFullFrame()
         }
         val hasVisualEdits = selected.any {
-            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+            !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
+                !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
+                !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
         }
 
         runCatching {
@@ -2354,7 +2356,9 @@ class ScanRepository(
                         !CropQuadCodec.decode(it.cropQuad).isFullFrame()
                     }
                     val hasVisualEdits = pages.any {
-                        !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal()
+                        !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
+                            !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
+                            !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty()
                     }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
