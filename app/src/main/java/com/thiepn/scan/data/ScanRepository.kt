@@ -1499,6 +1499,11 @@ class ScanRepository(
                 width = page.width,
                 height = page.height
             )?.let(warnings::add)
+            ScanModeProfiles.resolutionWarning(
+                mode = mode,
+                width = page.width,
+                height = page.height
+            )?.let(warnings::add)
         }
 
         val fields = buildList {
