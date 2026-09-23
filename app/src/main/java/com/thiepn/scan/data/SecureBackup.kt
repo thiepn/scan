@@ -41,6 +41,12 @@ class SecureDocumentBackup(
         private const val SALT_SIZE = 16
         private const val IV_SIZE = 12
         private const val KEY_BITS = 256
+        private const val MAX_ENTRIES = 10_000
+        private const val MAX_PAGES = 5_000
+        private const val MAX_ENTRY_BYTES =
+            512L * 1024L * 1024L
+        private const val MAX_TOTAL_BYTES =
+            2L * 1024L * 1024L * 1024L
     }
 
     private val random = SecureRandom()
@@ -186,12 +192,15 @@ class SecureDocumentBackup(
 
             val document = sourceDocument.copy(
                 id = newId,
-                title = sourceDocument.title +
-                    " (Restored)",
+                title = (
+                    sourceDocument.title.take(180) +
+                        " (Restored)"
+                    ).take(200),
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis(),
                 pdfPath = pdfRelative?.let {
-                    File(newDir, it).absolutePath
+                    safeAssetFile(newDir, it)
+                        .absolutePath
                 },
                 favorite = false,
                 archived = false,
@@ -206,6 +215,9 @@ class SecureDocumentBackup(
             )
 
             val pageArray = manifest.getJSONArray("pages")
+            require(pageArray.length() <= MAX_PAGES) {
+                "Backup contains too many pages"
+            }
             val oldToNew = linkedMapOf<String, String>()
             for (i in 0 until pageArray.length()) {
                 val oldId = pageArray
@@ -331,9 +343,16 @@ class SecureDocumentBackup(
                 ZipInputStream(
                     BufferedInputStream(decrypted)
                 ).use { zip ->
+                    var entryCount = 0
+                    var totalBytes = 0L
+                    val buffer = ByteArray(64 * 1024)
                     while (true) {
                         val entry =
                             zip.nextEntry ?: break
+                        entryCount++
+                        require(entryCount <= MAX_ENTRIES) {
+                            "Backup contains too many entries"
+                        }
                         val target = safeTarget(
                             staging,
                             entry.name
@@ -342,10 +361,34 @@ class SecureDocumentBackup(
                             target.mkdirs()
                         } else {
                             target.parentFile?.mkdirs()
+                            var entryBytes = 0L
                             target.outputStream()
                                 .buffered()
                                 .use { output ->
-                                    zip.copyTo(output)
+                                    while (true) {
+                                        val count =
+                                            zip.read(buffer)
+                                        if (count <= 0) break
+                                        entryBytes += count
+                                        totalBytes += count
+                                        require(
+                                            entryBytes <=
+                                                MAX_ENTRY_BYTES
+                                        ) {
+                                            "Backup entry is too large"
+                                        }
+                                        require(
+                                            totalBytes <=
+                                                MAX_TOTAL_BYTES
+                                        ) {
+                                            "Backup expands beyond the restore limit"
+                                        }
+                                        output.write(
+                                            buffer,
+                                            0,
+                                            count
+                                        )
+                                    }
                                 }
                         }
                         zip.closeEntry()
@@ -525,7 +568,7 @@ class SecureDocumentBackup(
                 j.nullableString("visualRecipe"),
             cleanupRecipe =
                 j.nullableString("cleanupRecipe"),
-            imagePath = File(
+            imagePath = safeAssetFile(
                 directory,
                 j.getString("imageRelativePath")
             ).absolutePath,
@@ -598,7 +641,35 @@ class SecureDocumentBackup(
         } finally {
             spec.clearPassword()
         }
-        return SecretKeySpec(bytes, "AES")
+        val key = SecretKeySpec(bytes, "AES")
+        bytes.fill(0)
+        return key
+    }
+
+    private fun safeAssetFile(
+        root: File,
+        relativePath: String
+    ): File {
+        require(relativePath.isNotBlank()) {
+            "Backup asset path is missing"
+        }
+        val canonicalRoot = root.canonicalFile
+        val target = File(
+            canonicalRoot,
+            relativePath
+        ).canonicalFile
+        require(
+            target.path.startsWith(
+                canonicalRoot.path +
+                    File.separator
+            )
+        ) {
+            "Unsafe backup asset path"
+        }
+        require(target.isFile) {
+            "Backup asset is missing"
+        }
+        return target
     }
 
     private fun safeTarget(

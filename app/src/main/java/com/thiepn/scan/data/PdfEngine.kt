@@ -6,6 +6,7 @@ import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDDocumentInformation
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDPageLabelRange
@@ -340,16 +341,12 @@ class PdfEngine(
         require(source.isFile) { "PDF source is unavailable" }
         destination.parentFile?.mkdirs()
         PDDocument.load(source).use { document ->
-            val info = document.documentInformation
-            info.title = ""
-            info.author = ""
-            info.subject = ""
-            info.keywords = ""
-            info.creator = ""
-            info.producer = ""
+            document.documentInformation =
+                PDDocumentInformation()
             document.documentCatalog.metadata = null
             document.documentCatalog.documentOutline = null
             document.documentCatalog.pageLabels = null
+            document.documentCatalog.language = null
             document.save(destination)
         }
     }

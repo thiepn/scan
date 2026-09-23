@@ -116,7 +116,8 @@ object DocumentIntegrityManifestCodec {
 object DocumentIntegrity {
     fun compute(directory: File): DocumentIntegrityManifest {
         val files = directory.walkTopDown()
-            .filter { it.isFile && !it.name.endsWith(".vaulttmp") }
+            .filter { it.isFile && !it.name.endsWith(".vaulttmp") &&
+                !it.name.endsWith(".vaultbak") }
             .sortedBy { it.relativeTo(directory).invariantSeparatorsPath }
             .toList()
         val rootDigest = MessageDigest.getInstance("SHA-256")
@@ -216,6 +217,7 @@ class SecurityVaultManager(
             runCatching {
                 files.deletePlaintextExportsForDocument(id)
                 val directory = files.documentDir(id)
+                recoverInterruptedTransactions(directory)
                 directory.walkTopDown()
                     .filter { it.isFile && !isSealed(it) }
                     .toList()
@@ -429,17 +431,61 @@ class SecurityVaultManager(
         prefs.edit().putStringSet(PREF_IDS, ids).commit()
     }
 
+    private fun recoverInterruptedTransactions(
+        directory: File
+    ) {
+        if (!directory.exists()) return
+
+        directory.walkBottomUp()
+            .filter {
+                it.isFile &&
+                    it.name.endsWith(".vaultbak")
+            }
+            .forEach { backup ->
+                val original = File(
+                    backup.parentFile,
+                    backup.name.removeSuffix(
+                        ".vaultbak"
+                    )
+                )
+                if (original.exists()) {
+                    backup.delete()
+                } else {
+                    backup.renameTo(original)
+                }
+            }
+
+        directory.walkBottomUp()
+            .filter {
+                it.isFile &&
+                    it.name.endsWith(".vaulttmp")
+            }
+            .forEach { temporary ->
+                val original = File(
+                    temporary.parentFile,
+                    temporary.name.removeSuffix(
+                        ".vaulttmp"
+                    )
+                )
+                if (original.exists()) {
+                    temporary.delete()
+                }
+            }
+    }
+
     private fun sealDirectory(directory: File) {
         if (!directory.exists()) return
         directory.walkTopDown()
-            .filter { it.isFile && !it.name.endsWith(".vaulttmp") }
+            .filter { it.isFile && !it.name.endsWith(".vaulttmp") &&
+                !it.name.endsWith(".vaultbak") }
             .forEach { sealFile(it) }
     }
 
     private fun unsealDirectory(directory: File) {
         if (!directory.exists()) return
         directory.walkTopDown()
-            .filter { it.isFile && !it.name.endsWith(".vaulttmp") }
+            .filter { it.isFile && !it.name.endsWith(".vaulttmp") &&
+                !it.name.endsWith(".vaultbak") }
             .forEach { unsealFile(it) }
     }
 
