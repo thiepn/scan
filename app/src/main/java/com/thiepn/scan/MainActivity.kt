@@ -158,7 +158,9 @@ private fun ScanApp(repository: ScanRepository) {
                             pendingScanAction = PendingScanAction.IdBack(
                                 stagedFrontPath = staged.absolutePath
                             )
-                            snackbar.showSnackbar("Front captured. Now scan the back.")
+                            launch {
+                                snackbar.showSnackbar("Front captured. Now scan the back.")
+                            }
                             startModeScanner(
                                 activity = activity,
                                 mode = ScanMode.ID_CARD,
