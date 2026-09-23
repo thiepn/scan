@@ -519,7 +519,7 @@ fun DocumentScreen(
                                                     "No structured data detected"
                                                 } else {
                                                     count.toString() + " structured item" +
-                                                        if (count == 1) "" else "s" +
+                                                        (if (count == 1) "" else "s") +
                                                         " extracted"
                                                 }
                                                 onMessage(message)
@@ -1307,7 +1307,7 @@ fun DocumentScreen(
                         .onSuccess { count ->
                             onMessage(
                                 count.toString() + " structured item" +
-                                    if (count == 1) "" else "s" +
+                                    (if (count == 1) "" else "s") +
                                     " extracted with schema"
                             )
                         }
