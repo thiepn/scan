@@ -1496,9 +1496,18 @@ class ScanRepository(
                 searchIndex.deletePage(page.id)
                 File(page.imagePath).delete()
             }
-            dao.clearPageOcr(sourcePageId)
-            searchIndex.deletePage(sourcePageId)
-            recognizeDocument(documentId)
+            if (source.textEditRecipe.isNullOrBlank()) {
+                dao.clearPageOcr(sourcePageId)
+                searchIndex.deletePage(sourcePageId)
+                recognizeDocument(documentId)
+            } else {
+                searchIndex.upsertPage(
+                    documentId = documentId,
+                    pageId = sourcePageId,
+                    content = source.ocrText
+                )
+                refreshDocumentSummary(documentId)
+            }
         } catch (error: Throwable) {
             dao.setProcessing(documentId, false, System.currentTimeMillis())
             throw error
@@ -1531,7 +1540,8 @@ class ScanRepository(
                 page.deleted ||
                 page.documentId != documentId ||
                 page.sourceSpreadPageId != null ||
-                page.bookReviewResolved
+                page.bookReviewResolved ||
+                !page.textEditRecipe.isNullOrBlank()
             ) {
                 return@forEach
             }
@@ -1574,6 +1584,7 @@ class ScanRepository(
         require(!source.deleted && source.sourceSpreadPageId == null) {
             "Book source page is no longer available"
         }
+        requireNoTextEdits(source, "splitting this book page")
         val active = orderedPages(dao.getPages(documentId))
         val sourceIndex = active.indexOfFirst { it.id == sourcePageId }
         require(sourceIndex >= 0) { "Book source page is no longer active" }
