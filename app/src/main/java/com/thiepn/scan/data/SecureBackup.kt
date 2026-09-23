@@ -81,7 +81,11 @@ class SecureDocumentBackup(
         }
 
         val assetFiles = directory.walkTopDown()
-            .filter { it.isFile }
+            .filter {
+                it.isFile &&
+                    !it.name.endsWith(".vaulttmp") &&
+                    !it.name.endsWith(".vaultbak")
+            }
             .sortedBy {
                 it.relativeTo(directory).invariantSeparatorsPath
             }

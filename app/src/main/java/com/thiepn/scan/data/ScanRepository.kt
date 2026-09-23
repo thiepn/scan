@@ -2845,6 +2845,16 @@ class ScanRepository(
             "ROOM_METADATA",
             "Room metadata and OCR text are not encrypted by the Phase 16 file vault."
         )
+        issues += SecurityAuditIssue(
+            SecurityAuditSeverity.INFO,
+            "AUTH_BOUNDARY",
+            "Biometric/device credential authentication gates vault access in Scan; the AES vault key itself is app-scoped in Android Keystore and is not configured for per-decryption biometric authorization."
+        )
+        issues += SecurityAuditIssue(
+            SecurityAuditSeverity.INFO,
+            "EXPORT_HANDOFF",
+            "Explicit plaintext exports can remain in app-private storage during background auto-lock so Android share/save handoffs continue; manual lock and cold start purge those exports. Encrypted .scanbak files are retained."
+        )
 
         if (
             documentId in
