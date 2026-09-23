@@ -851,7 +851,7 @@ class ScanRepository(
         require(page.documentId == documentId && !page.deleted) {
             "Page does not belong to this document"
         }
-        val layout = OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)
+        val layout = OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
             ?: throw IllegalStateException("Recognize this page before detecting form fields")
         val current = PageFormRecipeCodec.decode(page.formFillRecipe)
         val merged = FormFieldDetector.merge(current, FormFieldDetector.detect(layout))
@@ -866,7 +866,7 @@ class ScanRepository(
         require(!document.processing) { "Document is still processing" }
         var additions = 0
         orderedPages(dao.getPages(documentId)).forEach { page ->
-            val layout = OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)
+            val layout = OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
                 ?: return@forEach
             val current = PageFormRecipeCodec.decode(page.formFillRecipe)
             val merged = FormFieldDetector.merge(current, FormFieldDetector.detect(layout))
@@ -1391,9 +1391,9 @@ class ScanRepository(
                 searchIndex.deletePage(page.id)
                 return@forEach
             }
-            persistRecognition(documentId, page.id, recognition)
-            if (recognition.result.text.isNotBlank()) {
-                recognized += recognition.result.text
+            val persisted = persistRecognition(documentId, page.id, recognition)
+            if (persisted.text.isNotBlank()) {
+                recognized += persisted.text
             }
         }
 
@@ -1464,7 +1464,7 @@ class ScanRepository(
             page.ocrFingerprint == fingerprint &&
             page.ocrScript == script.name
         ) {
-            OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)?.let {
+            OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)?.let {
                 return RecognizedPage(it, fingerprint)
             }
         }
@@ -1496,7 +1496,7 @@ class ScanRepository(
         documentId: String,
         pageId: String,
         recognition: RecognizedPage
-    ) {
+    ): OcrPageResult {
         val base = recognition.result
         val page = dao.getPage(pageId)
         val textRecipe = PageTextEditRecipeCodec.decode(page?.textEditRecipe)
@@ -1519,6 +1519,7 @@ class ScanRepository(
         )
         if (result.text.isBlank()) searchIndex.deletePage(pageId) else
             searchIndex.upsertPage(documentId, pageId, result.text)
+        return result
     }
 
     suspend fun analyzeBookSpread(

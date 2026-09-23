@@ -102,7 +102,7 @@ fun FormEditorDialog(
     onSave: (PageFormRecipe) -> Unit
 ) {
     val baseLayout = remember(page.id, page.ocrBaseLayout, page.ocrLayout) {
-        OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)
+        OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
     }
     var recipe by remember(page.id, page.formFillRecipe) {
         mutableStateOf(PageFormRecipeCodec.decode(page.formFillRecipe))
@@ -314,8 +314,13 @@ fun FormEditorDialog(
                         ) { Text("Next") }
                         OutlinedButton(
                             onClick = {
-                                commit(PageFormRecipe(fields = recipe.fields.filterNot { it.id == selected.id }))
-                                selectedId = recipe.fields.getOrNull((currentIndex - 1).coerceAtLeast(0))?.id
+                                val remaining = PageFormRecipe(
+                                    fields = recipe.fields.filterNot { it.id == selected.id }
+                                ).normalized()
+                                commit(remaining)
+                                selectedId = remaining.fields.getOrNull(
+                                    (currentIndex - 1).coerceAtLeast(0)
+                                )?.id
                             }
                         ) { Text("Delete") }
                     }
@@ -334,22 +339,22 @@ fun FormEditorDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = {
-                            undo.lastOrNull()?.let {
+                            undo.lastOrNull()?.let { previous ->
                                 redo = redo + recipe
-                                recipe = it
+                                recipe = previous
                                 undo = undo.dropLast(1)
-                                selectedId = recipe.fields.firstOrNull()?.id
+                                selectedId = previous.fields.firstOrNull()?.id
                             }
                         },
                         enabled = undo.isNotEmpty()
                     ) { Text("Undo") }
                     OutlinedButton(
                         onClick = {
-                            redo.lastOrNull()?.let {
+                            redo.lastOrNull()?.let { next ->
                                 undo = undo + recipe
-                                recipe = it
+                                recipe = next
                                 redo = redo.dropLast(1)
-                                selectedId = recipe.fields.firstOrNull()?.id
+                                selectedId = next.fields.firstOrNull()?.id
                             }
                         },
                         enabled = redo.isNotEmpty()
@@ -384,7 +389,7 @@ private fun FormFieldSurface(
     onAdd: (FormField) -> Unit
 ) {
     val layout = remember(page.ocrBaseLayout, page.ocrLayout) {
-        OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)
+        OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
     }
     val rotated = page.rotationDegrees == 90 || page.rotationDegrees == 270
     val sourceWidth = (layout?.sourceWidth ?: if (rotated) page.height else page.width).coerceAtLeast(1)
