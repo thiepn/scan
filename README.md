@@ -51,6 +51,11 @@ The current repository contains a native Android/Jetpack Compose application wit
 - Heavy processing is strictly sequential/chunked and adapts to memory class, battery state, and Android thermal status. Severe heat or critically low unplugged battery pauses the queue and resumes it later.
 - Rapid-session progress, duplicate counts, low-quality flags, failures, and retry actions are visible in the document editor. The processing model is designed to avoid retaining page bitmaps between jobs, allowing very large multi-batch sessions without scaling memory use with page count.
 - Live page detection and automatic shutter timing remain provided by the production ML Kit Document Scanner capture UI; Scan's Phase 8 pipeline begins once each captured page image is returned.
+- Smart Cleanup / Magic Eraser stores reversible normalized vector masks rather than modifying source JPEGs. Manual brush cleanup supports fingers, objects, handwriting/marks, stains, holes, and other obstructions with before/after preview, undo, clear, and adjustable brush size.
+- Cleanup rendering uses bounded local document-aware reconstruction: nearby unmasked page texture is sampled, a horizontal/vertical local background field is reconstructed across the mask, and mask edges are feathered. Source images remain immutable.
+- Conservative automatic cleanup suggestions detect likely punch holes, border shadows, finger/hand regions, and stains/spots. Per-page suggestions show confidence and require acceptance; batch Auto clean applies only high-confidence detections.
+- Cleanup is semantic rather than cosmetic: OCR fingerprints include the cleanup recipe, OCR/FTS are refreshed after cleanup changes, searchable PDF text is regenerated from the cleaned geometry, and native-PDF passthrough is disabled when a page has cleanup masks.
+- Cleanup coordinates are stored in crop-corrected, unrotated page space so 90° rotation remains aligned. Changing crop/perspective clears cleanup masks explicitly because their coordinate system is no longer compatible; Reset page edits also removes cleanup masks.
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
