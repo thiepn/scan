@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileMove
@@ -41,6 +42,7 @@ fun BatchActionBar(
     canDelete: Boolean,
     onRotate: () -> Unit,
     onFilter: () -> Unit,
+    onCleanup: () -> Unit,
     onMove: () -> Unit,
     onDuplicate: () -> Unit,
     onReset: () -> Unit,
@@ -60,6 +62,10 @@ fun BatchActionBar(
         OutlinedButton(onClick = onFilter, enabled = selectedCount > 0) {
             androidx.compose.material3.Icon(Icons.Default.FilterAlt, contentDescription = null)
             Text(" Filter")
+        }
+        OutlinedButton(onClick = onCleanup, enabled = selectedCount > 0) {
+            androidx.compose.material3.Icon(Icons.Default.AutoFixHigh, contentDescription = null)
+            Text(" Auto clean")
         }
         OutlinedButton(onClick = onMove, enabled = selectedCount > 0) {
             androidx.compose.material3.Icon(Icons.Default.DriveFileMove, contentDescription = null)
