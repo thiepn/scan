@@ -402,6 +402,285 @@ class ScanRepository(
     suspend fun appendScan(documentId: String, pageUris: List<Uri>): Int =
         insertScan(documentId, pageUris, Int.MAX_VALUE)
 
+    suspend fun setPublishingSettings(
+        documentId: String,
+        settings: PublishingSettings
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        dao.setPublishingRecipe(
+            documentId = documentId,
+            recipe = PublishingSettingsCodec.encode(settings),
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun updatePageAssemblyMetadata(
+        documentId: String,
+        pageId: String,
+        metadata: PageAssemblyMetadata
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+        val current = PageAssemblyMetadataCodec.decode(page.assemblyMetadata)
+        val normalized = metadata.normalized().copy(kind = current.kind)
+        dao.setPageAssemblyMetadata(
+            pageId,
+            PageAssemblyMetadataCodec.encode(normalized)
+        )
+        dao.touchDocument(documentId, System.currentTimeMillis())
+    }
+
+    suspend fun insertPdf(
+        documentId: String,
+        uri: Uri,
+        insertIndex: Int = Int.MAX_VALUE
+    ): Int = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val current = orderedPages(dao.getPages(documentId))
+        val target = insertIndex.coerceIn(0, current.size)
+        val sourcePdf = files.temporaryWorkingPdf("scan-insert-pdf")
+        val pageIds = mutableListOf<String>()
+        val createdFiles = mutableListOf<File>()
+
+        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        try {
+            files.copyUri(uri, sourcePdf)
+            val rendered = rasterizer.render(sourcePdf) { index ->
+                val pageId = UUID.randomUUID().toString()
+                pageIds += pageId
+                files.pageFile(documentId, pageId).also(createdFiles::add)
+            }
+            require(rendered.isNotEmpty()) { "PDF contains no pages" }
+
+            var nextPosition = dao.getMaxPagePosition(documentId) + 1
+            var nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
+            val inserted = rendered.mapIndexed { index, renderedPage ->
+                PageEntity(
+                    id = pageIds[index],
+                    documentId = documentId,
+                    position = nextPosition++,
+                    sortKey = nextSortKey.also { nextSortKey += 1000L },
+                    imagePath = renderedPage.file.absolutePath,
+                    width = renderedPage.width,
+                    height = renderedPage.height,
+                    assemblyMetadata = PageAssemblyMetadataCodec.encode(
+                        PageAssemblyMetadata(kind = AssemblyPageKind.INSERTED_PDF)
+                    )
+                )
+            }
+            val newOrder = current.map { it.id }.toMutableList().apply {
+                addAll(target, inserted.map { it.id })
+            }
+            dao.insertPagesWithOrder(inserted, newOrder)
+            refreshDocumentSummary(documentId, processing = true)
+            appScope.launch(Dispatchers.IO) {
+                recognizePagesAndRefresh(documentId, inserted.map { it.id })
+            }
+            inserted.size
+        } catch (error: Throwable) {
+            createdFiles.forEach { it.delete() }
+            dao.setProcessing(documentId, false, System.currentTimeMillis())
+            throw error
+        } finally {
+            sourcePdf.delete()
+        }
+    }
+
+    suspend fun insertBlankPage(
+        documentId: String,
+        insertIndex: Int = Int.MAX_VALUE
+    ): String = withContext(Dispatchers.IO) {
+        insertGeneratedPage(
+            documentId = documentId,
+            insertIndex = insertIndex,
+            kind = AssemblyPageKind.BLANK,
+            title = "",
+            subtitle = ""
+        )
+    }
+
+    suspend fun insertDividerPage(
+        documentId: String,
+        title: String,
+        subtitle: String = "",
+        insertIndex: Int = Int.MAX_VALUE
+    ): String = withContext(Dispatchers.IO) {
+        require(title.trim().isNotBlank()) { "Divider title cannot be blank" }
+        insertGeneratedPage(
+            documentId = documentId,
+            insertIndex = insertIndex,
+            kind = AssemblyPageKind.DIVIDER,
+            title = title.trim(),
+            subtitle = subtitle.trim()
+        )
+    }
+
+    suspend fun transferPagesFromDocument(
+        sourceDocumentId: String,
+        targetDocumentId: String,
+        rangeSpec: String,
+        insertIndex: Int = Int.MAX_VALUE,
+        move: Boolean = false
+    ): Int = withContext(Dispatchers.IO) {
+        require(sourceDocumentId != targetDocumentId) {
+            "Use page reordering inside the same document"
+        }
+        val sourceDocument = requireEditableDocument(sourceDocumentId)
+        val targetDocument = requireEditableDocument(targetDocumentId)
+        require(!sourceDocument.processing) { "Source document is still processing" }
+        require(!targetDocument.processing) { "Target document is still processing" }
+
+        val sourcePages = orderedPages(dao.getPages(sourceDocumentId))
+        val selectedNumbers = PageRangeParser.parse(rangeSpec, sourcePages.size)
+        val selected = selectedNumbers.map { sourcePages[it - 1] }
+        require(selected.isNotEmpty()) { "Select at least one page" }
+        if (move) {
+            require(selected.size < sourcePages.size) {
+                "Move must leave at least one page in the source document"
+            }
+        }
+
+        val targetPages = orderedPages(dao.getPages(targetDocumentId))
+        val targetIndex = insertIndex.coerceIn(0, targetPages.size)
+        var nextPosition = dao.getMaxPagePosition(targetDocumentId) + 1
+        var nextSortKey = dao.getMaxPageSortKey(targetDocumentId) + 1000L
+        val copiedFiles = mutableListOf<File>()
+        val copies = mutableListOf<PageEntity>()
+
+        try {
+            selected.forEach { source ->
+                val newId = UUID.randomUUID().toString()
+                val file = files.copyPageFile(
+                    documentId = targetDocumentId,
+                    source = File(source.imagePath),
+                    newPageId = newId
+                )
+                copiedFiles += file
+                val sourceMeta = PageAssemblyMetadataCodec.decode(
+                    source.assemblyMetadata
+                )
+                val targetMeta = when (sourceMeta.kind) {
+                    AssemblyPageKind.BLANK,
+                    AssemblyPageKind.DIVIDER -> sourceMeta
+                    else -> sourceMeta.copy(
+                        kind = if (move) {
+                            AssemblyPageKind.TRANSFERRED
+                        } else {
+                            AssemblyPageKind.COPIED
+                        }
+                    )
+                }
+                copies += source.copy(
+                    id = newId,
+                    documentId = targetDocumentId,
+                    position = nextPosition++,
+                    sortKey = nextSortKey.also { nextSortKey += 1000L },
+                    deleted = false,
+                    imagePath = file.absolutePath,
+                    assemblyMetadata = PageAssemblyMetadataCodec.encode(targetMeta),
+                    sourceSpreadPageId = null,
+                    bookSide = null,
+                    bookSplitConfidence = null,
+                    bookDewarpStrength = 0f,
+                    preservedBookSource = false,
+                    bookReviewResolved = false
+                )
+            }
+
+            val newOrder = targetPages.map { it.id }.toMutableList().apply {
+                addAll(targetIndex, copies.map { it.id })
+            }
+            dao.insertPagesWithOrder(copies, newOrder)
+            copies.forEach { copy ->
+                if (copy.ocrText.isNotBlank()) {
+                    searchIndex.upsertPage(
+                        targetDocumentId,
+                        copy.id,
+                        copy.ocrText
+                    )
+                }
+            }
+
+            if (move) {
+                dao.setPagesDeleted(selected.map { it.id }, true)
+                selected.forEach { source ->
+                    searchIndex.upsertPage(
+                        sourceDocumentId,
+                        source.id,
+                        source.ocrText,
+                        deleted = true
+                    )
+                }
+                refreshDocumentSummary(sourceDocumentId)
+            }
+            refreshDocumentSummary(targetDocumentId)
+            copies.size
+        } catch (error: Throwable) {
+            copiedFiles.forEach { it.delete() }
+            throw error
+        }
+    }
+
+    private suspend fun insertGeneratedPage(
+        documentId: String,
+        insertIndex: Int,
+        kind: AssemblyPageKind,
+        title: String,
+        subtitle: String
+    ): String {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val pages = orderedPages(dao.getPages(documentId))
+        val target = insertIndex.coerceIn(0, pages.size)
+        val pageId = UUID.randomUUID().toString()
+        val file = files.pageFile(documentId, pageId)
+        val size = when (kind) {
+            AssemblyPageKind.DIVIDER -> AssemblyPageRenderer.createDivider(
+                file,
+                title,
+                subtitle
+            )
+            else -> AssemblyPageRenderer.createBlank(file)
+        }
+        val metadata = PageAssemblyMetadata(
+            kind = kind,
+            label = title,
+            bookmarkTitle = title,
+            bookmarkLevel = 0,
+            generatedTitle = title,
+            generatedSubtitle = subtitle
+        )
+        val page = PageEntity(
+            id = pageId,
+            documentId = documentId,
+            position = dao.getMaxPagePosition(documentId) + 1,
+            sortKey = dao.getMaxPageSortKey(documentId) + 1000L,
+            imagePath = file.absolutePath,
+            width = size.first,
+            height = size.second,
+            ocrText = listOf(title, subtitle)
+                .filter { it.isNotBlank() }
+                .joinToString("\n"),
+            assemblyMetadata = PageAssemblyMetadataCodec.encode(metadata)
+        )
+        val order = pages.map { it.id }.toMutableList().apply {
+            add(target, pageId)
+        }
+        dao.insertPageWithOrder(page, order)
+        if (page.ocrText.isNotBlank()) {
+            searchIndex.upsertPage(documentId, pageId, page.ocrText)
+        }
+        refreshDocumentSummary(documentId)
+        return pageId
+    }
+
     suspend fun insertScan(
         documentId: String,
         pageUris: List<Uri>,
@@ -436,7 +715,10 @@ class ScanRepository(
                     ),
                     imagePath = file.absolutePath,
                     width = size.first,
-                    height = size.second
+                    height = size.second,
+                    assemblyMetadata = PageAssemblyMetadataCodec.encode(
+                        PageAssemblyMetadata(kind = AssemblyPageKind.INSERTED_IMAGE)
+                    )
                 )
             }
 
@@ -506,6 +788,9 @@ class ScanRepository(
                 markupRecipe = null,
                 formFillRecipe = null,
                 structuredData = null,
+                assemblyMetadata = PageAssemblyMetadataCodec.encode(
+                    PageAssemblyMetadata(kind = AssemblyPageKind.REPLACED)
+                ),
                 ocrFingerprint = null,
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
@@ -1251,12 +1536,23 @@ class ScanRepository(
                         newPageId = duplicateId
                     )
                     copiedFiles += file
+                    val sourceMeta = PageAssemblyMetadataCodec.decode(
+                        source.assemblyMetadata
+                    )
+                    val duplicateMeta = when (sourceMeta.kind) {
+                        AssemblyPageKind.BLANK,
+                        AssemblyPageKind.DIVIDER -> sourceMeta
+                        else -> sourceMeta.copy(kind = AssemblyPageKind.COPIED)
+                    }
                     duplicates += source.copy(
                         id = duplicateId,
                         position = nextPosition++,
                         sortKey = nextSortKey,
                         deleted = false,
                         imagePath = file.absolutePath,
+                        assemblyMetadata = PageAssemblyMetadataCodec.encode(
+                            duplicateMeta
+                        ),
                         sourceSpreadPageId = null,
                         bookSide = null,
                         bookSplitConfidence = null,
@@ -3464,7 +3760,10 @@ class ScanRepository(
         val source = document.pdfPath?.let(::File)?.takeIf { it.isFile } ?: return null
         if (pages.isEmpty()) return null
         val importedPdf = pages.all { page ->
-            page.id == deterministicPageId(document.id, page.position)
+            page.id == deterministicPageId(document.id, page.position) &&
+                PageAssemblyMetadataCodec.decode(
+                    page.assemblyMetadata
+                ).isNativeSource()
         }
         val hasCleanup = pages.any {
             !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty()

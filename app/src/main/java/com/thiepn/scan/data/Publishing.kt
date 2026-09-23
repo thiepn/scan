@@ -112,7 +112,7 @@ data class PublishingSettings(
     val footerLeft: String = "",
     val footerCenter: String = "",
     val footerRight: String = "",
-    val pageNumberPosition: PageNumberPosition = PageNumberPosition.FOOTER_CENTER,
+    val pageNumberPosition: PageNumberPosition = PageNumberPosition.NONE,
     val pageNumberStyle: PageNumberStyle = PageNumberStyle.ARABIC,
     val pageNumberFormat: PageNumberFormat = PageNumberFormat.NUMBER_ONLY,
     val pageNumberStart: Int = 1,
