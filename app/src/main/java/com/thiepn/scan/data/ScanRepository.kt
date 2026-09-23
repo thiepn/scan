@@ -65,23 +65,47 @@ class ScanRepository(
 
     fun resumePendingProcessing() {
         appScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
             searchIndex.rebuildAll()
-            dao.getProcessingDocuments().forEach { document ->
-                val pages = dao.getPages(document.id)
-                val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
-                val looksLikePdfImport = pdf != null && (
-                    pages.isEmpty() ||
-                        pages.all { page -> page.id == deterministicPageId(document.id, page.position) }
-                    )
+            dao.markCapturingSessionsInterrupted(now)
+            dao.resetInterruptedProcessingJobs(now)
 
-                if (looksLikePdfImport) {
-                    renderPdfAndRecognize(document.id, pdf)
-                } else if (ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
-                    processBookDocument(document.id)
-                } else {
-                    recognizeDocument(document.id)
+            val queuedDocumentIds = dao.getCaptureSessionsByStatus(
+                listOf(
+                    CaptureSessionStatus.PROCESSING.name,
+                    CaptureSessionStatus.PAUSED.name,
+                    CaptureSessionStatus.INTERRUPTED.name
+                )
+            ).map { it.documentId }.toSet()
+
+            kickProcessingQueue()
+
+            dao.getProcessingDocuments()
+                .filterNot { it.id in queuedDocumentIds }
+                .forEach { document ->
+                    val pages = dao.getPages(document.id)
+                    val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
+                    val looksLikePdfImport = pdf != null && (
+                        pages.isEmpty() ||
+                            pages.all {
+                                page ->
+                                page.id == deterministicPageId(
+                                    document.id,
+                                    page.position
+                                )
+                            }
+                        )
+
+                    if (looksLikePdfImport) {
+                        renderPdfAndRecognize(document.id, pdf)
+                    } else if (
+                        ScanMode.fromStored(document.scanMode) == ScanMode.BOOK
+                    ) {
+                        processBookDocument(document.id)
+                    } else {
+                        recognizeDocument(document.id)
+                    }
                 }
-            }
         }
     }
 
