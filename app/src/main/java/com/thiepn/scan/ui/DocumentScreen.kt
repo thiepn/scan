@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -87,12 +88,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.BookPageSide
 import com.thiepn.scan.data.BookReviewPolicy
 import com.thiepn.scan.data.BookSpreadAnalysis
+import com.thiepn.scan.data.CleanupSuggestion
 import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.DocumentFieldEntity
 import com.thiepn.scan.data.DocumentPageSearchHit
 import com.thiepn.scan.data.OcrLayoutCodec
 import com.thiepn.scan.data.OcrScript
 import com.thiepn.scan.data.OcrSearchTerms
+import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.PdfQuality
@@ -188,6 +191,11 @@ fun DocumentScreen(
     var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
     var cropPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var enhancePageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var cleanupPageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var cleanupSuggestions by remember {
+        mutableStateOf<List<CleanupSuggestion>>(emptyList())
+    }
+    var cleanupDetecting by remember { mutableStateOf(false) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedPageIds by remember { mutableStateOf(emptyList<String>()) }
     var batchFilterOpen by remember { mutableStateOf(false) }
@@ -268,7 +276,8 @@ fun DocumentScreen(
     val hasAnyPageEdits = pages.any { page ->
         page.rotationDegrees != 0 ||
             !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
-            !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal()
+            !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
+            !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty()
     }
 
     Scaffold(
@@ -606,6 +615,31 @@ fun DocumentScreen(
                             }
                         },
                         onFilter = { batchFilterOpen = true },
+                        onCleanup = {
+                            val selected = selectedPageIds
+                            scope.launch {
+                                runCatching {
+                                    repository.autoCleanupPages(
+                                        documentId = doc.id,
+                                        pageIds = selected
+                                    )
+                                }
+                                    .onSuccess { count ->
+                                        onMessage(
+                                            if (count == 0) {
+                                                "No high-confidence cleanup suggestions found"
+                                            } else {
+                                                "$count cleanup suggestion${if (count == 1) "" else "s"} applied"
+                                            }
+                                        )
+                                    }
+                                    .onFailure {
+                                        onMessage(
+                                            it.message ?: "Could not auto-clean selected pages"
+                                        )
+                                    }
+                            }
+                        },
                         onMove = { batchMoveOpen = true },
                         onDuplicate = {
                             val selected = selectedPageIds
@@ -638,7 +672,8 @@ fun DocumentScreen(
                 val pageHasEdits =
                     page.rotationDegrees != 0 ||
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
-                        !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal()
+                        !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
+                        !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty()
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
@@ -663,6 +698,7 @@ fun DocumentScreen(
                     canRotate = editable,
                     canCrop = editable,
                     canEnhance = editable,
+                    canCleanup = editable,
                     canDuplicate = editable,
                     canReplace = editable,
                     canRetake = editable,
@@ -715,6 +751,26 @@ fun DocumentScreen(
                     },
                     onCrop = { cropPageId = page.id },
                     onEnhance = { enhancePageId = page.id },
+                    onCleanup = {
+                        cleanupPageId = page.id
+                        cleanupSuggestions = emptyList()
+                        cleanupDetecting = true
+                        scope.launch {
+                            runCatching {
+                                repository.detectCleanupSuggestions(
+                                    documentId = doc.id,
+                                    pageId = page.id
+                                )
+                            }
+                                .onSuccess { cleanupSuggestions = it }
+                                .onFailure {
+                                    onMessage(
+                                        it.message ?: "Could not detect cleanup suggestions"
+                                    )
+                                }
+                            cleanupDetecting = false
+                        }
+                    },
                     onDuplicate = {
                         scope.launch {
                             runCatching { repository.duplicatePage(doc.id, page.id) }
