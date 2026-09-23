@@ -350,6 +350,22 @@ class SecurityVaultManager(
         }
     }
 
+    fun lockOnBackgroundAsync() {
+        scope.launch(Dispatchers.IO) {
+            registeredIds().forEach { id ->
+                val settings = dao.getDocument(id)
+                    ?.securityRecipe
+                    ?.let(
+                        DocumentSecuritySettingsCodec::decode
+                    )
+                    ?: DocumentSecuritySettings()
+                if (settings.lockOnBackground) {
+                    runCatching { lock(id) }
+                }
+            }
+        }
+    }
+
     suspend fun lockAll() {
         registeredIds().forEach { id ->
             runCatching { lock(id) }
