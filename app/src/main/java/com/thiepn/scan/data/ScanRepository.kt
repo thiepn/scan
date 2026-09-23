@@ -1891,7 +1891,7 @@ class ScanRepository(
             val uncertain = pages.filter { page ->
                 page.sourceSpreadPageId == null &&
                     page.width > page.height * 1.12f &&
-                    (page.bookSplitConfidence ?: 0f) in 0.28f..0.6599f
+                    (page.bookSplitConfidence ?: 0f) >= 0.28f
             }
 
             if (preservedSources.isNotEmpty()) {
