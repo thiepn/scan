@@ -81,6 +81,15 @@ class FileStore(private val context: Context) {
     fun selectedTextExportFile(documentId: String, title: String): File =
         File(exports, "${safeName(title)}-${documentId.take(8)}-selected.txt")
 
+    fun structuredCsvExportFile(documentId: String, title: String): File =
+        File(exports, "${safeName(title)}-${documentId.take(8)}-data.csv")
+
+    fun structuredJsonExportFile(documentId: String, title: String): File =
+        File(exports, "${safeName(title)}-${documentId.take(8)}-data.json")
+
+    fun structuredXlsxExportFile(documentId: String, title: String): File =
+        File(exports, "${safeName(title)}-${documentId.take(8)}-data.xlsx")
+
     fun deleteDocument(documentId: String) {
         File(root, documentId).deleteRecursively()
     }

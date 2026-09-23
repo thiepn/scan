@@ -59,6 +59,8 @@ class ScanRepository(
     fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>> =
         dao.observeDocumentFields(documentId)
     fun observeFormTemplates(): Flow<List<FormTemplateEntity>> = dao.observeFormTemplates()
+    fun observeExtractionSchemas(): Flow<List<ExtractionSchemaEntity>> =
+        dao.observeExtractionSchemas()
 
     fun observeLatestCaptureSession(
         documentId: String
@@ -503,6 +505,7 @@ class ScanRepository(
                 textEditRecipe = null,
                 markupRecipe = null,
                 formFillRecipe = null,
+                structuredData = null,
                 ocrFingerprint = null,
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
@@ -982,6 +985,146 @@ class ScanRepository(
     suspend fun deleteFormTemplate(templateId: String) = withContext(Dispatchers.IO) {
         dao.deleteFormTemplate(templateId)
     }
+
+    suspend fun detectStructuredData(
+        documentId: String,
+        schemaId: String? = null
+    ): Int = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val schema = schemaId?.let { id ->
+            dao.getExtractionSchema(id)?.let { ExtractionSchemaCodec.decode(it.definition) }
+                ?: throw IllegalArgumentException("Extraction schema not found")
+        }
+        var count=0
+        orderedPages(dao.getPages(documentId)).forEach { page ->
+            val layout=OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
+                ?: return@forEach
+            val detected=StructuredDataDetector.detect(
+                layout,ScanMode.fromStored(document.scanMode),schema
+            )
+            dao.setPageStructuredData(page.id,PageStructuredDataCodec.encode(detected))
+            count+=detected.tables.size+detected.keyValues.size
+        }
+        dao.touchDocument(documentId,System.currentTimeMillis())
+        count
+    }
+
+    suspend fun detectStructuredData(
+        documentId: String,
+        pageId: String,
+        schemaId: String? = null
+    ): PageStructuredData = withContext(Dispatchers.IO) {
+        val document=requireEditableDocument(documentId)
+        require(!document.processing){"Document is still processing"}
+        val page=dao.getPage(pageId)?:throw IllegalArgumentException("Page not found")
+        require(page.documentId==documentId&&!page.deleted){"Page does not belong to this document"}
+        val layout=OcrLayoutCodec.decode(page.ocrLayout ?: page.ocrBaseLayout)
+            ?:throw IllegalStateException("Recognize this page before extracting structured data")
+        val schema=schemaId?.let { id ->
+            dao.getExtractionSchema(id)?.let{ExtractionSchemaCodec.decode(it.definition)}
+                ?:throw IllegalArgumentException("Extraction schema not found")
+        }
+        StructuredDataDetector.detect(
+            layout,ScanMode.fromStored(document.scanMode),schema
+        ).also {
+            dao.setPageStructuredData(pageId,PageStructuredDataCodec.encode(it))
+            dao.touchDocument(documentId,System.currentTimeMillis())
+        }
+    }
+
+    suspend fun updateStructuredData(
+        documentId:String,
+        pageId:String,
+        data:PageStructuredData
+    )=withContext(Dispatchers.IO){
+        val document=requireEditableDocument(documentId)
+        require(!document.processing){"Document is still processing"}
+        val page=dao.getPage(pageId)?:throw IllegalArgumentException("Page not found")
+        require(page.documentId==documentId&&!page.deleted){"Page does not belong to this document"}
+        dao.setPageStructuredData(pageId,PageStructuredDataCodec.encode(data.normalized()))
+        dao.touchDocument(documentId,System.currentTimeMillis())
+    }
+
+    suspend fun clearStructuredData(documentId:String)=withContext(Dispatchers.IO){
+        val document=requireEditableDocument(documentId)
+        require(!document.processing){"Document is still processing"}
+        orderedPages(dao.getPages(documentId)).forEach{dao.setPageStructuredData(it.id,null)}
+        dao.touchDocument(documentId,System.currentTimeMillis())
+    }
+
+    suspend fun saveExtractionSchema(documentId:String,name:String):String=
+        withContext(Dispatchers.IO){
+            val document=requireEditableDocument(documentId)
+            require(!document.processing){"Document is still processing"}
+            val clean=name.trim()
+            require(clean.isNotBlank()){"Schema name cannot be blank"}
+            require(clean.length<=80){"Schema name is too long"}
+            val pages=orderedPages(dao.getPages(documentId))
+                .map{PageStructuredDataCodec.decode(it.structuredData)}
+            require(pages.any{!it.isEmpty()}){"Extract structured data before saving a schema"}
+            val definition=ExtractionSchemaCodec.fromPages(pages)
+            require(definition.fields.isNotEmpty()||definition.tables.isNotEmpty()){
+                "No reusable fields or tables found"
+            }
+            val normalized=clean.lowercase().replace(Regex("\\s+")," ").trim()
+            val existing=dao.findExtractionSchema(normalized)
+            val now=System.currentTimeMillis()
+            val id=existing?.id?:UUID.randomUUID().toString()
+            dao.insertExtractionSchema(
+                ExtractionSchemaEntity(
+                    id,clean,normalized,existing?.createdAt?:now,now,
+                    ExtractionSchemaCodec.encode(definition)
+                )
+            )
+            id
+        }
+
+    suspend fun applyExtractionSchema(documentId:String,schemaId:String):Int =
+        detectStructuredData(documentId,schemaId)
+
+    suspend fun deleteExtractionSchema(schemaId:String)=withContext(Dispatchers.IO){
+        dao.deleteExtractionSchema(schemaId)
+    }
+
+    suspend fun createStructuredCsvExport(documentId:String):File?=
+        withContext(Dispatchers.IO){
+            val document=dao.getDocument(documentId)?:return@withContext null
+            require(document.trashedAt==null){"Restore the document before exporting it"}
+            val pages=structuredExportPages(documentId)
+            require(pages.any{!it.data.isEmpty()}){"No structured data to export"}
+            StructuredDataExport.writeCsv(
+                pages,files.structuredCsvExportFile(documentId,document.title)
+            )
+        }
+
+    suspend fun createStructuredJsonExport(documentId:String):File?=
+        withContext(Dispatchers.IO){
+            val document=dao.getDocument(documentId)?:return@withContext null
+            require(document.trashedAt==null){"Restore the document before exporting it"}
+            val pages=structuredExportPages(documentId)
+            require(pages.any{!it.data.isEmpty()}){"No structured data to export"}
+            StructuredDataExport.writeJson(
+                documentId,document.title,pages,
+                files.structuredJsonExportFile(documentId,document.title)
+            )
+        }
+
+    suspend fun createStructuredXlsxExport(documentId:String):File?=
+        withContext(Dispatchers.IO){
+            val document=dao.getDocument(documentId)?:return@withContext null
+            require(document.trashedAt==null){"Restore the document before exporting it"}
+            val pages=structuredExportPages(documentId)
+            require(pages.any{!it.data.isEmpty()}){"No structured data to export"}
+            StructuredDataExport.writeXlsx(
+                pages,files.structuredXlsxExportFile(documentId,document.title)
+            )
+        }
+
+    private suspend fun structuredExportPages(documentId:String):List<StructuredExportPage> =
+        orderedPages(dao.getPages(documentId)).mapIndexed { index,page ->
+            StructuredExportPage(index+1,PageStructuredDataCodec.decode(page.structuredData))
+        }
 
     suspend fun autoCleanupPages(
         documentId: String,
