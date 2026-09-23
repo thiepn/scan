@@ -238,7 +238,8 @@ class ScanRepository(
                 bookSide = source.bookSide,
                 bookSplitConfidence = source.bookSplitConfidence,
                 bookDewarpStrength = 0f,
-                preservedBookSource = false
+                preservedBookSource = false,
+                bookReviewResolved = false
             )
             val newOrder = currentPages.map { it.id }.toMutableList().apply {
                 this[sourceIndex] = replacementId
@@ -271,6 +272,7 @@ class ScanRepository(
         }
         val nextRotation = PageRotation.clockwise(page.rotationDegrees)
         dao.setPageRotation(pageId, nextRotation)
+        invalidateBookAnalysisIfOriginal(document, page)
         dao.clearPageOcr(pageId)
         searchIndex.deletePage(pageId)
         refreshDocumentSummary(documentId, processing = true)
@@ -292,6 +294,7 @@ class ScanRepository(
 
             selected.forEach { page ->
                 dao.setPageRotation(page.id, PageRotation.clockwise(page.rotationDegrees))
+                invalidateBookAnalysisIfOriginal(document, page)
                 dao.clearPageOcr(page.id)
                 searchIndex.deletePage(page.id)
             }
@@ -324,6 +327,7 @@ class ScanRepository(
 
         val encoded = CropQuadCodec.encode(cropQuad)
         dao.setPageCropQuad(pageId, encoded)
+        invalidateBookAnalysisIfOriginal(document, page)
         dao.clearPageOcr(pageId)
         searchIndex.deletePage(pageId)
         refreshDocumentSummary(documentId, processing = true)
@@ -391,7 +395,8 @@ class ScanRepository(
                         bookSide = null,
                         bookSplitConfidence = null,
                         bookDewarpStrength = 0f,
-                        preservedBookSource = false
+                        preservedBookSource = false,
+                        bookReviewResolved = false
                     )
                     nextSortKey += 1000L
                     duplicateBySource[source.id] = duplicateId
@@ -477,6 +482,7 @@ class ScanRepository(
                     !CropQuadCodec.decode(page.cropQuad).isFullFrame()
                 ) {
                     requiresOcr += page.id
+                    invalidateBookAnalysisIfOriginal(document, page)
                     dao.clearPageOcr(page.id)
                     searchIndex.deletePage(page.id)
                 }
@@ -748,6 +754,30 @@ class ScanRepository(
         }
     }
 
+    suspend fun keepBookPageSingle(
+        documentId: String,
+        pageId: String
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        require(ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+            "Switch this document to Book mode first"
+        }
+        val page = dao.getPage(pageId)
+            ?: throw IllegalArgumentException("Page not found")
+        require(
+            page.documentId == documentId &&
+                !page.deleted &&
+                page.sourceSpreadPageId == null
+        ) {
+            "Only an active original book page can be kept as single"
+        }
+
+        dao.setBookReviewResolved(pageId, true)
+        dao.touchDocument(documentId, System.currentTimeMillis())
+        refreshSpecializedFields(documentId)
+    }
+
     suspend fun splitBookPage(
         documentId: String,
         pageId: String,
@@ -825,7 +855,11 @@ class ScanRepository(
                 "Switch this document to Book mode first"
             }
             val candidates = orderedPages(dao.getPages(documentId))
-                .filter { it.sourceSpreadPageId == null }
+                .filter {
+                    it.sourceSpreadPageId == null &&
+                        !it.bookReviewResolved
+                }
+            val before = dao.getPreservedBookSources(documentId).size
             dao.setProcessing(documentId, true, System.currentTimeMillis())
             try {
                 processBookPagesAndRecognize(
@@ -833,7 +867,7 @@ class ScanRepository(
                     pageIds = candidates.map { it.id }
                 )
                 val after = dao.getPreservedBookSources(documentId).size
-                after
+                (after - before).coerceAtLeast(0)
             } catch (error: Throwable) {
                 dao.setProcessing(documentId, false, System.currentTimeMillis())
                 throw error
@@ -860,8 +894,13 @@ class ScanRepository(
         require(derived.isNotEmpty()) { "No derived book pages found" }
         val active = orderedPages(dao.getPages(documentId))
         val derivedIds = derived.map { it.id }.toSet()
-        val insertionIndex = active.indexOfFirst { it.id in derivedIds }
-            .let { if (it >= 0) it else active.size }
+        val derivedIndex = active.indexOfFirst { it.id in derivedIds }
+        val insertionIndex = if (derivedIndex >= 0) {
+            derivedIndex
+        } else {
+            active.indexOfFirst { it.sortKey >= source.sortKey }
+                .let { if (it >= 0) it else active.size }
+        }
         val newOrder = active
             .filterNot { it.id in derivedIds }
             .map { it.id }
@@ -890,7 +929,10 @@ class ScanRepository(
 
     private suspend fun processBookDocument(documentId: String) {
         val pageIds = orderedPages(dao.getPages(documentId))
-            .filter { it.sourceSpreadPageId == null }
+            .filter {
+                it.sourceSpreadPageId == null &&
+                    !it.bookReviewResolved
+            }
             .map { it.id }
         processBookPagesAndRecognize(documentId, pageIds)
     }
@@ -910,7 +952,8 @@ class ScanRepository(
             if (
                 page.deleted ||
                 page.documentId != documentId ||
-                page.sourceSpreadPageId != null
+                page.sourceSpreadPageId != null ||
+                page.bookReviewResolved
             ) {
                 return@forEach
             }
@@ -1844,6 +1887,18 @@ class ScanRepository(
         )
     }
 
+    private suspend fun invalidateBookAnalysisIfOriginal(
+        document: DocumentEntity,
+        page: PageEntity
+    ) {
+        if (
+            ScanMode.fromStored(document.scanMode) == ScanMode.BOOK &&
+            page.sourceSpreadPageId == null
+        ) {
+            dao.clearBookAnalysis(page.id)
+        }
+    }
+
     private suspend fun refreshSpecializedFields(documentId: String) {
         val document = dao.getDocument(documentId) ?: return
         val mode = ScanMode.fromStored(document.scanMode)
@@ -1890,6 +1945,7 @@ class ScanRepository(
             val derivedCount = pages.count { it.sourceSpreadPageId != null }
             val uncertain = pages.filter { page ->
                 page.sourceSpreadPageId == null &&
+                    !page.bookReviewResolved &&
                     page.width > page.height * 1.12f &&
                     (page.bookSplitConfidence ?: 0f) >= 0.28f
             }
