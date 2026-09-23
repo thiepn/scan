@@ -23,6 +23,8 @@ import com.thiepn.scan.data.CropQuadCodec
 import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.OcrWordBox
 import com.thiepn.scan.data.OcrTextEditRenderer
+import com.thiepn.scan.data.PageMarkupRecipeCodec
+import com.thiepn.scan.data.PageMarkupRenderer
 import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageTextEditRecipeCodec
 import com.thiepn.scan.data.PageCleanupRenderer
@@ -43,6 +45,7 @@ fun FileImage(
     visualRecipe: String? = null,
     cleanupRecipe: String? = null,
     textEditRecipe: String? = null,
+    markupRecipe: String? = null,
     highlightWords: List<OcrWordBox> = emptyList(),
     highlightSourceWidth: Int = 0,
     highlightSourceHeight: Int = 0,
@@ -56,7 +59,8 @@ fun FileImage(
         cropQuad,
         visualRecipe,
         cleanupRecipe,
-        textEditRecipe
+        textEditRecipe,
+        markupRecipe
     ) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -71,7 +75,7 @@ fun FileImage(
                 )
                 if (cleaned !== geometry) geometry.recycle()
                 val textEdits = PageTextEditRecipeCodec.decode(textEditRecipe)
-                if (textEdits.isEmpty()) {
+                val rendered = if (textEdits.isEmpty()) {
                     val enhanced = ImageEnhancementRenderer.apply(
                         cleaned,
                         PageVisualRecipeCodec.decode(visualRecipe)
@@ -101,6 +105,12 @@ fun FileImage(
                     if (enhanced !== edited) edited.recycle()
                     enhanced
                 }
+                val marked = PageMarkupRenderer.apply(
+                    rendered,
+                    PageMarkupRecipeCodec.decode(markupRecipe)
+                )
+                if (marked !== rendered) rendered.recycle()
+                marked
             }.getOrNull()
         }
     }
