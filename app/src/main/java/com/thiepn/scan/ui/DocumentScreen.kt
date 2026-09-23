@@ -600,6 +600,13 @@ fun DocumentScreen(
                     canReset = editable && pageHasEdits,
                     canDelete = editable && pages.size > 1,
                     canDragReorder = editable && pages.size > 1 && !selectionMode,
+                    canReviewBookSpread = editable &&
+                        scanMode == ScanMode.BOOK &&
+                        page.sourceSpreadPageId == null &&
+                        !bookReviewBusy,
+                    canRestoreBookSpread = editable &&
+                        scanMode == ScanMode.BOOK &&
+                        page.sourceSpreadPageId != null,
                     onToggleSelected = {
                         selectedPageIds = if (page.id in selectedPageIds) {
                             selectedPageIds - page.id
@@ -652,6 +659,42 @@ fun DocumentScreen(
                         replaceImageLauncher.launch(arrayOf("image/*"))
                     },
                     onRetake = { onRetakePage(page.id, scanMode) },
+                    onReviewBookSpread = {
+                        scope.launch {
+                            bookReviewBusy = true
+                            runCatching {
+                                repository.analyzeBookSpread(doc.id, page.id)
+                            }
+                                .onSuccess { analysis ->
+                                    bookReviewPageId = page.id
+                                    bookReviewAnalysis = analysis
+                                }
+                                .onFailure {
+                                    onMessage(
+                                        it.message ?: "Could not analyze book spread"
+                                    )
+                                }
+                            bookReviewBusy = false
+                        }
+                    },
+                    onRestoreBookSpread = {
+                        val sourceId = page.sourceSpreadPageId
+                        if (sourceId != null) {
+                            scope.launch {
+                                runCatching {
+                                    repository.restoreBookSpread(doc.id, sourceId)
+                                }
+                                    .onSuccess {
+                                        onMessage("Original book spread restored")
+                                    }
+                                    .onFailure {
+                                        onMessage(
+                                            it.message ?: "Could not restore original spread"
+                                        )
+                                    }
+                            }
+                        }
+                    },
                     onReset = {
                         scope.launch {
                             runCatching { repository.resetPageEdits(doc.id, listOf(page.id)) }
@@ -1245,6 +1288,8 @@ private fun PageCard(
     canReset: Boolean,
     canDelete: Boolean,
     canDragReorder: Boolean,
+    canReviewBookSpread: Boolean,
+    canRestoreBookSpread: Boolean,
     onToggleSelected: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -1255,6 +1300,8 @@ private fun PageCard(
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onRetake: () -> Unit,
+    onReviewBookSpread: () -> Unit,
+    onRestoreBookSpread: () -> Unit,
     onReset: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -1352,6 +1399,22 @@ private fun PageCard(
                         }
                         IconButton(onClick = onRetake, enabled = canRetake) {
                             Icon(Icons.Default.CameraAlt, contentDescription = "Retake page")
+                        }
+                        if (canReviewBookSpread) {
+                            IconButton(onClick = onReviewBookSpread) {
+                                Icon(
+                                    Icons.Default.MenuBook,
+                                    contentDescription = "Review book spread"
+                                )
+                            }
+                        }
+                        if (canRestoreBookSpread) {
+                            IconButton(onClick = onRestoreBookSpread) {
+                                Icon(
+                                    Icons.Default.RestorePage,
+                                    contentDescription = "Restore original book spread"
+                                )
+                            }
                         }
                         IconButton(onClick = onReset, enabled = canReset) {
                             Icon(Icons.Default.RestartAlt, contentDescription = "Reset page edits")
