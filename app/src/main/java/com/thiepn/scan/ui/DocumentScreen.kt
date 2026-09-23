@@ -427,7 +427,13 @@ fun DocumentScreen(
                                 enabled = !doc.processing
                             ) {
                                 Icon(Icons.Default.AddAPhoto, contentDescription = null)
-                                Text(" Add pages")
+                                Text(
+                                    if (scanMode == ScanMode.ID_CARD && pages.size == 1) {
+                                        " Scan back"
+                                    } else {
+                                        " Add pages"
+                                    }
+                                )
                             }
                             OutlinedButton(
                                 onClick = { insertPagesOpen = true },
