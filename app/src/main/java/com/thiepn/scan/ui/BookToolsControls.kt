@@ -35,10 +35,11 @@ fun BookToolsBar(
     reviewCount: Int,
     splitCount: Int,
     enabled: Boolean,
-    onAutoProcess: () -> Unit
+    onAutoProcess: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
