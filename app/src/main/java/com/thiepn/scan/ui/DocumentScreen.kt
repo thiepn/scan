@@ -638,6 +638,37 @@ fun DocumentScreen(
         )
     }
 
+    if (scanModeOpen) {
+        ChangeScanModeDialog(
+            current = scanMode,
+            onDismiss = { scanModeOpen = false },
+            onApply = { mode, applyDefaults ->
+                scanModeOpen = false
+                if (mode != scanMode || applyDefaults) {
+                    scope.launch {
+                        runCatching {
+                            repository.setScanMode(
+                                documentId = doc.id,
+                                scanMode = mode,
+                                applyEnhancementDefaults = applyDefaults
+                            )
+                        }
+                            .onSuccess {
+                                documentSearchHits = emptyList()
+                                onMessage(
+                                    "Scan mode changed to ${mode.label}" +
+                                        if (applyDefaults) " with mode defaults" else ""
+                                )
+                            }
+                            .onFailure {
+                                onMessage(it.message ?: "Could not change scan mode")
+                            }
+                    }
+                }
+            }
+        )
+    }
+
     if (organizeDocumentOpen) {
         BulkOrganizeDialog(
             selectedCount = 1,
@@ -757,7 +788,7 @@ fun DocumentScreen(
             onDismiss = { insertPagesOpen = false },
             onInsert = { index ->
                 insertPagesOpen = false
-                onInsertPages(index)
+                onInsertPages(index, scanMode)
             }
         )
     }
