@@ -320,7 +320,10 @@ class SecurityVaultManager(
         }
     }
 
-    suspend fun lock(documentId: String) = mutex.withLock {
+    suspend fun lock(
+        documentId: String,
+        purgeExports: Boolean = true
+    ) = mutex.withLock {
         if (documentId !in registeredIds()) return
         if (documentId in _state.value.lockedDocumentIds) return
         _state.value = _state.value.copy(
@@ -330,9 +333,11 @@ class SecurityVaultManager(
                 _state.value.busyDocumentIds + documentId
         )
         try {
-            files.deletePlaintextExportsForDocument(
-                documentId
-            )
+            if (purgeExports) {
+                files.deletePlaintextExportsForDocument(
+                    documentId
+                )
+            }
             val directory = files.documentDir(documentId)
             if (directory.exists()) {
                 val manifest = DocumentIntegrity.compute(directory)
@@ -367,7 +372,12 @@ class SecurityVaultManager(
                     )
                     ?: DocumentSecuritySettings()
                 if (settings.lockOnBackground) {
-                    runCatching { lock(id) }
+                    runCatching {
+                        lock(
+                            documentId = id,
+                            purgeExports = false
+                        )
+                    }
                 }
             }
         }
