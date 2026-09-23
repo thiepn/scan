@@ -102,14 +102,12 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    override fun onStop() {
-        if (!isChangingConfigurations) {
-            (application as ScanApplication)
-                .graph
-                .vault
-                .lockOnBackgroundAsync()
-        }
-        super.onStop()
+    override fun onUserLeaveHint() {
+        (application as ScanApplication)
+            .graph
+            .vault
+            .lockOnBackgroundAsync()
+        super.onUserLeaveHint()
     }
 }
 
