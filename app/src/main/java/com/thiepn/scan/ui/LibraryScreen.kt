@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.AlertDialog
@@ -64,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.DocumentEntity
+import com.thiepn.scan.data.DocumentSecuritySettingsCodec
 import com.thiepn.scan.data.DocumentTagCrossRef
 import com.thiepn.scan.data.DocumentType
 import com.thiepn.scan.data.FolderEntity
@@ -131,6 +134,8 @@ fun LibraryScreen(
     val tags by repository.observeTags().collectAsStateWithLifecycle(initialValue = emptyList())
     val documentTags by repository.observeDocumentTags()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val vaultState by repository.observeVaultState()
+        .collectAsStateWithLifecycle()
 
     LaunchedEffect(query, filter, liveDocuments.map { it.updatedAt }) {
         if (query.isBlank()) {
@@ -203,8 +208,14 @@ fun LibraryScreen(
         LibrarySort.PAGE_COUNT_DESC -> filteredDocuments.sortedByDescending { it.pageCount }
         LibrarySort.PAGE_COUNT_ASC -> filteredDocuments.sortedBy { it.pageCount }
     }
-    val mergeCandidates = if (filter == LibraryFilter.TRASH) emptyList()
-        else documents.filter { !it.processing }
+    val mergeCandidates = if (filter == LibraryFilter.TRASH) {
+        emptyList()
+    } else {
+        documents.filter {
+            !it.processing &&
+                it.id !in vaultState.lockedDocumentIds
+        }
+    }
 
     Scaffold(
         modifier = Modifier.padding(contentPadding),
@@ -434,6 +445,9 @@ fun LibraryScreen(
                             DocumentCard(
                                 document = document,
                                 repository = repository,
+                                locked =
+                                    document.id in
+                                        vaultState.lockedDocumentIds,
                                 folders = folders,
                                 tags = documentTagList,
                                 selectionMode = selectionMode,
@@ -753,6 +767,7 @@ private fun EmptyLibrary(query: String, filter: LibraryFilter) {
 private fun DocumentCard(
     document: DocumentEntity,
     repository: ScanRepository,
+    locked: Boolean,
     folders: List<FolderEntity>,
     tags: List<TagEntity>,
     selectionMode: Boolean,
@@ -761,8 +776,22 @@ private fun DocumentCard(
     onAcceptSuggestion: () -> Unit,
     onClick: () -> Unit
 ) {
-    val coverFlow = remember(document.id) { repository.observeCoverPage(document.id) }
-    val cover by coverFlow.collectAsStateWithLifecycle(initialValue = null)
+    val coverFlow = remember(document.id) {
+        repository.observeCoverPage(document.id)
+    }
+    val cover by coverFlow.collectAsStateWithLifecycle(
+        initialValue = null
+    )
+    val security = DocumentSecuritySettingsCodec.decode(
+        document.securityRecipe
+    )
+    val hideLockedMetadata =
+        locked && security.hideMetadataWhenLocked
+    val displayTitle = if (hideLockedMetadata) {
+        "Secure document"
+    } else {
+        document.title
+    }
 
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
@@ -777,7 +806,7 @@ private fun DocumentCard(
                 )
             }
             val coverPage = cover
-            if (coverPage != null) {
+            if (coverPage != null && !locked) {
                 Box(
                     modifier = Modifier.width(76.dp).height(104.dp)
                 ) {
@@ -789,7 +818,7 @@ private fun DocumentCard(
                         cropQuad = coverPage.cropQuad,
                         visualRecipe = coverPage.visualRecipe,
                         cleanupRecipe = coverPage.cleanupRecipe,
-                        contentDescription = "Preview of ${document.title}"
+                        contentDescription = "Preview of $displayTitle"
                     )
                     if (document.favorite) {
                         Icon(
@@ -809,7 +838,11 @@ private fun DocumentCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.Description,
+                        if (locked) {
+                            Icons.Default.Lock
+                        } else {
+                            Icons.Default.Description
+                        },
                         contentDescription = null,
                         tint = if (document.favorite) {
                             MaterialTheme.colorScheme.primary
@@ -821,7 +854,7 @@ private fun DocumentCard(
             }
             Column(Modifier.padding(start = 14.dp).weight(1f)) {
                 Text(
-                    document.title,
+                    displayTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
@@ -840,10 +873,27 @@ private fun DocumentCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                val folderLabel = folderPath(document.folderId, folders)
-                val type = DocumentType.fromStored(document.documentType)
-                val cardScanMode = ScanMode.fromStored(document.scanMode)
+                val folderLabel = if (hideLockedMetadata) {
+                    null
+                } else {
+                    folderPath(document.folderId, folders)
+                }
+                val type = if (hideLockedMetadata) {
+                    DocumentType.UNSPECIFIED
+                } else {
+                    DocumentType.fromStored(
+                        document.documentType
+                    )
+                }
+                val cardScanMode = if (hideLockedMetadata) {
+                    ScanMode.DOCUMENT
+                } else {
+                    ScanMode.fromStored(document.scanMode)
+                }
                 val organizationLine = buildString {
+                    if (locked) {
+                        append("Vault locked")
+                    }
                     if (cardScanMode != ScanMode.DOCUMENT) {
                         append(cardScanMode.label)
                     }
@@ -871,7 +921,7 @@ private fun DocumentCard(
                     )
                 }
 
-                if (tags.isNotEmpty()) {
+                if (tags.isNotEmpty() && !hideLockedMetadata) {
                     Text(
                         tags.joinToString("  ") { "#${it.name}" },
                         style = MaterialTheme.typography.labelSmall,
