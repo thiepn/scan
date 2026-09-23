@@ -17,9 +17,11 @@ import kotlinx.coroutines.Dispatchers
         TagEntity::class,
         DocumentTagCrossRef::class,
         DocumentFieldEntity::class,
+        CaptureSessionEntity::class,
+        PageProcessingEntity::class,
         PageEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -275,6 +277,85 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS capture_sessions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        documentId TEXT NOT NULL,
+                        scanMode TEXT NOT NULL,
+                        startedAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        capturedCount INTEGER NOT NULL,
+                        processedCount INTEGER NOT NULL,
+                        duplicateCount INTEGER NOT NULL,
+                        lowQualityCount INTEGER NOT NULL,
+                        failedCount INTEGER NOT NULL,
+                        completedAt INTEGER,
+                        pausedReason TEXT,
+                        FOREIGN KEY(documentId) REFERENCES documents(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_capture_sessions_documentId " +
+                        "ON capture_sessions(documentId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_capture_sessions_status " +
+                        "ON capture_sessions(status)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_capture_sessions_updatedAt " +
+                        "ON capture_sessions(updatedAt)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS page_processing (
+                        pageId TEXT NOT NULL PRIMARY KEY,
+                        documentId TEXT NOT NULL,
+                        sessionId TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        queuedAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        attemptCount INTEGER NOT NULL,
+                        fingerprintHash TEXT,
+                        meanLuma REAL,
+                        edgeEnergy REAL,
+                        aspectRatio REAL,
+                        qualityScore REAL,
+                        duplicateOfPageId TEXT,
+                        lastError TEXT,
+                        FOREIGN KEY(documentId) REFERENCES documents(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(sessionId) REFERENCES capture_sessions(id)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_page_processing_documentId " +
+                        "ON page_processing(documentId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_page_processing_sessionId " +
+                        "ON page_processing(sessionId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_page_processing_status " +
+                        "ON page_processing(status)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_page_processing_documentId_status " +
+                        "ON page_processing(documentId, status)"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -290,7 +371,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_7_8,
                 MIGRATION_8_9,
                 MIGRATION_9_10,
-                MIGRATION_10_11
+                MIGRATION_10_11,
+                MIGRATION_11_12
             )
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
