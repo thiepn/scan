@@ -58,6 +58,7 @@ class ScanRepository(
     fun observeDocumentTags(): Flow<List<DocumentTagCrossRef>> = dao.observeDocumentTags()
     fun observeDocumentFields(documentId: String): Flow<List<DocumentFieldEntity>> =
         dao.observeDocumentFields(documentId)
+    fun observeFormTemplates(): Flow<List<FormTemplateEntity>> = dao.observeFormTemplates()
 
     fun observeLatestCaptureSession(
         documentId: String
@@ -501,6 +502,7 @@ class ScanRepository(
                 ocrBaseLayout = null,
                 textEditRecipe = null,
                 markupRecipe = null,
+                formFillRecipe = null,
                 ocrFingerprint = null,
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
@@ -747,11 +749,12 @@ class ScanRepository(
             ?: throw IllegalStateException("Recognize this page before editing its text")
         val normalized = recipe.normalized()
         val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
+        val form = PageFormRecipeCodec.decode(page.formFillRecipe)
         val edited = PageMarkupOcr.applyRedactions(
-            OcrTextEditEngine.apply(base, normalized),
+            FormFillOcr.apply(OcrTextEditEngine.apply(base, normalized), form),
             markup
         )
-        val needsBase = !normalized.isEmpty() || markup.hasRedactions()
+        val needsBase = !normalized.isEmpty() || markup.hasRedactions() || form.hasSearchableValues()
 
         dao.updatePageSemanticEdits(
             pageId = pageId,
@@ -785,6 +788,7 @@ class ScanRepository(
         val baseEncoded = page.ocrBaseLayout ?: page.ocrLayout
         val base = OcrLayoutCodec.decode(baseEncoded)
         val textRecipe = PageTextEditRecipeCodec.decode(page.textEditRecipe)
+        val form = PageFormRecipeCodec.decode(page.formFillRecipe)
 
         if (base == null) {
             if (normalized.hasRedactions()) {
@@ -818,10 +822,10 @@ class ScanRepository(
         }
 
         val edited = PageMarkupOcr.applyRedactions(
-            OcrTextEditEngine.apply(base, textRecipe),
+            FormFillOcr.apply(OcrTextEditEngine.apply(base, textRecipe), form),
             normalized
         )
-        val needsBase = !textRecipe.isEmpty() || normalized.hasRedactions()
+        val needsBase = !textRecipe.isEmpty() || normalized.hasRedactions() || form.hasSearchableValues()
         dao.updatePageSemanticEdits(
             pageId = pageId,
             text = edited.text,
@@ -835,6 +839,148 @@ class ScanRepository(
         if (edited.text.isBlank()) searchIndex.deletePage(pageId) else
             searchIndex.upsertPage(documentId, pageId, edited.text)
         refreshDocumentSummary(documentId)
+    }
+
+    suspend fun detectFormFields(
+        documentId: String,
+        pageId: String
+    ): Int = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId) ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+        val layout = OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)
+            ?: throw IllegalStateException("Recognize this page before detecting form fields")
+        val current = PageFormRecipeCodec.decode(page.formFillRecipe)
+        val merged = FormFieldDetector.merge(current, FormFieldDetector.detect(layout))
+        val additions = (merged.fields.size - current.fields.size).coerceAtLeast(0)
+        dao.setPageFormFillRecipe(pageId, PageFormRecipeCodec.encode(merged))
+        dao.touchDocument(documentId, System.currentTimeMillis())
+        additions
+    }
+
+    suspend fun detectFormFields(documentId: String): Int = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        var additions = 0
+        orderedPages(dao.getPages(documentId)).forEach { page ->
+            val layout = OcrLayoutCodec.decode(page.ocrBaseLayout ?: page.ocrLayout)
+                ?: return@forEach
+            val current = PageFormRecipeCodec.decode(page.formFillRecipe)
+            val merged = FormFieldDetector.merge(current, FormFieldDetector.detect(layout))
+            additions += (merged.fields.size - current.fields.size).coerceAtLeast(0)
+            dao.setPageFormFillRecipe(page.id, PageFormRecipeCodec.encode(merged))
+        }
+        dao.touchDocument(documentId, System.currentTimeMillis())
+        additions
+    }
+
+    suspend fun updatePageForm(
+        documentId: String,
+        pageId: String,
+        recipe: PageFormRecipe
+    ) = withContext(Dispatchers.IO) {
+        val document = requireEditableDocument(documentId)
+        require(!document.processing) { "Document is still processing" }
+        val page = dao.getPage(pageId) ?: throw IllegalArgumentException("Page not found")
+        require(page.documentId == documentId && !page.deleted) {
+            "Page does not belong to this document"
+        }
+
+        val normalized = recipe.normalized()
+        val encoded = PageFormRecipeCodec.encode(normalized)
+        dao.setPageFormFillRecipe(pageId, encoded)
+
+        val baseEncoded = page.ocrBaseLayout ?: page.ocrLayout
+        val base = OcrLayoutCodec.decode(baseEncoded)
+        if (base == null) {
+            dao.touchDocument(documentId, System.currentTimeMillis())
+            return@withContext
+        }
+
+        val textRecipe = PageTextEditRecipeCodec.decode(page.textEditRecipe)
+        val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
+        val edited = PageMarkupOcr.applyRedactions(
+            FormFillOcr.apply(OcrTextEditEngine.apply(base, textRecipe), normalized),
+            markup
+        )
+        val needsBase = !textRecipe.isEmpty() || markup.hasRedactions() || normalized.hasSearchableValues()
+        dao.updatePageSemanticEdits(
+            pageId = pageId,
+            text = edited.text,
+            layout = OcrLayoutCodec.encode(edited),
+            baseLayout = if (needsBase) baseEncoded else null,
+            textRecipe = page.textEditRecipe,
+            markupRecipe = page.markupRecipe,
+            fingerprint = page.ocrFingerprint,
+            script = page.ocrScript
+        )
+        if (edited.text.isBlank()) searchIndex.deletePage(pageId) else
+            searchIndex.upsertPage(documentId, pageId, edited.text)
+        refreshDocumentSummary(documentId)
+    }
+
+    suspend fun saveFormTemplate(documentId: String, name: String): String =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            val clean = name.trim()
+            require(clean.isNotBlank()) { "Template name cannot be blank" }
+            require(clean.length <= 80) { "Template name is too long" }
+            val pages = orderedPages(dao.getPages(documentId))
+            val recipes = pages.map { PageFormRecipeCodec.decode(it.formFillRecipe).blankValues() }
+            require(recipes.any { !it.isEmpty() }) { "Detect or add form fields before saving a template" }
+            val normalizedName = clean.lowercase().replace(Regex("\\s+"), " ").trim()
+            val existing = dao.findFormTemplate(normalizedName)
+            val now = System.currentTimeMillis()
+            val id = existing?.id ?: UUID.randomUUID().toString()
+            dao.insertFormTemplate(
+                FormTemplateEntity(
+                    id = id,
+                    name = clean,
+                    normalizedName = normalizedName,
+                    createdAt = existing?.createdAt ?: now,
+                    updatedAt = now,
+                    pageCount = pages.size,
+                    layout = FormTemplateCodec.encode(FormTemplateBundle(pages = recipes))
+                )
+            )
+            id
+        }
+
+    suspend fun applyFormTemplate(documentId: String, templateId: String) =
+        withContext(Dispatchers.IO) {
+            val document = requireEditableDocument(documentId)
+            require(!document.processing) { "Document is still processing" }
+            val template = dao.getFormTemplate(templateId)
+                ?: throw IllegalArgumentException("Form template not found")
+            val bundle = FormTemplateCodec.decode(template.layout)
+                ?: throw IllegalStateException("Form template is corrupted")
+            val pages = orderedPages(dao.getPages(documentId))
+            require(bundle.pages.size == pages.size) {
+                "This template expects ${bundle.pages.size} pages, but the document has ${pages.size}"
+            }
+            pages.forEachIndexed { index, page ->
+                dao.setPageFormFillRecipe(
+                    page.id,
+                    PageFormRecipeCodec.encode(bundle.pages[index].blankValues())
+                )
+            }
+            val profile = ScanModeProfiles.forMode(ScanMode.fromStored(document.scanMode))
+            if (profile.ocrEnabled) {
+                refreshDocumentSummary(documentId, processing = true)
+                appScope.launch(Dispatchers.IO) {
+                    recognizePagesAndRefresh(documentId, pages.map { it.id })
+                }
+            } else {
+                dao.touchDocument(documentId, System.currentTimeMillis())
+            }
+        }
+
+    suspend fun deleteFormTemplate(templateId: String) = withContext(Dispatchers.IO) {
+        dao.deleteFormTemplate(templateId)
     }
 
     suspend fun autoCleanupPages(
@@ -1064,10 +1210,12 @@ class ScanRepository(
                         !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
                         !page.cleanupRecipe.isNullOrBlank()
                 val markup = PageMarkupRecipeCodec.decode(page.markupRecipe)
+                val form = PageFormRecipeCodec.decode(page.formFillRecipe)
                 val hasTextEdits =
                     !page.textEditRecipe.isNullOrBlank() ||
                         !page.ocrBaseLayout.isNullOrBlank()
-                val hasSemanticEdits = hasTextEdits || markup.hasRedactions()
+                val hasSemanticEdits =
+                    hasTextEdits || markup.hasRedactions() || form.hasSearchableValues()
 
                 when {
                     semanticGeometryChanged -> {
@@ -1108,6 +1256,7 @@ class ScanRepository(
                 dao.setPageVisualRecipe(page.id, null)
                 dao.setPageCleanupRecipe(page.id, null)
                 dao.setPageMarkupRecipe(page.id, null)
+                dao.setPageFormFillRecipe(page.id, null)
             }
 
             if (requiresOcr.isEmpty()) {
@@ -1352,11 +1501,12 @@ class ScanRepository(
         val page = dao.getPage(pageId)
         val textRecipe = PageTextEditRecipeCodec.decode(page?.textEditRecipe)
         val markup = PageMarkupRecipeCodec.decode(page?.markupRecipe)
+        val form = PageFormRecipeCodec.decode(page?.formFillRecipe)
         val result = PageMarkupOcr.applyRedactions(
-            OcrTextEditEngine.apply(base, textRecipe),
+            FormFillOcr.apply(OcrTextEditEngine.apply(base, textRecipe), form),
             markup
         )
-        val needsBase = !textRecipe.isEmpty() || markup.hasRedactions()
+        val needsBase = !textRecipe.isEmpty() || markup.hasRedactions() || form.hasSearchableValues()
         dao.updatePageSemanticEdits(
             pageId = pageId,
             text = result.text,
@@ -1616,7 +1766,8 @@ class ScanRepository(
                 page.sourceSpreadPageId != null ||
                 page.bookReviewResolved ||
                 !page.textEditRecipe.isNullOrBlank() ||
-                !page.markupRecipe.isNullOrBlank()
+                !page.markupRecipe.isNullOrBlank() ||
+                !page.formFillRecipe.isNullOrBlank()
             ) {
                 return@forEach
             }
@@ -2241,7 +2392,8 @@ class ScanRepository(
             !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                 !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
                 !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty() ||
+                PageFormRecipeCodec.decode(it.formFillRecipe).hasFillContent()
         }
 
         if (
@@ -2328,7 +2480,8 @@ class ScanRepository(
                 !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                     !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
                     !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty() ||
+                PageFormRecipeCodec.decode(it.formFillRecipe).hasFillContent()
             }
             if (source != null && !hasGeometryEdits && !hasVisualEdits) {
                 pdfEngine.extractPages(
@@ -2379,7 +2532,8 @@ class ScanRepository(
             !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                 !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
                 !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty() ||
+                PageFormRecipeCodec.decode(it.formFillRecipe).hasFillContent()
         }
 
         runCatching {
@@ -2464,7 +2618,8 @@ class ScanRepository(
                         !PageVisualRecipeCodec.decode(it.visualRecipe).isOriginal() ||
                             !PageCleanupRecipeCodec.decode(it.cleanupRecipe).isEmpty() ||
                             !PageTextEditRecipeCodec.decode(it.textEditRecipe).isEmpty() ||
-                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty()
+                !PageMarkupRecipeCodec.decode(it.markupRecipe).isEmpty() ||
+                PageFormRecipeCodec.decode(it.formFillRecipe).hasFillContent()
                     }
                     val unchanged = deleted.isEmpty() &&
                         nativeOrder == (0 until pages.size).toList() &&
@@ -2928,6 +3083,9 @@ class ScanRepository(
         requireNoTextEdits(page, action)
         require(page.markupRecipe.isNullOrBlank()) {
             "Revert page markup before $action"
+        }
+        require(page.formFillRecipe.isNullOrBlank()) {
+            "Clear form fields before $action"
         }
     }
 

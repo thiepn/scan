@@ -111,6 +111,23 @@ data class DocumentFieldEntity(
 )
 
 @Entity(
+    tableName = "form_templates",
+    indices = [
+        Index("updatedAt"),
+        Index(value = ["normalizedName"], unique = true)
+    ]
+)
+data class FormTemplateEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val normalizedName: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val pageCount: Int,
+    val layout: String
+)
+
+@Entity(
     tableName = "capture_sessions",
     foreignKeys = [
         ForeignKey(
@@ -221,6 +238,7 @@ data class PageEntity(
     val ocrBaseLayout: String? = null,
     val textEditRecipe: String? = null,
     val markupRecipe: String? = null,
+    val formFillRecipe: String? = null,
     val ocrFingerprint: String? = null,
     val ocrScript: String? = null,
     val sourceSpreadPageId: String? = null,
