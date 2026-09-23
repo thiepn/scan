@@ -1,20 +1,27 @@
 package com.thiepn.scan
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,15 +30,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import com.thiepn.scan.data.DocumentSecuritySettingsCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanModeProfiles
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.ui.DocumentScreen
 import com.thiepn.scan.ui.LibraryScreen
 import com.thiepn.scan.ui.ScanTheme
+import com.thiepn.scan.ui.VaultLockedScreen
 import com.thiepn.scan.util.displayName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,28 +80,56 @@ private sealed interface PendingScanAction {
     ) : PendingScanAction
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repository = (application as ScanApplication).graph.repository
         setContent {
             ScanTheme {
                 Surface(Modifier.fillMaxSize()) {
-                    ScanApp(repository)
+                    ScanApp(
+                        repository = repository,
+                        authenticate = { onSuccess, onError ->
+                            requestVaultAuthentication(
+                                activity = this@MainActivity,
+                                onSuccess = onSuccess,
+                                onError = onError
+                            )
+                        }
+                    )
                 }
             }
         }
     }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            (application as ScanApplication)
+                .graph
+                .vault
+                .lockOnBackgroundAsync()
+        }
+        super.onStop()
+    }
 }
 
 @Composable
-private fun ScanApp(repository: ScanRepository) {
+private fun ScanApp(
+    repository: ScanRepository,
+    authenticate: (
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) -> Unit
+) {
     val context = LocalContext.current
     val activity = context as Activity
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var selectedDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var vaultUnlockBusy by remember { mutableStateOf(false) }
+    val vaultState by repository.observeVaultState()
+        .collectAsStateWithLifecycle()
     var pendingScanAction by remember { mutableStateOf<PendingScanAction?>(null) }
 
     lateinit var scannerLauncher: ActivityResultLauncher<IntentSenderRequest>
@@ -565,6 +603,96 @@ private fun ScanApp(repository: ScanRepository) {
                 }
             )
         } else {
+            val selectedDocumentFlow = remember(id) {
+                repository.observeDocument(id)
+            }
+            val selectedDocument by selectedDocumentFlow
+                .collectAsStateWithLifecycle(initialValue = null)
+            val security = DocumentSecuritySettingsCodec.decode(
+                selectedDocument?.securityRecipe
+            )
+            val protectedDocument =
+                id in vaultState.protectedDocumentIds
+            val lockedDocument =
+                id in vaultState.lockedDocumentIds
+
+            DisposableEffect(
+                id,
+                protectedDocument,
+                security.blockScreenshots
+            ) {
+                if (
+                    protectedDocument &&
+                    security.blockScreenshots
+                ) {
+                    activity.window.addFlags(
+                        WindowManager.LayoutParams.FLAG_SECURE
+                    )
+                } else {
+                    activity.window.clearFlags(
+                        WindowManager.LayoutParams.FLAG_SECURE
+                    )
+                }
+                onDispose {
+                    activity.window.clearFlags(
+                        WindowManager.LayoutParams.FLAG_SECURE
+                    )
+                }
+            }
+
+            if (protectedDocument && lockedDocument) {
+                VaultLockedScreen(
+                    contentPadding = padding,
+                    busy = vaultUnlockBusy,
+                    integrityWarning =
+                        id in
+                            vaultState.integrityFailedDocumentIds,
+                    onUnlock = {
+                        if (!vaultUnlockBusy) {
+                            vaultUnlockBusy = true
+                            authenticate(
+                                {
+                                    scope.launch {
+                                        runCatching {
+                                            repository
+                                                .unlockVaultDocument(
+                                                    id
+                                                )
+                                        }
+                                            .onSuccess { valid ->
+                                                if (!valid) {
+                                                    snackbar
+                                                        .showSnackbar(
+                                                            "Unlocked, but the document integrity manifest does not match."
+                                                        )
+                                                }
+                                            }
+                                            .onFailure {
+                                                snackbar
+                                                    .showSnackbar(
+                                                        it.message
+                                                            ?: "Could not unlock secure document"
+                                                    )
+                                            }
+                                        vaultUnlockBusy = false
+                                    }
+                                },
+                                { message ->
+                                    vaultUnlockBusy = false
+                                    scope.launch {
+                                        snackbar.showSnackbar(
+                                            message
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    },
+                    onBack = {
+                        selectedDocumentId = null
+                    }
+                )
+            } else {
             DocumentScreen(
                 documentId = id,
                 repository = repository,
@@ -647,8 +775,70 @@ private fun ScanApp(repository: ScanRepository) {
                     scope.launch { snackbar.showSnackbar(message) }
                 }
             )
+            }
         }
     }
+}
+
+
+private fun requestVaultAuthentication(
+    activity: FragmentActivity,
+    onSuccess: () -> Unit,
+    onError: (String) -> Unit
+) {
+    val biometric = BiometricManager.from(activity)
+    val keyguard = activity.getSystemService(
+        Context.KEYGUARD_SERVICE
+    ) as KeyguardManager
+    val executor = ContextCompat.getMainExecutor(activity)
+
+    val canUseBiometric = biometric.canAuthenticate(
+        BiometricManager.Authenticators.BIOMETRIC_WEAK
+    ) == BiometricManager.BIOMETRIC_SUCCESS
+    val canUseCredential = keyguard.isDeviceSecure
+    if (!canUseBiometric && !canUseCredential) {
+        onError(
+            "Set up biometrics or a device screen lock before using the secure vault."
+        )
+        return
+    }
+
+    val prompt = BiometricPrompt(
+        activity,
+        executor,
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(
+                result: BiometricPrompt.AuthenticationResult
+            ) {
+                onSuccess()
+            }
+
+            override fun onAuthenticationError(
+                errorCode: Int,
+                errString: CharSequence
+            ) {
+                onError(errString.toString())
+            }
+        }
+    )
+
+    val builder = BiometricPrompt.PromptInfo.Builder()
+        .setTitle("Unlock secure document")
+        .setSubtitle(
+            "Authenticate to decrypt this document."
+        )
+
+    if (Build.VERSION.SDK_INT >= 30) {
+        builder.setAllowedAuthenticators(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        builder.setDeviceCredentialAllowed(true)
+    }
+
+    prompt.authenticate(builder.build())
 }
 
 private fun startModeScanner(
