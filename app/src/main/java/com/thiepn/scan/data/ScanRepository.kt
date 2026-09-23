@@ -236,7 +236,11 @@ class ScanRepository(
                 ocrScript = null,
                 sourceSpreadPageId = source.sourceSpreadPageId,
                 bookSide = source.bookSide,
-                bookSplitConfidence = source.bookSplitConfidence,
+                bookSplitConfidence = if (source.sourceSpreadPageId == null) {
+                    null
+                } else {
+                    source.bookSplitConfidence
+                },
                 bookDewarpStrength = 0f,
                 preservedBookSource = false,
                 bookReviewResolved = false
@@ -252,7 +256,17 @@ class ScanRepository(
             searchIndex.deletePage(source.id)
             File(source.imagePath).takeIf { it.absolutePath != replacementFile.absolutePath }?.delete()
             appScope.launch(Dispatchers.IO) {
-                recognizePageAndRefresh(documentId, replacementId)
+                if (
+                    ScanMode.fromStored(document.scanMode) == ScanMode.BOOK &&
+                    source.sourceSpreadPageId == null
+                ) {
+                    processBookPagesAndRecognize(
+                        documentId,
+                        listOf(replacementId)
+                    )
+                } else {
+                    recognizePageAndRefresh(documentId, replacementId)
+                }
             }
         } catch (error: Throwable) {
             replacementFile.delete()
@@ -277,7 +291,14 @@ class ScanRepository(
         searchIndex.deletePage(pageId)
         refreshDocumentSummary(documentId, processing = true)
         appScope.launch(Dispatchers.IO) {
-            recognizePageAndRefresh(documentId, pageId)
+            if (
+                ScanMode.fromStored(document.scanMode) == ScanMode.BOOK &&
+                page.sourceSpreadPageId == null
+            ) {
+                processBookPagesAndRecognize(documentId, listOf(pageId))
+            } else {
+                recognizePageAndRefresh(documentId, pageId)
+            }
         }
     }
 
@@ -300,7 +321,19 @@ class ScanRepository(
             }
             refreshDocumentSummary(documentId, processing = true)
             appScope.launch(Dispatchers.IO) {
-                recognizePagesAndRefresh(documentId, selected.map { it.id })
+                val hasOriginalBookPage =
+                    ScanMode.fromStored(document.scanMode) == ScanMode.BOOK &&
+                        selected.any { it.sourceSpreadPageId == null }
+                if (hasOriginalBookPage) {
+                    processBookPagesAndRecognize(
+                        documentId,
+                        selected
+                            .filter { it.sourceSpreadPageId == null }
+                            .map { it.id }
+                    )
+                } else {
+                    recognizePagesAndRefresh(documentId, selected.map { it.id })
+                }
             }
         }
 
@@ -333,7 +366,14 @@ class ScanRepository(
         refreshDocumentSummary(documentId, processing = true)
 
         appScope.launch(Dispatchers.IO) {
-            recognizePageAndRefresh(documentId, pageId)
+            if (
+                ScanMode.fromStored(document.scanMode) == ScanMode.BOOK &&
+                page.sourceSpreadPageId == null
+            ) {
+                processBookPagesAndRecognize(documentId, listOf(pageId))
+            } else {
+                recognizePageAndRefresh(documentId, pageId)
+            }
         }
     }
 
@@ -417,7 +457,17 @@ class ScanRepository(
                         deleted = duplicate.deleted
                     )
                 }
-                refreshDocumentSummary(documentId)
+                if (ScanMode.fromStored(document.scanMode) == ScanMode.BOOK) {
+                    refreshDocumentSummary(documentId, processing = true)
+                    appScope.launch(Dispatchers.IO) {
+                        processBookPagesAndRecognize(
+                            documentId,
+                            duplicates.map { it.id }
+                        )
+                    }
+                } else {
+                    refreshDocumentSummary(documentId)
+                }
                 duplicates.size
             } catch (error: Throwable) {
                 copiedFiles.forEach { it.delete() }
@@ -496,7 +546,27 @@ class ScanRepository(
             } else {
                 refreshDocumentSummary(documentId, processing = true)
                 appScope.launch(Dispatchers.IO) {
-                    recognizePagesAndRefresh(documentId, requiresOcr)
+                    val originalBookIds = if (
+                        ScanMode.fromStored(document.scanMode) == ScanMode.BOOK
+                    ) {
+                        selected
+                            .filter {
+                                it.id in requiresOcr &&
+                                    it.sourceSpreadPageId == null
+                            }
+                            .map { it.id }
+                    } else {
+                        emptyList()
+                    }
+
+                    if (originalBookIds.isNotEmpty()) {
+                        processBookPagesAndRecognize(
+                            documentId,
+                            originalBookIds
+                        )
+                    } else {
+                        recognizePagesAndRefresh(documentId, requiresOcr)
+                    }
                 }
             }
         }
