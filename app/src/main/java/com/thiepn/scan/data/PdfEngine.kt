@@ -57,7 +57,9 @@ class PdfEngine(
         }
         destination.parentFile?.mkdirs()
 
-        PDDocument().use { document ->
+        PDDocument(
+            MemoryUsageSetting.setupTempFileOnly()
+        ).use { document ->
             PdfStandardsSupport.prepareDocument(
                 context = context,
                 document = document,
@@ -381,7 +383,9 @@ class PdfEngine(
         destination.parentFile?.mkdirs()
 
         PDDocument.load(source).use { sourceDocument ->
-            PDDocument().use { output ->
+            PDDocument(
+                MemoryUsageSetting.setupTempFileOnly()
+            ).use { output ->
                 pageIndices.forEachIndexed { outputIndex, index ->
                     require(index in 0 until sourceDocument.numberOfPages) {
                         "Page ${index + 1} is outside the document"
