@@ -3481,7 +3481,10 @@ class ScanRepository(
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
             require(pages.size - selected.size >= 1) { "A document must keep at least one page" }
 
-            dao.setPagesDeleted(selected.map { it.id }, true)
+            dao.setPagesDeletedSafely(
+                selected.map { it.id },
+                true
+            )
             selected.forEach { searchIndex.deletePage(it.id) }
             refreshDocumentSummary(documentId)
         }
@@ -3502,7 +3505,10 @@ class ScanRepository(
             val selected = deleted.filter { it.id in requested }
             require(selected.size == requested.size) { "One or more deleted pages are unavailable" }
 
-            dao.setPagesDeleted(selected.map { it.id }, false)
+            dao.setPagesDeletedSafely(
+                selected.map { it.id },
+                false
+            )
             val activeScript = OcrScript.fromStored(document.ocrScript)
             val stale = selected.filter { it.ocrScript != activeScript.name || it.ocrLayout.isNullOrBlank() }
             val reusable = selected - stale.toSet()
