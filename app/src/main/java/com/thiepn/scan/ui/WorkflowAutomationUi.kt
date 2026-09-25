@@ -41,9 +41,11 @@ import com.thiepn.scan.data.ComplianceSettings
 import com.thiepn.scan.data.DocumentProcessingPreset
 import com.thiepn.scan.data.DocumentSecuritySettings
 import com.thiepn.scan.data.DocumentType
+import com.thiepn.scan.data.ExportOptimization
 import com.thiepn.scan.data.ExtractionSchemaEntity
 import com.thiepn.scan.data.FolderEntity
 import com.thiepn.scan.data.PdfStandard
+import com.thiepn.scan.data.PrivacyExportMode
 import com.thiepn.scan.data.ProcessingPresetEntity
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanRepository
@@ -90,12 +92,31 @@ fun WorkflowAutomationDialog(
     var presetTagIds by remember { mutableStateOf(setOf<String>()) }
     var presetType by remember { mutableStateOf<DocumentType?>(null) }
     var presetReview by remember { mutableStateOf<Boolean?>(null) }
-    var presetFavorite by remember { mutableStateOf(false) }
-    var presetArchive by remember { mutableStateOf(false) }
+    var presetFavorite by remember { mutableStateOf<Boolean?>(null) }
+    var presetArchive by remember { mutableStateOf<Boolean?>(null) }
     var presetSchemaId by remember { mutableStateOf<String?>(null) }
-    var presetPdfStandard by remember { mutableStateOf<PdfStandard?>(null) }
-    var presetAccessiblePdf by remember { mutableStateOf(false) }
+
+    var presetApplyCompliance by remember { mutableStateOf(false) }
+    var presetPdfStandard by remember { mutableStateOf(PdfStandard.STANDARD) }
+    var presetAccessibilityMode by remember {
+        mutableStateOf(AccessibilityMode.NONE)
+    }
+    var presetDocumentLanguage by remember { mutableStateOf("en") }
+    var presetOptimization by remember {
+        mutableStateOf(ExportOptimization.HIGH)
+    }
+    var presetValidateAfterExport by remember { mutableStateOf(true) }
+
+    var presetApplySecurity by remember { mutableStateOf(false) }
     var presetVault by remember { mutableStateOf(false) }
+    var presetLockOnBackground by remember { mutableStateOf(true) }
+    var presetHideMetadata by remember { mutableStateOf(true) }
+    var presetBlockScreenshots by remember { mutableStateOf(true) }
+    var presetSecureDelete by remember { mutableStateOf(true) }
+    var presetPrivacyMode by remember {
+        mutableStateOf(PrivacyExportMode.STRIP_METADATA_AND_OCR)
+    }
+
     var presetDestinationId by remember { mutableStateOf<String?>(null) }
 
     var ruleName by remember { mutableStateOf("") }
@@ -242,13 +263,56 @@ fun WorkflowAutomationDialog(
                             noneLabel = "No extraction schema",
                             onSelected = { presetSchemaId = it }
                         )
-                        ChoiceMenu(
-                            label = "PDF compliance",
-                            selected = presetPdfStandard,
-                            options = PdfStandard.entries.map { it to it.label },
-                            noneLabel = "No compliance action",
-                            onSelected = { presetPdfStandard = it }
+                        ToggleRow(
+                            checked = presetApplyCompliance,
+                            label = "Apply compliance / PDF policy",
+                            onCheckedChange = { presetApplyCompliance = it }
                         )
+                        if (presetApplyCompliance) {
+                            ChoiceMenu(
+                                label = "PDF standard",
+                                selected = presetPdfStandard,
+                                options = PdfStandard.entries.map { it to it.label },
+                                noneLabel = PdfStandard.STANDARD.label,
+                                allowNone = false,
+                                onSelected = { selected ->
+                                    if (selected != null) presetPdfStandard = selected
+                                }
+                            )
+                            ChoiceMenu(
+                                label = "Accessibility",
+                                selected = presetAccessibilityMode,
+                                options = AccessibilityMode.entries.map { it to it.label },
+                                noneLabel = AccessibilityMode.NONE.label,
+                                allowNone = false,
+                                onSelected = { selected ->
+                                    if (selected != null) presetAccessibilityMode = selected
+                                }
+                            )
+                            OutlinedTextField(
+                                value = presetDocumentLanguage,
+                                onValueChange = { presetDocumentLanguage = it },
+                                label = { Text("Document language tag") },
+                                supportingText = { Text("Examples: en, de, fr, ko") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            ChoiceMenu(
+                                label = "Export optimization",
+                                selected = presetOptimization,
+                                options = ExportOptimization.entries.map { it to it.label },
+                                noneLabel = ExportOptimization.HIGH.label,
+                                allowNone = false,
+                                onSelected = { selected ->
+                                    if (selected != null) presetOptimization = selected
+                                }
+                            )
+                            ToggleRow(
+                                checked = presetValidateAfterExport,
+                                label = "Validate after standards export",
+                                onCheckedChange = { presetValidateAfterExport = it }
+                            )
+                        }
                         ChoiceMenu(
                             label = "Scan-to destination",
                             selected = presetDestinationId,
@@ -276,45 +340,90 @@ fun WorkflowAutomationDialog(
                                 )
                             }
                         }
-                        ToggleRow(
-                            checked = presetFavorite,
-                            label = "Mark as favorite",
-                            onCheckedChange = { presetFavorite = it }
+                        ChoiceMenu(
+                            label = "Favorite state",
+                            selected = presetFavorite,
+                            options = listOf(
+                                true to "Mark favorite",
+                                false to "Clear favorite"
+                            ),
+                            noneLabel = "No favorite action",
+                            onSelected = { presetFavorite = it }
+                        )
+                        ChoiceMenu(
+                            label = "Archive state",
+                            selected = presetArchive,
+                            options = listOf(
+                                true to "Archive after processing",
+                                false to "Restore from archive"
+                            ),
+                            noneLabel = "No archive action",
+                            onSelected = { presetArchive = it }
                         )
                         ToggleRow(
-                            checked = presetArchive,
-                            label = "Archive after processing",
-                            onCheckedChange = { presetArchive = it }
+                            checked = presetApplySecurity,
+                            label = "Apply security / privacy policy",
+                            onCheckedChange = { presetApplySecurity = it }
                         )
-                        ToggleRow(
-                            checked = presetAccessiblePdf,
-                            label = "Require tagged OCR accessibility",
-                            onCheckedChange = { presetAccessiblePdf = it }
-                        )
-                        ToggleRow(
-                            checked = presetVault,
-                            label = "Protect in vault after workflow",
-                            onCheckedChange = { presetVault = it }
-                        )
+                        if (presetApplySecurity) {
+                            ToggleRow(
+                                checked = presetVault,
+                                label = "Protect in vault",
+                                onCheckedChange = { presetVault = it }
+                            )
+                            ToggleRow(
+                                checked = presetLockOnBackground,
+                                label = "Lock vault on background",
+                                onCheckedChange = { presetLockOnBackground = it }
+                            )
+                            ToggleRow(
+                                checked = presetHideMetadata,
+                                label = "Hide metadata while locked",
+                                onCheckedChange = { presetHideMetadata = it }
+                            )
+                            ToggleRow(
+                                checked = presetBlockScreenshots,
+                                label = "Block screenshots for protected documents",
+                                onCheckedChange = { presetBlockScreenshots = it }
+                            )
+                            ToggleRow(
+                                checked = presetSecureDelete,
+                                label = "Best-effort secure deletion",
+                                onCheckedChange = { presetSecureDelete = it }
+                            )
+                            ChoiceMenu(
+                                label = "Privacy export",
+                                selected = presetPrivacyMode,
+                                options = PrivacyExportMode.entries.map { it to it.label },
+                                noneLabel = PrivacyExportMode.STRIP_METADATA_AND_OCR.label,
+                                allowNone = false,
+                                onSelected = { selected ->
+                                    if (selected != null) presetPrivacyMode = selected
+                                }
+                            )
+                        }
                         TextButton(
                             onClick = {
-                                val compliance = if (
-                                    presetPdfStandard != null || presetAccessiblePdf
-                                ) {
+                                val compliance = if (presetApplyCompliance) {
                                     ComplianceSettings(
-                                        pdfStandard = presetPdfStandard
-                                            ?: PdfStandard.STANDARD,
-                                        accessibilityMode = if (presetAccessiblePdf) {
-                                            AccessibilityMode.TAGGED_OCR
-                                        } else {
-                                            AccessibilityMode.NONE
-                                        }
+                                        pdfStandard = presetPdfStandard,
+                                        accessibilityMode = presetAccessibilityMode,
+                                        documentLanguage = presetDocumentLanguage,
+                                        optimization = presetOptimization,
+                                        validateAfterExport = presetValidateAfterExport
                                     )
                                 } else {
                                     null
                                 }
-                                val security = if (presetVault) {
-                                    DocumentSecuritySettings(vaultEnabled = true)
+                                val security = if (presetApplySecurity) {
+                                    DocumentSecuritySettings(
+                                        vaultEnabled = presetVault,
+                                        lockOnBackground = presetLockOnBackground,
+                                        hideMetadataWhenLocked = presetHideMetadata,
+                                        blockScreenshots = presetBlockScreenshots,
+                                        bestEffortSecureDelete = presetSecureDelete,
+                                        privacyExportMode = presetPrivacyMode
+                                    )
                                 } else {
                                     null
                                 }
@@ -324,8 +433,8 @@ fun WorkflowAutomationDialog(
                                     tagIds = presetTagIds,
                                     documentType = presetType,
                                     needsReview = presetReview,
-                                    favorite = true.takeIf { presetFavorite },
-                                    archive = true.takeIf { presetArchive },
+                                    favorite = presetFavorite,
+                                    archive = presetArchive,
                                     extractionSchemaId = presetSchemaId,
                                     complianceSettings = compliance,
                                     securitySettings = security,
@@ -344,12 +453,26 @@ fun WorkflowAutomationDialog(
                                         presetTagIds = emptySet()
                                         presetType = null
                                         presetReview = null
-                                        presetFavorite = false
-                                        presetArchive = false
+                                        presetFavorite = null
+                                        presetArchive = null
                                         presetSchemaId = null
-                                        presetPdfStandard = null
-                                        presetAccessiblePdf = false
+
+                                        presetApplyCompliance = false
+                                        presetPdfStandard = PdfStandard.STANDARD
+                                        presetAccessibilityMode = AccessibilityMode.NONE
+                                        presetDocumentLanguage = "en"
+                                        presetOptimization = ExportOptimization.HIGH
+                                        presetValidateAfterExport = true
+
+                                        presetApplySecurity = false
                                         presetVault = false
+                                        presetLockOnBackground = true
+                                        presetHideMetadata = true
+                                        presetBlockScreenshots = true
+                                        presetSecureDelete = true
+                                        presetPrivacyMode =
+                                            PrivacyExportMode.STRIP_METADATA_AND_OCR
+
                                         presetDestinationId = null
                                         onMessage("Processing preset saved")
                                     }.onFailure {
