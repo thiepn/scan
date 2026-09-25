@@ -42,6 +42,18 @@ Processing state is restart-safe. On app startup, in-flight page jobs return to 
 
 ML Kit's scanner remains responsible for its own live document detection and automatic capture behavior. The repository queue only works with completed page images returned by that capture UI.
 
+### Smart intake and workflow automation
+
+Phase 17 adds a separate durable automation layer instead of embedding rules in UI preferences. Room stores reusable `processing_presets`, ordered `workflow_rules`, persisted-SAF `workflow_destinations`, and append-only operational `workflow_runs`. These records intentionally avoid foreign keys so workflow history survives later document/rule/preset cleanup.
+
+Intake evaluation occurs only after OCR, classification suggestions, specialized field extraction, and capture validation have settled. Rules can match scan mode, document type, title/OCR content, extracted field key/value, page bounds, review state, and unfiled state. A document/rule/trigger tuple is queued at most once automatically, preventing repository refreshes from replaying the same intake automation.
+
+A processing preset can combine extraction-schema execution, explicit document classification, folder/tag filing, review/favorite/archive lifecycle state, deterministic naming templates, PDF compliance/accessibility settings, vault policy, and optional destination delivery. Naming tokens include date/time, mode/type, original title, and extracted fields. Automatic delivery goes through a persisted Android Storage Access Framework tree URI and therefore does not require broad filesystem access.
+
+Workflow execution is serialized behind a repository mutex. Every run transitions through durable pending/running/succeeded/failed state. A process death converts stranded running work back into retryable failed work at startup. Failures use bounded exponential retry with a per-rule attempt limit; future retry timestamps survive restarts, while in-process timers are only an optimization. Manual retry and selected-document batch execution use the same run engine and history as automatic intake.
+
+Security remains last in the preset action order so local vault protection can be applied after optional destination output has been generated. Destination exports still pass through the existing PDF/text/structured export paths, preserving their existing vault, compliance, OCR, and source-integrity checks rather than introducing a second renderer.
+
 ### Smart cleanup
 
 Cleanup is a reversible semantic operation layer over immutable page sources. `PageEntity.cleanupRecipe` stores a compact vector recipe made of normalized strokes and accepted automatic suggestions; no cleaned source JPEG replaces the canonical page image.
