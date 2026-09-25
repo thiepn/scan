@@ -4163,16 +4163,11 @@ class ScanRepository(
         }
         require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
-        val output = files.selectedTextExportFile(id, document.title)
-        output.parentFile?.mkdirs()
-        output.writeText(
-            selected.mapIndexed { index, page ->
-                buildString {
-                    append("Page ${index + 1}\n\n")
-                    append(page.ocrText.ifBlank { "[No recognized text]" })
-                }
-            }.joinToString("\n\n──────────\n\n")
+        val output = files.selectedTextExportFile(
+            id,
+            document.title
         )
+        writePageTextExport(output, selected)
         output
     }
 
@@ -4282,17 +4277,34 @@ class ScanRepository(
         val document = dao.getDocument(id) ?: return@withContext null
         require(document.trashedAt == null) { "Restore the document before exporting it" }
         val pages = orderedPages(dao.getPages(id))
-        val output = files.textExportFile(id, document.title)
-        output.parentFile?.mkdirs()
-        output.writeText(
-            pages.mapIndexed { index, page ->
-                buildString {
-                    append("Page ${index + 1}\n\n")
-                    append(page.ocrText.ifBlank { "[No recognized text]" })
-                }
-            }.joinToString("\n\n──────────\n\n")
+        val output = files.textExportFile(
+            id,
+            document.title
         )
+        writePageTextExport(output, pages)
         output
+    }
+
+    private fun writePageTextExport(
+        output: File,
+        pages: List<PageEntity>
+    ) {
+        output.parentFile?.mkdirs()
+        output.bufferedWriter(Charsets.UTF_8).use { writer ->
+            pages.forEachIndexed { index, page ->
+                if (index > 0) {
+                    writer.append("\n\n──────────\n\n")
+                }
+                writer.append("Page ")
+                writer.append((index + 1).toString())
+                writer.append("\n\n")
+                writer.append(
+                    page.ocrText.ifBlank {
+                        "[No recognized text]"
+                    }
+                )
+            }
+        }
     }
 
     private fun kickProcessingQueue() {
