@@ -420,6 +420,7 @@ object PdfComplianceValidator {
                             depth = 0
                         )
                     }
+                }
 
                 if (
                     normalized.accessibilityMode ==
