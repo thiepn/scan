@@ -37,11 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.DeviceCapabilityPolicy
 import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.PageCleanupRecipeCodec
 import com.thiepn.scan.data.PageCleanupRenderer
@@ -223,6 +225,14 @@ private fun EnhancementPreview(
     recipe: PageVisualRecipe,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val deviceCapabilities = remember(context.applicationContext) {
+        DeviceCapabilityPolicy(context.applicationContext)
+    }
+    val previewLongEdge = remember(deviceCapabilities) {
+        deviceCapabilities.budget.enhancementLongEdge(1400)
+    }
+
     val bitmap by produceState<Bitmap?>(
         initialValue = null,
         page.id,
@@ -238,7 +248,7 @@ private fun EnhancementPreview(
                 val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
                     file = File(page.imagePath),
                     cropQuad = CropQuadCodec.decode(page.cropQuad),
-                    maxLongEdge = 1400
+                    maxLongEdge = previewLongEdge
                 )
                 val cleaned = PageCleanupRenderer.apply(
                     geometry,
