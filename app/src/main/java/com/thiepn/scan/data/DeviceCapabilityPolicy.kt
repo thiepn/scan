@@ -31,16 +31,20 @@ data class DeviceRenderBudget(
         } else {
             pagePreviewLongEdge
         }
-        return requested.coerceAtMost(cap).coerceAtLeast(320)
+        return requested
+            .coerceAtLeast(1)
+            .coerceAtMost(cap)
     }
 
     fun thumbnailLongEdge(requested: Int): Int =
-        requested.coerceAtMost(libraryThumbnailLongEdge)
-            .coerceAtLeast(240)
+        requested
+            .coerceAtLeast(1)
+            .coerceAtMost(libraryThumbnailLongEdge)
 
     fun enhancementLongEdge(requested: Int): Int =
-        requested.coerceAtMost(enhancementPreviewLongEdge)
-            .coerceAtLeast(640)
+        requested
+            .coerceAtLeast(1)
+            .coerceAtMost(enhancementPreviewLongEdge)
 
     fun exportLongEdge(requested: Int?): Int =
         if (requested == null) {
