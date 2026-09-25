@@ -2512,13 +2512,19 @@ class ScanRepository(
 
         val working = prepareBookWorkingSource(page)
         try {
-            BookSpreadProcessor.analyze(working.first).also { analysis ->
-                dao.setBookAnalysis(
-                    pageId = page.id,
-                    confidence = analysis.confidence,
-                    dewarpStrength = analysis.dewarpStrength
-                )
-            }
+            val analysis = BookSpreadProcessor.analyze(
+                working.first
+            )
+            dao.setBookAnalysis(
+                pageId = page.id,
+                confidence = analysis.confidence,
+                dewarpStrength = analysis.dewarpStrength
+            )
+            dao.touchDocument(
+                documentId,
+                System.currentTimeMillis()
+            )
+            analysis
         } finally {
             if (working.second) working.first.delete()
         }
