@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +39,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.min
+
+private data class FileImageLoadResult(
+    val bitmap: Bitmap?
+)
 
 @Composable
 fun FileImage(
@@ -76,7 +81,7 @@ fun FileImage(
         }
     }
 
-    val bitmap by produceState<Bitmap?>(
+    val loadResult by produceState<FileImageLoadResult?>(
         initialValue = null,
         path,
         effectiveMaxDecodeEdge,
@@ -88,8 +93,9 @@ fun FileImage(
         markupRecipe,
         formFillRecipe
     ) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
+        value = FileImageLoadResult(
+            bitmap = withContext(Dispatchers.IO) {
+                runCatching {
                 val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
                     file = File(path),
                     cropQuad = CropQuadCodec.decode(cropQuad),
@@ -142,10 +148,12 @@ fun FileImage(
                 )
                 if (marked !== filled) filled.recycle()
                 marked
-            }.getOrNull()
-        }
+                }.getOrNull()
+            }
+        )
     }
 
+    val bitmap = loadResult?.bitmap
     DisposableEffect(bitmap) {
         onDispose { bitmap?.recycle() }
     }
@@ -157,9 +165,9 @@ fun FileImage(
         modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center
     ) {
-        image?.let {
+        if (image != null) {
             Image(
-                bitmap = it,
+                bitmap = image,
                 contentDescription = contentDescription,
                 modifier = Modifier.matchParentSize(),
                 contentScale = ContentScale.Fit
@@ -203,6 +211,13 @@ fun FileImage(
                     }
                 }
             }
+        } else if (loadResult != null) {
+            Text(
+                text = "Preview unavailable",
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
