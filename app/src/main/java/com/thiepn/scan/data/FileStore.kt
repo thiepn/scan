@@ -29,11 +29,18 @@ class FileStore(private val context: Context) {
             destination.parentFile,
             destination.name + ".tmp"
         )
-        source.inputStream().use { input ->
-            temporary.outputStream().use { output -> input.copyTo(output) }
+        try {
+            source.inputStream().use { input ->
+                temporary.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            commitTemporary(temporary, destination)
+            return destination
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
         }
-        commitTemporary(temporary, destination)
-        return destination
     }
 
     suspend fun copyUri(
@@ -63,12 +70,23 @@ class FileStore(private val context: Context) {
             destination.parentFile,
             destination.name + ".tmp"
         )
-        context.contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "Unable to open input" }
-            temporary.outputStream().use { output -> input.copyTo(output) }
+        try {
+            context.contentResolver
+                .openInputStream(uri)
+                .use { input ->
+                    requireNotNull(input) {
+                        "Unable to open input"
+                    }
+                    temporary.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            commitTemporary(temporary, destination)
+            return destination
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
         }
-        commitTemporary(temporary, destination)
-        return destination
     }
 
     fun pdfExportFile(documentId: String, title: String, protected: Boolean): File {
@@ -123,10 +141,20 @@ class FileStore(private val context: Context) {
             operation = "export this PDF"
         )
         val temporary = temporaryExport(destination)
-        source.inputStream().use { input ->
-            temporary.outputStream().use { output -> input.copyTo(output) }
+        try {
+            source.inputStream().use { input ->
+                temporary.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            return commitGeneratedExport(
+                temporary,
+                destination
+            )
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
         }
-        return commitGeneratedExport(temporary, destination)
     }
 
     fun commitGeneratedExport(temporary: File, destination: File): File {
