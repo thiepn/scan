@@ -308,6 +308,7 @@ object PageVisualRecipeCodec {
     private fun decodeV1(parts: List<String>): PageVisualRecipe =
         runCatching {
             PageVisualRecipe(
+                version = 1,
                 preset = ScanPreset.valueOf(parts[1]),
                 brightness = parts[2].toFloat(),
                 contrast = parts[3].toFloat(),
@@ -321,7 +322,7 @@ object PageVisualRecipeCodec {
                 backgroundWhitening = parts[11].toFloat(),
                 shadowNormalization = parts[12].toFloat(),
                 restorationProfile = RestorationProfile.OFF
-            ).normalized()
+            ).normalized().copy(version = 1)
         }.getOrElse { PageVisualRecipe() }
 
     private fun decodeV2(parts: List<String>): PageVisualRecipe =
