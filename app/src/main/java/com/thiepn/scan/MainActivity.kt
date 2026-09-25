@@ -83,7 +83,7 @@ internal sealed interface PendingScanAction {
 }
 
 internal object PendingScanActionCodec {
-    private const val VERSION = "1"
+    private const val VERSION = "2"
 
     fun encode(action: PendingScanAction): String {
         val fields = when (action) {
