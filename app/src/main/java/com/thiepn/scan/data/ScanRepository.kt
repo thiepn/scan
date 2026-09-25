@@ -1,6 +1,7 @@
 package com.thiepn.scan.data
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -327,6 +328,8 @@ class ScanRepository(
 
     suspend fun deleteWorkflowDestination(destinationId: String) =
         withContext(Dispatchers.IO) {
+            val destination = automationDao.getDestination(destinationId)
+                ?: return@withContext
             val inUse = automationDao.getPresets().any { entity ->
                 DocumentProcessingPresetCodec.decode(entity.definition)
                     .destinationId == destinationId
@@ -334,7 +337,21 @@ class ScanRepository(
             require(!inUse) {
                 "This destination is used by a processing preset"
             }
+
             automationDao.deleteDestination(destinationId)
+
+            val stillUsed = automationDao.getDestinations().any {
+                it.treeUri == destination.treeUri
+            }
+            if (!stillUsed) {
+                runCatching {
+                    context.contentResolver.releasePersistableUriPermission(
+                        Uri.parse(destination.treeUri),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                }
+            }
         }
 
     suspend fun applyProcessingPresetToDocuments(
