@@ -2305,6 +2305,7 @@ class ScanRepository(
             recognizeDocument(documentId)
         }.onFailure {
             val pages = dao.getPages(documentId)
+            val now = System.currentTimeMillis()
             dao.finishProcessing(
                 documentId,
                 DocumentTextSummary.build(
@@ -2312,7 +2313,12 @@ class ScanRepository(
                 ),
                 false,
                 pages.size,
-                System.currentTimeMillis()
+                now
+            )
+            dao.setDocumentsNeedsReviewSafely(
+                documentIds = listOf(documentId),
+                needsReview = true,
+                updatedAt = now
             )
         }
     }
