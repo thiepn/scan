@@ -83,6 +83,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -2734,6 +2735,10 @@ private fun PageCard(
     onDelete: () -> Unit
 ) {
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val previewHeight = (
+        configuration.screenHeightDp * 0.55f
+        ).dp.coerceIn(260.dp, 460.dp)
     val dragThresholdPx = with(density) { 92.dp.toPx() }
     var dragDistance by remember(page.id) { mutableStateOf(0f) }
     val highlightLayout = remember(page.ocrLayout) {
@@ -3012,7 +3017,9 @@ private fun PageCard(
 
             FileImage(
                 path = page.imagePath,
-                modifier = Modifier.fillMaxWidth().height(460.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(previewHeight),
                 documentPageCount = documentPageCount,
                 rotationDegrees = page.rotationDegrees,
                 cropQuad = page.cropQuad,
