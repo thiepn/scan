@@ -3,6 +3,7 @@ package com.thiepn.scan
 import com.thiepn.scan.data.ScanMode
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.util.Base64
 
 class PendingScanActionCodecTest {
     @Test
@@ -48,6 +49,27 @@ class PendingScanActionCodecTest {
                 )
             )
         }
+    }
+
+    @Test
+    fun olderCodecVersionFailsClosed() {
+        val current = PendingScanActionCodec.encode(
+            PendingScanAction.IdBack(
+                documentId = "doc-id-card"
+            )
+        )
+        val oldVersion = Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(
+                "1".toByteArray(Charsets.UTF_8)
+            )
+        val stale =
+            oldVersion + "." + current.substringAfter('.')
+
+        assertEquals(
+            null,
+            PendingScanActionCodec.decode(stale)
+        )
     }
 
     @Test
