@@ -177,9 +177,16 @@ object AutomationConditionCodec {
 
     fun decode(encoded: String): AutomationCondition {
         val map = WorkflowKeyValueCodec.decode(encoded)
+        require(map["v"] == "1") { "Unsupported automation condition version" }
         return AutomationCondition(
-            scanMode = map["scanMode"]?.let { ScanMode.fromStored(it) },
-            documentType = map["documentType"]?.let { DocumentType.fromStored(it) },
+            scanMode = map["scanMode"]?.let { raw ->
+                ScanMode.entries.firstOrNull { it.name == raw }
+                    ?: throw IllegalArgumentException("Unknown scan mode in workflow rule")
+            },
+            documentType = map["documentType"]?.let { raw ->
+                DocumentType.entries.firstOrNull { it.name == raw }
+                    ?: throw IllegalArgumentException("Unknown document type in workflow rule")
+            },
             titleContains = map["title"].orEmpty(),
             ocrContains = map["ocr"].orEmpty(),
             fieldKey = map["fieldKey"].orEmpty(),
@@ -224,6 +231,7 @@ object DocumentProcessingPresetCodec {
 
     fun decode(encoded: String): DocumentProcessingPreset {
         val map = WorkflowKeyValueCodec.decode(encoded)
+        require(map["v"] == "1") { "Unsupported processing preset version" }
         return DocumentProcessingPreset(
             renameTemplate = map["rename"].orEmpty(),
             folderId = map["folderId"],
@@ -233,7 +241,10 @@ object DocumentProcessingPresetCodec {
                 ?.filter(String::isNotBlank)
                 ?.toSet()
                 .orEmpty(),
-            documentType = map["documentType"]?.let { DocumentType.fromStored(it) },
+            documentType = map["documentType"]?.let { raw ->
+                DocumentType.entries.firstOrNull { it.name == raw }
+                    ?: throw IllegalArgumentException("Unknown document type in processing preset")
+            },
             needsReview = map["needsReview"]?.let { it == "1" },
             favorite = map["favorite"]?.let { it == "1" },
             archive = map["archive"]?.let { it == "1" },
@@ -342,18 +353,19 @@ private object WorkflowKeyValueCodec {
             key + "=" + encodeValue(value)
         }
 
-    fun decode(encoded: String): Map<String, String> =
+    fun decode(encoded: String): Map<String, String> {
+        val result = linkedMapOf<String, String>()
         encoded.lineSequence()
-            .mapNotNull { line ->
+            .filter { it.isNotBlank() }
+            .forEach { line ->
                 val split = line.indexOf('=')
-                if (split <= 0) return@mapNotNull null
+                require(split > 0) { "Malformed workflow data" }
                 val key = line.substring(0, split)
-                val value = runCatching {
-                    decodeValue(line.substring(split + 1))
-                }.getOrNull() ?: return@mapNotNull null
-                key to value
+                require(key !in result) { "Duplicate workflow field: " + key }
+                result[key] = decodeValue(line.substring(split + 1))
             }
-            .toMap()
+        return result
+    }
 
     private fun encodeValue(value: String): String =
         Base64.getUrlEncoder()
