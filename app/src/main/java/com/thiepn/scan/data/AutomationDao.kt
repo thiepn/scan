@@ -102,6 +102,9 @@ interface AutomationDao {
     )
     suspend fun setRuleEnabled(id: String, enabled: Boolean, updatedAt: Long)
 
+    @Query("UPDATE workflow_runs SET outputUri = :outputUri WHERE id = :id")
+    suspend fun setRunOutputUri(id: String, outputUri: String?)
+
     @Query(
         "UPDATE workflow_runs SET status = :status, attemptCount = :attemptCount, " +
             "finishedAt = :finishedAt, nextRetryAt = :nextRetryAt, summary = :summary, " +
