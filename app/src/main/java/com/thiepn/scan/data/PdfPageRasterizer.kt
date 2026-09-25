@@ -78,7 +78,7 @@ class PdfPageRasterizer(
             val scale = min(
                 4f,
                 renderLongEdge.toFloat() / maxEdge.toFloat()
-            ).coerceIn(0.10f, 4f)
+            ).coerceAtMost(4f)
             val width = (
                 page.width * scale
                 ).roundToInt().coerceAtLeast(1)
