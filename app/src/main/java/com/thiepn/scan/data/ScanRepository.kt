@@ -2244,32 +2244,48 @@ class ScanRepository(
         id
     }
 
-    private suspend fun renderPdfAndRecognize(documentId: String, pdf: File) {
+    private suspend fun renderPdfAndRecognize(
+        documentId: String,
+        pdf: File
+    ) {
         runCatching {
-            val rendered = rasterizer.render(pdf) { index ->
-                val pageId = deterministicPageId(documentId, index)
-                files.pageFile(documentId, pageId)
-            }
-            rendered.forEachIndexed { index, renderedPage ->
-                val pageId = deterministicPageId(documentId, index)
-                val existing = dao.getPage(pageId)
-                dao.insertPage(
-                    existing?.copy(
-                        imagePath = renderedPage.file.absolutePath,
-                        width = renderedPage.width,
-                        height = renderedPage.height
-                    ) ?: PageEntity(
-                        id = pageId,
-                        documentId = documentId,
-                        position = index,
-                        sortKey = (index + 1L) * 1000L,
-                        imagePath = renderedPage.file.absolutePath,
-                        width = renderedPage.width,
-                        height = renderedPage.height
+            rasterizer.renderIncrementally(
+                pdf = pdf,
+                outputForPage = { index ->
+                    val pageId = deterministicPageId(
+                        documentId,
+                        index
                     )
-                )
-                dao.updatePageCount(documentId, index + 1, System.currentTimeMillis())
-            }
+                    files.pageFile(documentId, pageId)
+                },
+                onPageRendered = { index, renderedPage ->
+                    val pageId = deterministicPageId(
+                        documentId,
+                        index
+                    )
+                    val existing = dao.getPage(pageId)
+                    dao.insertPage(
+                        existing?.copy(
+                            imagePath = renderedPage.file.absolutePath,
+                            width = renderedPage.width,
+                            height = renderedPage.height
+                        ) ?: PageEntity(
+                            id = pageId,
+                            documentId = documentId,
+                            position = index,
+                            sortKey = (index + 1L) * 1000L,
+                            imagePath = renderedPage.file.absolutePath,
+                            width = renderedPage.width,
+                            height = renderedPage.height
+                        )
+                    )
+                    dao.updatePageCount(
+                        documentId,
+                        index + 1,
+                        System.currentTimeMillis()
+                    )
+                }
+            )
             recognizeDocument(documentId)
         }.onFailure {
             val pages = dao.getPages(documentId)
