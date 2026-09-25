@@ -1029,10 +1029,39 @@ class ScanRepository(
         val pageIds = mutableListOf<String>()
         val createdFiles = mutableListOf<File>()
 
-        dao.setProcessing(documentId, true, System.currentTimeMillis())
+        dao.setProcessing(
+            documentId,
+            true,
+            System.currentTimeMillis()
+        )
         try {
+            files.estimateUriSize(uri)
+                ?.let { sourceBytes ->
+                    StorageSpaceGuard.require(
+                        anchor = sourcePdf,
+                        estimatedWorkingBytes =
+                            StorageBudgetPolicy
+                                .pdfImportWorkingBytes(
+                                    sourceBytes
+                                ),
+                        operation =
+                            "insert these PDF pages"
+                    )
+                }
             files.copyUri(uri, sourcePdf)
-            val rendered = rasterizer.render(sourcePdf) { index ->
+            StorageSpaceGuard.require(
+                anchor = sourcePdf,
+                estimatedWorkingBytes =
+                    StorageBudgetPolicy
+                        .pdfImportWorkingBytes(
+                            sourcePdf.length()
+                        ),
+                operation =
+                    "render these PDF pages"
+            )
+            val rendered = rasterizer.render(
+                sourcePdf
+            ) { index ->
                 val pageId = UUID.randomUUID().toString()
                 pageIds += pageId
                 files.pageFile(documentId, pageId).also(createdFiles::add)
