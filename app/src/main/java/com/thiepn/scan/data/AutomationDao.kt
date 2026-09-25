@@ -60,6 +60,12 @@ interface AutomationDao {
     suspend fun getRunnableRuns(now: Long, limit: Int = 50): List<WorkflowRunEntity>
 
     @Query(
+        "SELECT * FROM workflow_runs WHERE status = 'FAILED' AND nextRetryAt IS NOT NULL " +
+            "ORDER BY nextRetryAt ASC LIMIT 1"
+    )
+    suspend fun getNextRetryRun(): WorkflowRunEntity?
+
+    @Query(
         "UPDATE workflow_runs SET status = 'FAILED', finishedAt = :now, " +
             "nextRetryAt = :now, summary = 'Interrupted; retry queued', " +
             "lastError = 'Workflow was interrupted before completion.' " +
