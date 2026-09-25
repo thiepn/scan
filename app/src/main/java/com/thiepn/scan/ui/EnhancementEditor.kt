@@ -49,6 +49,7 @@ import com.thiepn.scan.data.PageEntity
 import com.thiepn.scan.data.PageGeometryRenderer
 import com.thiepn.scan.data.PageVisualRecipe
 import com.thiepn.scan.data.PageVisualRecipeCodec
+import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanPreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -58,6 +59,7 @@ import kotlin.math.roundToInt
 @Composable
 fun EnhancementEditorDialog(
     page: PageEntity,
+    scanMode: ScanMode,
     onDismiss: () -> Unit,
     onSave: (PageVisualRecipe) -> Unit
 ) {
@@ -86,7 +88,12 @@ fun EnhancementEditorDialog(
                 ) {
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     OutlinedButton(
-                        onClick = { recipe = PageVisualRecipe.forPreset(ScanPreset.ORIGINAL) }
+                        onClick = {
+                            recipe = PageVisualRecipe.forPresetInMode(
+                                preset = ScanPreset.ORIGINAL,
+                                mode = scanMode
+                            )
+                        }
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Text(" Reset")
@@ -131,11 +138,36 @@ fun EnhancementEditorDialog(
                             FilterChip(
                                 selected = recipe.preset == preset,
                                 onClick = {
-                                    recipe = PageVisualRecipe.forPreset(preset)
+                                    recipe = PageVisualRecipe.forPresetInMode(
+                                        preset = preset,
+                                        mode = scanMode
+                                    )
                                 },
                                 label = { Text(label) }
                             )
                         }
+                    }
+
+                    Text(
+                        "Restoration V2 · " + recipe.restorationProfile.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp)
+                    )
+                    PositiveSlider(
+                        "Illumination correction",
+                        recipe.illuminationCorrection
+                    ) {
+                        recipe = recipe.copy(illuminationCorrection = it)
+                    }
+                    PositiveSlider("Local contrast", recipe.localContrast) {
+                        recipe = recipe.copy(localContrast = it)
+                    }
+                    PositiveSlider("White balance", recipe.whiteBalance) {
+                        recipe = recipe.copy(whiteBalance = it)
+                    }
+                    PositiveSlider("Adaptive B&W", recipe.adaptiveBlackWhite) {
+                        recipe = recipe.copy(adaptiveBlackWhite = it)
                     }
 
                     Text(
