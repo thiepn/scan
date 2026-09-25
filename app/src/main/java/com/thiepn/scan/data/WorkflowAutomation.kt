@@ -94,7 +94,8 @@ enum class WorkflowRunStatus {
     PENDING,
     RUNNING,
     SUCCEEDED,
-    FAILED
+    FAILED,
+    CANCELLED
 }
 
 enum class WorkflowExportFormat(val label: String) {
