@@ -81,14 +81,6 @@ interface AutomationDao {
     )
     suspend fun getNextRetryRun(): WorkflowRunEntity?
 
-    @Query(
-        "UPDATE workflow_runs SET status = 'FAILED', finishedAt = :now, " +
-            "nextRetryAt = :now, summary = 'Interrupted; retry queued', " +
-            "lastError = 'Workflow was interrupted before completion.' " +
-            "WHERE status = 'RUNNING'"
-    )
-    suspend fun resetInterruptedRuns(now: Long)
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPreset(preset: ProcessingPresetEntity)
 
