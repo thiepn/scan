@@ -47,9 +47,7 @@ import com.thiepn.scan.util.displayName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.Base64
-import java.util.UUID
 
 internal sealed interface PendingScanAction {
     data class NewDocument(
