@@ -489,10 +489,14 @@ fun DocumentScreen(
                     if (selectionMode) {
                         IconButton(
                             onClick = {
-                                selectedPageIds = if (selectedPageIds.size == pages.size) {
-                                    emptyList()
+                                selectedPageIds = if (
+                                    selectedPageIds.size == pages.size
+                                ) {
+                                    emptySet()
                                 } else {
-                                    pages.map { it.id }
+                                    pages.mapTo(linkedSetOf()) {
+                                        it.id
+                                    }
                                 }
                             },
                             enabled = pages.isNotEmpty()
