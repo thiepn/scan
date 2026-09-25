@@ -4713,7 +4713,9 @@ class ScanRepository(
             val summary = applyProcessingPreset(
                 documentId = run.documentId,
                 originalTitle = run.documentTitle,
-                preset = preset
+                preset = preset,
+                runId = run.id,
+                existingOutputUri = run.outputUri
             )
             automationDao.updateRunState(
                 id = run.id,
@@ -4753,7 +4755,9 @@ class ScanRepository(
     private suspend fun applyProcessingPreset(
         documentId: String,
         originalTitle: String,
-        preset: DocumentProcessingPreset
+        preset: DocumentProcessingPreset,
+        runId: String,
+        existingOutputUri: String?
     ): String {
         val actions = mutableListOf<String>()
 
@@ -4838,7 +4842,9 @@ class ScanRepository(
             exportToWorkflowDestination(
                 documentId = documentId,
                 destination = destination,
-                securityOverride = preset.securitySettings
+                securityOverride = preset.securitySettings,
+                runId = runId,
+                existingOutputUri = existingOutputUri
             )
             actions += "delivered to " + destination.name
         }
@@ -4863,7 +4869,9 @@ class ScanRepository(
     private suspend fun exportToWorkflowDestination(
         documentId: String,
         destination: WorkflowDestinationEntity,
-        securityOverride: DocumentSecuritySettings? = null
+        securityOverride: DocumentSecuritySettings? = null,
+        runId: String,
+        existingOutputUri: String?
     ) {
         val format = runCatching {
             WorkflowExportFormat.valueOf(destination.exportFormat)
@@ -4902,14 +4910,36 @@ class ScanRepository(
             WorkflowExportFormat.XLSX ->
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         }
-        val target = DocumentsContract.createDocument(
+        val persistedTarget = existingOutputUri
+            ?.takeIf(String::isNotBlank)
+            ?.let(Uri::parse)
+            ?.takeIf(::workflowOutputExists)
+
+        val target = persistedTarget ?: DocumentsContract.createDocument(
             context.contentResolver,
             parent,
             mime,
             export.name
-        ) ?: error("Destination provider could not create the output file")
+        )?.also { created ->
+            automationDao.setRunOutputUri(
+                runId,
+                created.toString()
+            )
+        } ?: error("Destination provider could not create the output file")
+
         saveExportToUri(export, target)
     }
+
+    private fun workflowOutputExists(uri: Uri): Boolean =
+        runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                null,
+                null,
+                null
+            )?.use { cursor -> cursor.moveToFirst() } == true
+        }.getOrDefault(false)
 
     private fun retryDelayMillis(baseBackoff: Long, attempt: Int): Long {
         val multiplier = 1L shl (attempt - 1).coerceIn(0, 10)
