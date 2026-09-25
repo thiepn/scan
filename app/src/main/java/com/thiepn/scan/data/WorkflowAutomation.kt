@@ -191,8 +191,18 @@ object AutomationConditionCodec {
             ocrContains = map["ocr"].orEmpty(),
             fieldKey = map["fieldKey"].orEmpty(),
             fieldContains = map["fieldContains"].orEmpty(),
-            minPages = map["minPages"]?.toIntOrNull(),
-            maxPages = map["maxPages"]?.toIntOrNull(),
+            minPages = map["minPages"]?.let { raw ->
+                raw.toIntOrNull()
+                    ?: throw IllegalArgumentException(
+                        "Invalid minimum page count in workflow rule"
+                    )
+            },
+            maxPages = map["maxPages"]?.let { raw ->
+                raw.toIntOrNull()
+                    ?: throw IllegalArgumentException(
+                        "Invalid maximum page count in workflow rule"
+                    )
+            },
             needsReview = map["needsReview"]?.let {
                 decodeWorkflowBoolean("needsReview", it)
             },
