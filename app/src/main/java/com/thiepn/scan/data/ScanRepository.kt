@@ -4801,9 +4801,10 @@ class ScanRepository(
     private suspend fun queueIntakeAutomation(
         documentId: String
     ): List<String> = automationEnqueueMutex.withLock {
-        val document = dao.getDocument(documentId) ?: return emptyList()
+        val document = dao.getDocument(documentId)
+            ?: return@withLock emptyList()
         if (document.processing || document.trashedAt != null) {
-            return emptyList()
+            return@withLock emptyList()
         }
 
         val snapshot = automationSnapshot(documentId)
@@ -4839,7 +4840,7 @@ class ScanRepository(
             queuedRunIds += runId
             if (rule.stopAfterMatch) break
         }
-        return queuedRunIds
+        queuedRunIds
     }
 
     private suspend fun drainAutomationQueue() {
