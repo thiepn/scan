@@ -132,6 +132,31 @@ class WorkflowAutomationTest {
     }
 
     @Test
+    fun corruptedConditionFailsClosed() {
+        val corrupted = AutomationConditionCodec.encode(
+            AutomationCondition(ocrContains = "invoice")
+        ).replaceAfter("ocr=", "%%%not-base64%%%")
+
+        assertTrue(
+            runCatching {
+                AutomationConditionCodec.decode(corrupted)
+            }.isFailure
+        )
+    }
+
+    @Test
+    fun unknownConditionVersionIsRejected() {
+        val encoded = AutomationConditionCodec.encode(AutomationCondition())
+            .replaceFirst("v=MQ", "v=Mg")
+
+        assertTrue(
+            runCatching {
+                AutomationConditionCodec.decode(encoded)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun nameTemplateExpandsFieldAndDocumentTokens() {
         val rendered = WorkflowNameTemplate.render(
             "{type} · {field:merchant} · {title}",
