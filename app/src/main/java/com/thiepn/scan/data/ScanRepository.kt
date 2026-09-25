@@ -2240,11 +2240,28 @@ class ScanRepository(
         if (ids.isNotEmpty()) resetPageEdits(documentId, ids)
     }
 
-    suspend fun importPdf(uri: Uri, displayName: String?): String = withContext(Dispatchers.IO) {
+    suspend fun importPdf(
+        uri: Uri,
+        displayName: String?
+    ): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        val pdf = files.copyUri(uri, files.pdfFile(id))
-        val title = displayName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: defaultTitle(now)
+        val destination = files.pdfFile(id)
+        files.estimateUriSize(uri)?.let { sourceBytes ->
+            StorageSpaceGuard.require(
+                anchor = destination,
+                estimatedWorkingBytes =
+                    StorageBudgetPolicy.pdfImportWorkingBytes(
+                        sourceBytes
+                    ),
+                operation = "import this PDF"
+            )
+        }
+        val pdf = files.copyUri(uri, destination)
+        val title = displayName
+            ?.substringBeforeLast('.')
+            ?.takeIf { it.isNotBlank() }
+            ?: defaultTitle(now)
         dao.insertDocument(
             DocumentEntity(
                 id = id,
