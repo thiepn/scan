@@ -937,7 +937,25 @@ class ScanRepository(
         }
 
         if (awaitProcessing) {
-            process()
+            runCatching {
+                process()
+            }.onFailure {
+                val pages = orderedPages(
+                    dao.getPages(id)
+                )
+                dao.finishProcessing(
+                    id = id,
+                    text = DocumentTextSummary.build(
+                        pages.map { page ->
+                            page.ocrText
+                        }
+                    ),
+                    processing = false,
+                    pageCount = pages.size,
+                    updatedAt =
+                        System.currentTimeMillis()
+                )
+            }
         } else {
             appScope.launch(Dispatchers.IO) {
                 process()
