@@ -2247,34 +2247,49 @@ class ScanRepository(
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val destination = files.pdfFile(id)
-        files.estimateUriSize(uri)?.let { sourceBytes ->
-            StorageSpaceGuard.require(
-                anchor = destination,
-                estimatedWorkingBytes =
-                    StorageBudgetPolicy.pdfImportWorkingBytes(
-                        sourceBytes
-                    ),
-                operation = "import this PDF"
+
+        try {
+            files.estimateUriSize(uri)
+                ?.let { sourceBytes ->
+                    StorageSpaceGuard.require(
+                        anchor = destination,
+                        estimatedWorkingBytes =
+                            StorageBudgetPolicy
+                                .pdfImportWorkingBytes(
+                                    sourceBytes
+                                ),
+                        operation = "import this PDF"
+                    )
+                }
+
+            val pdf = files.copyUri(
+                uri,
+                destination
             )
+            val title = displayName
+                ?.substringBeforeLast('.')
+                ?.takeIf { it.isNotBlank() }
+                ?: defaultTitle(now)
+
+            dao.insertDocument(
+                DocumentEntity(
+                    id = id,
+                    title = title,
+                    createdAt = now,
+                    updatedAt = now,
+                    pdfPath = pdf.absolutePath,
+                    pageCount = 0,
+                    processing = true
+                )
+            )
+            appScope.launch(Dispatchers.IO) {
+                renderPdfAndRecognize(id, pdf)
+            }
+            id
+        } catch (error: Throwable) {
+            files.deleteDocument(id)
+            throw error
         }
-        val pdf = files.copyUri(uri, destination)
-        val title = displayName
-            ?.substringBeforeLast('.')
-            ?.takeIf { it.isNotBlank() }
-            ?: defaultTitle(now)
-        dao.insertDocument(
-            DocumentEntity(
-                id = id,
-                title = title,
-                createdAt = now,
-                updatedAt = now,
-                pdfPath = pdf.absolutePath,
-                pageCount = 0,
-                processing = true
-            )
-        )
-        appScope.launch(Dispatchers.IO) { renderPdfAndRecognize(id, pdf) }
-        id
     }
 
     private suspend fun renderPdfAndRecognize(
