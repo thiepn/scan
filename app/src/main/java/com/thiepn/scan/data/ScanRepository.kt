@@ -2265,6 +2265,14 @@ class ScanRepository(
         pdf: File
     ) {
         runCatching {
+            StorageSpaceGuard.require(
+                anchor = pdf,
+                estimatedWorkingBytes =
+                    StorageBudgetPolicy.pdfImportWorkingBytes(
+                        pdf.length()
+                    ),
+                operation = "process this PDF"
+            )
             rasterizer.renderIncrementally(
                 pdf = pdf,
                 outputForPage = { index ->
