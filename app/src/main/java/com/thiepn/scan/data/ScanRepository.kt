@@ -2977,7 +2977,7 @@ class ScanRepository(
         if (folderId != null) {
             require(dao.getFolder(folderId) != null) { "Folder no longer exists" }
         }
-        dao.setDocumentFolder(ids, folderId, System.currentTimeMillis())
+        dao.setDocumentFolderSafely(ids, folderId, System.currentTimeMillis())
     }
 
     suspend fun setDocumentType(
@@ -2985,7 +2985,7 @@ class ScanRepository(
         type: DocumentType
     ) = withContext(Dispatchers.IO) {
         val ids = editableDocumentIds(documentIds)
-        dao.setDocumentType(ids, type.name, System.currentTimeMillis())
+        dao.setDocumentTypeSafely(ids, type.name, System.currentTimeMillis())
     }
 
     suspend fun setDocumentsNeedsReview(
@@ -2993,7 +2993,7 @@ class ScanRepository(
         needsReview: Boolean
     ) = withContext(Dispatchers.IO) {
         val ids = editableDocumentIds(documentIds)
-        dao.setDocumentsNeedsReview(ids, needsReview, System.currentTimeMillis())
+        dao.setDocumentsNeedsReviewSafely(ids, needsReview, System.currentTimeMillis())
     }
 
     suspend fun setDocumentsFavorite(
@@ -3001,7 +3001,7 @@ class ScanRepository(
         favorite: Boolean
     ) = withContext(Dispatchers.IO) {
         val ids = editableDocumentIds(documentIds)
-        dao.setDocumentsFavorite(ids, favorite, System.currentTimeMillis())
+        dao.setDocumentsFavoriteSafely(ids, favorite, System.currentTimeMillis())
     }
 
     suspend fun setDocumentsArchived(
@@ -3009,7 +3009,7 @@ class ScanRepository(
         archived: Boolean
     ) = withContext(Dispatchers.IO) {
         val ids = editableDocumentIds(documentIds)
-        dao.setDocumentsArchived(ids, archived, System.currentTimeMillis())
+        dao.setDocumentsArchivedSafely(ids, archived, System.currentTimeMillis())
     }
 
     suspend fun addTagsToDocuments(
@@ -3037,7 +3037,7 @@ class ScanRepository(
         val suggestion = document.suggestedType
             ?.let { DocumentType.valueOf(it) }
             ?: return@withContext
-        dao.setDocumentType(
+        dao.setDocumentTypeSafely(
             documentIds = listOf(documentId),
             documentType = suggestion.name,
             updatedAt = System.currentTimeMillis()
@@ -4555,7 +4555,7 @@ class ScanRepository(
         refreshDocumentSummary(document.id)
         val finished = dao.getCaptureSession(session.id) ?: latest
         if (finished.lowQualityCount > 0 || finished.failedCount > 0) {
-            dao.setDocumentsNeedsReview(
+            dao.setDocumentsNeedsReviewSafely(
                 documentIds = listOf(document.id),
                 needsReview = true,
                 updatedAt = System.currentTimeMillis()
@@ -4606,7 +4606,7 @@ class ScanRepository(
             pausedReason = null
         )
         refreshDocumentSummary(session.documentId)
-        dao.setDocumentsNeedsReview(
+        dao.setDocumentsNeedsReviewSafely(
             documentIds = listOf(session.documentId),
             needsReview = true,
             updatedAt = now
@@ -4855,7 +4855,7 @@ class ScanRepository(
         dao.replaceDocumentFields(documentId, fields)
 
         if (warnings.isNotEmpty() && !document.needsReview) {
-            dao.setDocumentsNeedsReview(
+            dao.setDocumentsNeedsReviewSafely(
                 documentIds = listOf(documentId),
                 needsReview = true,
                 updatedAt = System.currentTimeMillis()
@@ -5103,7 +5103,7 @@ class ScanRepository(
         }
 
         preset.documentType?.let { type ->
-            dao.setDocumentType(
+            dao.setDocumentTypeSafely(
                 listOf(documentId),
                 type.name,
                 System.currentTimeMillis()
@@ -5112,7 +5112,7 @@ class ScanRepository(
         }
 
         preset.folderId?.let { folderId ->
-            dao.setDocumentFolder(
+            dao.setDocumentFolderSafely(
                 listOf(documentId),
                 folderId,
                 System.currentTimeMillis()
@@ -5129,7 +5129,7 @@ class ScanRepository(
         }
 
         preset.needsReview?.let { needsReview ->
-            dao.setDocumentsNeedsReview(
+            dao.setDocumentsNeedsReviewSafely(
                 listOf(documentId),
                 needsReview,
                 System.currentTimeMillis()
@@ -5138,7 +5138,7 @@ class ScanRepository(
         }
 
         preset.favorite?.let { favorite ->
-            dao.setDocumentsFavorite(
+            dao.setDocumentsFavoriteSafely(
                 listOf(documentId),
                 favorite,
                 System.currentTimeMillis()
@@ -5187,7 +5187,7 @@ class ScanRepository(
         }
 
         preset.archive?.let { archived ->
-            dao.setDocumentsArchived(
+            dao.setDocumentsArchivedSafely(
                 listOf(documentId),
                 archived,
                 System.currentTimeMillis()
