@@ -59,12 +59,6 @@ object DocumentRestorationEngine {
     ): RestorationAnalysis? {
         val normalized = recipe.normalized()
         if (!normalized.hasRestoration()) return null
-        if (
-            normalized.restorationProfile == RestorationProfile.OFF &&
-            normalized.shadowNormalization <= 0.001f
-        ) {
-            return null
-        }
 
         val gridWidth: Int
         val gridHeight: Int
