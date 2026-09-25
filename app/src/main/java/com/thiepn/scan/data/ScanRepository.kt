@@ -107,30 +107,74 @@ class ScanRepository(
                 .filterNot { it.id in queuedDocumentIds }
                 .filter { vault.isUnlocked(it.id) }
                 .forEach { document ->
-                    val pages = dao.getPages(document.id)
-                    val pdf = document.pdfPath?.let(::File)?.takeIf { it.isFile }
-                    val looksLikePdfImport = pdf != null && (
-                        pages.isEmpty() ||
-                            pages.all {
-                                page ->
-                                page.id == deterministicPageId(
+                    resumeNonCaptureProcessing(document)
+                }
+            drainAutomationQueue()
+        }
+    }
+
+    private suspend fun resumeNonCaptureProcessing(
+        document: DocumentEntity
+    ) {
+        if (
+            !document.processing ||
+            !vault.isUnlocked(document.id)
+        ) {
+            return
+        }
+
+        val pages = dao.getPages(document.id)
+        val pdf = document.pdfPath
+            ?.let(::File)
+            ?.takeIf { it.isFile }
+        val looksLikePdfImport =
+            pdf != null &&
+                (
+                    pages.isEmpty() ||
+                        pages.all { page ->
+                            page.id ==
+                                deterministicPageId(
                                     document.id,
                                     page.position
                                 )
-                            }
-                        )
+                        }
+                    )
 
-                    if (looksLikePdfImport) {
-                        renderPdfAndRecognize(document.id, pdf)
-                    } else if (
-                        ScanMode.fromStored(document.scanMode) == ScanMode.BOOK
-                    ) {
-                        processBookDocument(document.id)
-                    } else {
-                        recognizeDocument(document.id)
-                    }
-                }
-            drainAutomationQueue()
+        when {
+            looksLikePdfImport ->
+                renderPdfAndRecognize(
+                    document.id,
+                    requireNotNull(pdf)
+                )
+            ScanMode.fromStored(document.scanMode) ==
+                ScanMode.BOOK ->
+                processBookDocument(document.id)
+            else ->
+                recognizeDocument(document.id)
+        }
+    }
+
+    private suspend fun resumeDocumentProcessingAfterUnlock(
+        documentId: String
+    ) {
+        val document =
+            dao.getDocument(documentId) ?: return
+        if (!document.processing) return
+
+        val queuedCapture = dao
+            .getCaptureSessionsByStatus(
+                listOf(
+                    CaptureSessionStatus.PROCESSING.name,
+                    CaptureSessionStatus.PAUSED.name,
+                    CaptureSessionStatus.INTERRUPTED.name
+                )
+            )
+            .any { it.documentId == documentId }
+
+        if (queuedCapture) {
+            kickProcessingQueue()
+        } else {
+            resumeNonCaptureProcessing(document)
         }
     }
 
@@ -3402,6 +3446,9 @@ class ScanRepository(
     ): Boolean = withContext(Dispatchers.IO) {
         val valid = vault.unlock(documentId)
         if (valid) {
+            resumeDocumentProcessingAfterUnlock(
+                documentId
+            )
             kickProcessingQueue()
         }
         valid
