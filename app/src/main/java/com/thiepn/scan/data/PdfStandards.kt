@@ -7,6 +7,7 @@ import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.PDResources
 import com.tom_roush.pdfbox.pdmodel.common.PDMetadata
 import com.tom_roush.pdfbox.pdmodel.common.PDNumberTreeNode
 import com.tom_roush.pdfbox.pdmodel.documentinterchange.logicalstructure.PDMarkInfo
@@ -17,9 +18,14 @@ import com.tom_roush.pdfbox.pdmodel.documentinterchange.logicalstructure.PDStruc
 import com.tom_roush.pdfbox.pdmodel.documentinterchange.markedcontent.PDPropertyList
 import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
 import com.tom_roush.pdfbox.pdmodel.graphics.color.PDOutputIntent
+import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
+import com.tom_roush.pdfbox.pdmodel.graphics.form.PDTransparencyGroup
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.pdmodel.graphics.state.RenderingMode
 import com.tom_roush.pdfbox.util.Matrix
 import java.io.File
+import java.util.Collections
+import java.util.IdentityHashMap
 import kotlin.math.max
 
 object PdfStandardsSupport {
@@ -31,8 +37,10 @@ object PdfStandardsSupport {
         compliance: ComplianceSettings
     ) {
         val settings = compliance.normalized()
-        if (settings.pdfStandard == PdfStandard.PDF_A_2B) {
-            document.version = 1.7f
+        when (settings.pdfStandard) {
+            PdfStandard.PDF_A_1B -> document.version = 1.4f
+            PdfStandard.PDF_A_2B -> document.version = 1.7f
+            PdfStandard.STANDARD -> Unit
         }
 
         val catalog = document.documentCatalog
@@ -400,47 +408,18 @@ object PdfComplianceValidator {
                     document.pages.forEachIndexed { index, page ->
                         val resources = page.resources
                             ?: return@forEachIndexed
-                        resources.fontNames.forEach { name ->
-                            val font = runCatching {
-                                resources.getFont(name)
-                            }.getOrNull() ?: return@forEach
-                            if (!font.isEmbedded) {
-                                issues += ComplianceIssue(
-                                    "FONT_NOT_EMBEDDED",
-                                    ComplianceSeverity.ERROR,
-                                    "Page ${index + 1} uses a non-embedded font."
-                                )
-                            }
-                        }
-                        if (
-                            normalized.pdfStandard ==
-                            PdfStandard.PDF_A_1B
-                        ) {
-                            resources.extGStateNames.forEach { name ->
-                                val state = runCatching {
-                                    resources.getExtGState(name)
-                                }.getOrNull() ?: return@forEach
-                                val strokeAlpha =
-                                    state.strokingAlphaConstant
-                                        ?: 1f
-                                val fillAlpha =
-                                    state.nonStrokingAlphaConstant
-                                        ?: 1f
-                                if (
-                                    strokeAlpha < 0.999f ||
-                                    fillAlpha < 0.999f ||
-                                    state.softMask != null
-                                ) {
-                                    issues += ComplianceIssue(
-                                        "PDFA1_TRANSPARENCY",
-                                        ComplianceSeverity.ERROR,
-                                        "Page ${index + 1} uses transparency, which PDF/A-1b does not permit."
-                                    )
-                                }
-                            }
-                        }
+                        val visited = Collections.newSetFromMap(
+                            IdentityHashMap<Any, Boolean>()
+                        )
+                        validateResources(
+                            resources = resources,
+                            location = "Page " + (index + 1),
+                            pdfStandard = normalized.pdfStandard,
+                            issues = issues,
+                            visited = visited,
+                            depth = 0
+                        )
                     }
-                }
 
                 if (
                     normalized.accessibilityMode ==
@@ -460,19 +439,57 @@ object PdfComplianceValidator {
                             "Tagged PDF is not marked as structured content."
                         )
                     }
-                    if (catalog.structureTreeRoot == null) {
+
+                    val structureRoot =
+                        catalog.structureTreeRoot
+                    if (structureRoot == null) {
                         issues += ComplianceIssue(
                             "STRUCTURE_TREE",
                             ComplianceSeverity.ERROR,
                             "Tagged PDF is missing a structure tree."
                         )
                     }
+                    val parentTree = runCatching {
+                        structureRoot?.parentTree
+                    }.getOrNull()
+                    if (structureRoot != null && parentTree == null) {
+                        issues += ComplianceIssue(
+                            "PARENT_TREE",
+                            ComplianceSeverity.ERROR,
+                            "Tagged PDF is missing its structure parent tree."
+                        )
+                    }
+                    if (
+                        catalog.language !=
+                        normalized.documentLanguage
+                    ) {
+                        issues += ComplianceIssue(
+                            "LANGUAGE_MISMATCH",
+                            ComplianceSeverity.WARNING,
+                            "Tagged PDF language does not match the configured document language."
+                        )
+                    }
+
                     document.pages.forEachIndexed { index, page ->
-                        if (page.structParents < 0) {
+                        val key = page.structParents
+                        if (key < 0) {
                             issues += ComplianceIssue(
                                 "STRUCT_PARENTS",
                                 ComplianceSeverity.ERROR,
-                                "Page ${index + 1} is missing structure-parent metadata."
+                                "Page " + (index + 1) +
+                                    " is missing structure-parent metadata."
+                            )
+                        } else if (
+                            parentTree != null &&
+                            runCatching {
+                                parentTree.getValue(key)
+                            }.getOrNull() == null
+                        ) {
+                            issues += ComplianceIssue(
+                                "PARENT_TREE_ENTRY",
+                                ComplianceSeverity.ERROR,
+                                "Page " + (index + 1) +
+                                    " has no matching entry in the tagged PDF parent tree."
                             )
                         }
                     }
@@ -499,5 +516,115 @@ object PdfComplianceValidator {
             normalized.accessibilityMode,
             issues
         )
+    }
+
+    private fun validateResources(
+        resources: PDResources,
+        location: String,
+        pdfStandard: PdfStandard,
+        issues: MutableList<ComplianceIssue>,
+        visited: MutableSet<Any>,
+        depth: Int
+    ) {
+        if (depth > 32) {
+            issues += ComplianceIssue(
+                "RESOURCE_DEPTH",
+                ComplianceSeverity.WARNING,
+                location +
+                    " exceeds the validator's nested-resource depth limit."
+            )
+            return
+        }
+
+        resources.fontNames.forEach { name ->
+            val font = runCatching {
+                resources.getFont(name)
+            }.getOrNull() ?: return@forEach
+            if (!font.isEmbedded) {
+                issues += ComplianceIssue(
+                    "FONT_NOT_EMBEDDED",
+                    ComplianceSeverity.ERROR,
+                    location + " uses a non-embedded font."
+                )
+            }
+        }
+
+        if (pdfStandard == PdfStandard.PDF_A_1B) {
+            resources.extGStateNames.forEach { name ->
+                val state = runCatching {
+                    resources.getExtGState(name)
+                }.getOrNull() ?: return@forEach
+                val strokeAlpha =
+                    state.strokingAlphaConstant ?: 1f
+                val fillAlpha =
+                    state.nonStrokingAlphaConstant ?: 1f
+                if (
+                    strokeAlpha < 0.999f ||
+                    fillAlpha < 0.999f ||
+                    state.softMask != null
+                ) {
+                    issues += ComplianceIssue(
+                        "PDFA1_TRANSPARENCY",
+                        ComplianceSeverity.ERROR,
+                        location +
+                            " uses transparency, which PDF/A-1b does not permit."
+                    )
+                }
+            }
+        }
+
+        resources.xObjectNames.forEach { name ->
+            val xObject = runCatching {
+                resources.getXObject(name)
+            }.getOrNull() ?: return@forEach
+            if (!visited.add(xObject.cosObject)) {
+                return@forEach
+            }
+
+            val childLocation =
+                location + " / XObject " + name.name
+
+            when (xObject) {
+                is PDImageXObject -> {
+                    if (
+                        pdfStandard == PdfStandard.PDF_A_1B &&
+                        runCatching {
+                            xObject.softMask
+                        }.getOrNull() != null
+                    ) {
+                        issues += ComplianceIssue(
+                            "PDFA1_IMAGE_SMASK",
+                            ComplianceSeverity.ERROR,
+                            childLocation +
+                                " uses an image soft mask, which PDF/A-1b does not permit."
+                        )
+                    }
+                }
+
+                is PDFormXObject -> {
+                    if (
+                        pdfStandard == PdfStandard.PDF_A_1B &&
+                        xObject is PDTransparencyGroup
+                    ) {
+                        issues += ComplianceIssue(
+                            "PDFA1_TRANSPARENCY_GROUP",
+                            ComplianceSeverity.ERROR,
+                            childLocation +
+                                " is a transparency group, which PDF/A-1b does not permit."
+                        )
+                    }
+                    xObject.resources?.let { nested ->
+                        validateResources(
+                            resources = nested,
+                            location = childLocation,
+                            pdfStandard = pdfStandard,
+                            issues = issues,
+                            visited = visited,
+                            depth = depth + 1
+                        )
+                    }
+                }
+            }
+        }
     }
 }
