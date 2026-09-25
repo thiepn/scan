@@ -81,6 +81,37 @@ class WorkflowAutomationTest {
     }
 
     @Test
+    fun presetCodecPreservesExplicitDefaultPolicies() {
+        val original = DocumentProcessingPreset(
+            complianceSettings = ComplianceSettings(),
+            securitySettings = DocumentSecuritySettings()
+        )
+
+        val decoded = DocumentProcessingPresetCodec.decode(
+            DocumentProcessingPresetCodec.encode(original)
+        )
+
+        assertEquals(ComplianceSettings(), decoded.complianceSettings)
+        assertEquals(DocumentSecuritySettings(), decoded.securitySettings)
+    }
+
+    @Test
+    fun matcherHonorsPageBounds() {
+        assertTrue(
+            WorkflowAutomationMatcher.matches(
+                AutomationCondition(minPages = 2, maxPages = 2),
+                snapshot()
+            )
+        )
+        assertFalse(
+            WorkflowAutomationMatcher.matches(
+                AutomationCondition(minPages = 3),
+                snapshot()
+            )
+        )
+    }
+
+    @Test
     fun matcherUsesOcrFieldsAndOrganizationState() {
         val condition = AutomationCondition(
             scanMode = ScanMode.RECEIPT,
