@@ -4574,6 +4574,343 @@ class ScanRepository(
                 updatedAt = System.currentTimeMillis()
             )
         }
+
+        if (queueIntakeAutomation(documentId) > 0) {
+            appScope.launch(Dispatchers.IO) {
+                drainAutomationQueue()
+            }
+        }
+    }
+
+    private suspend fun validateProcessingPreset(
+        preset: DocumentProcessingPreset
+    ) {
+        preset.folderId?.let { folderId ->
+            require(dao.getFolder(folderId) != null) { "Preset folder no longer exists" }
+        }
+        if (preset.tagIds.isNotEmpty()) {
+            val existing = dao.getTags().map { it.id }.toSet()
+            require(preset.tagIds.all { it in existing }) {
+                "One or more preset tags no longer exist"
+            }
+        }
+        preset.extractionSchemaId?.let { schemaId ->
+            require(dao.getExtractionSchema(schemaId) != null) {
+                "Extraction schema no longer exists"
+            }
+        }
+        preset.destinationId?.let { destinationId ->
+            require(automationDao.getDestination(destinationId) != null) {
+                "Workflow destination no longer exists"
+            }
+        }
+    }
+
+    private suspend fun automationSnapshot(
+        documentId: String,
+        titleOverride: String? = null
+    ): AutomationDocumentSnapshot {
+        val document = dao.getDocument(documentId)
+            ?: throw IllegalArgumentException("Document not found")
+        val fields = dao.getDocumentFields(documentId)
+        return AutomationDocumentSnapshot(
+            document = if (titleOverride == null) {
+                document
+            } else {
+                document.copy(title = titleOverride)
+            },
+            fields = fields
+        )
+    }
+
+    private suspend fun queueIntakeAutomation(documentId: String): Int {
+        val document = dao.getDocument(documentId) ?: return 0
+        if (document.processing || document.trashedAt != null) return 0
+
+        val snapshot = automationSnapshot(documentId)
+        val rules = automationDao.getEnabledRules(WorkflowTrigger.INTAKE.name)
+        var queued = 0
+        val now = System.currentTimeMillis()
+
+        for (rule in rules) {
+            val previous = automationDao.getLatestRuleRun(
+                documentId = documentId,
+                ruleId = rule.id,
+                trigger = WorkflowTrigger.INTAKE.name
+            )
+            if (previous != null) continue
+
+            val condition = runCatching {
+                AutomationConditionCodec.decode(rule.condition)
+            }.getOrElse {
+                continue
+            }
+            if (!WorkflowAutomationMatcher.matches(condition, snapshot)) continue
+
+            automationDao.upsertRun(
+                WorkflowRunEntity(
+                    id = UUID.randomUUID().toString(),
+                    documentId = documentId,
+                    documentTitle = document.title,
+                    ruleId = rule.id,
+                    presetId = rule.presetId,
+                    trigger = WorkflowTrigger.INTAKE.name,
+                    startedAt = now + queued
+                )
+            )
+            queued += 1
+            if (rule.stopAfterMatch) break
+        }
+        return queued
+    }
+
+    private suspend fun drainAutomationQueue() {
+        automationQueueMutex.withLock {
+            while (true) {
+                val run = automationDao.getRunnableRuns(
+                    now = System.currentTimeMillis(),
+                    limit = 1
+                ).firstOrNull() ?: break
+                executeAutomationRun(run)
+            }
+        }
+        scheduleNextAutomationRetry()
+    }
+
+    private suspend fun executeAutomationRun(run: WorkflowRunEntity) {
+        val attempt = run.attemptCount + 1
+        automationDao.updateRunState(
+            id = run.id,
+            status = WorkflowRunStatus.RUNNING.name,
+            attemptCount = attempt,
+            finishedAt = null,
+            nextRetryAt = null,
+            summary = "Running",
+            lastError = null
+        )
+
+        val result = runCatching {
+            val presetEntity = automationDao.getPreset(run.presetId)
+                ?: error("Processing preset no longer exists")
+            val document = requireEditableDocument(run.documentId)
+            require(!document.processing) { "Document is still processing" }
+            val preset = DocumentProcessingPresetCodec.decode(
+                presetEntity.definition
+            )
+            validateProcessingPreset(preset)
+            applyProcessingPreset(
+                documentId = run.documentId,
+                originalTitle = run.documentTitle,
+                preset = preset
+            )
+        }
+
+        result.onSuccess { summary ->
+            automationDao.updateRunState(
+                id = run.id,
+                status = WorkflowRunStatus.SUCCEEDED.name,
+                attemptCount = attempt,
+                finishedAt = System.currentTimeMillis(),
+                nextRetryAt = null,
+                summary = summary,
+                lastError = null
+            )
+        }.onFailure { error ->
+            val rule = run.ruleId?.let { automationDao.getRule(it) }
+            val maxAttempts = rule?.maxAttempts ?: 3
+            val baseBackoff = rule?.retryBackoffMillis ?: 30_000L
+            val delayMillis = retryDelayMillis(baseBackoff, attempt)
+            val nextRetryAt = if (attempt < maxAttempts) {
+                System.currentTimeMillis() + delayMillis
+            } else {
+                null
+            }
+            automationDao.updateRunState(
+                id = run.id,
+                status = WorkflowRunStatus.FAILED.name,
+                attemptCount = attempt,
+                finishedAt = System.currentTimeMillis(),
+                nextRetryAt = nextRetryAt,
+                summary = if (nextRetryAt == null) {
+                    "Failed after " + attempt + " attempt(s)"
+                } else {
+                    "Failed; retry scheduled"
+                },
+                lastError = error.message ?: error::class.java.simpleName
+            )
+        }
+    }
+
+    private suspend fun applyProcessingPreset(
+        documentId: String,
+        originalTitle: String,
+        preset: DocumentProcessingPreset
+    ): String {
+        val actions = mutableListOf<String>()
+
+        preset.extractionSchemaId?.let { schemaId ->
+            val extracted = applyExtractionSchema(documentId, schemaId)
+            actions += "extracted " + extracted + " field(s)"
+        }
+
+        preset.documentType?.let { type ->
+            dao.setDocumentType(
+                listOf(documentId),
+                type.name,
+                System.currentTimeMillis()
+            )
+            actions += "classified as " + type.label
+        }
+
+        preset.folderId?.let { folderId ->
+            dao.setDocumentFolder(
+                listOf(documentId),
+                folderId,
+                System.currentTimeMillis()
+            )
+            actions += "filed"
+        }
+
+        if (preset.tagIds.isNotEmpty()) {
+            dao.addDocumentTags(
+                listOf(documentId),
+                preset.tagIds.toList()
+            )
+            actions += "tagged"
+        }
+
+        preset.needsReview?.let { needsReview ->
+            dao.setDocumentsNeedsReview(
+                listOf(documentId),
+                needsReview,
+                System.currentTimeMillis()
+            )
+            actions += if (needsReview) "marked for review" else "review cleared"
+        }
+
+        preset.favorite?.let { favorite ->
+            dao.setDocumentsFavorite(
+                listOf(documentId),
+                favorite,
+                System.currentTimeMillis()
+            )
+            actions += if (favorite) "favorited" else "favorite cleared"
+        }
+
+        preset.complianceSettings?.let { settings ->
+            dao.setComplianceRecipe(
+                documentId = documentId,
+                recipe = ComplianceSettingsCodec.encode(settings.normalized()),
+                updatedAt = System.currentTimeMillis()
+            )
+            actions += "compliance policy applied"
+        }
+
+        if (preset.renameTemplate.isNotBlank()) {
+            val snapshot = automationSnapshot(
+                documentId = documentId,
+                titleOverride = originalTitle
+            )
+            val title = WorkflowNameTemplate.render(
+                preset.renameTemplate,
+                snapshot
+            )
+            dao.rename(
+                documentId,
+                title,
+                System.currentTimeMillis()
+            )
+            actions += "renamed"
+        }
+
+        preset.destinationId?.let { destinationId ->
+            val destination = automationDao.getDestination(destinationId)
+                ?: error("Workflow destination no longer exists")
+            exportToWorkflowDestination(documentId, destination)
+            actions += "delivered to " + destination.name
+        }
+
+        preset.archive?.let { archived ->
+            dao.setDocumentsArchived(
+                listOf(documentId),
+                archived,
+                System.currentTimeMillis()
+            )
+            actions += if (archived) "archived" else "unarchived"
+        }
+
+        preset.securitySettings?.let { settings ->
+            updateSecuritySettings(documentId, settings)
+            actions += "security policy applied"
+        }
+
+        return actions.joinToString(" · ").ifBlank { "Completed" }
+    }
+
+    private suspend fun exportToWorkflowDestination(
+        documentId: String,
+        destination: WorkflowDestinationEntity
+    ) {
+        val format = runCatching {
+            WorkflowExportFormat.valueOf(destination.exportFormat)
+        }.getOrDefault(WorkflowExportFormat.PDF)
+
+        val export = when (format) {
+            WorkflowExportFormat.PDF ->
+                createPdfExport(documentId)
+            WorkflowExportFormat.PDF_STANDARDIZED ->
+                createStandardsPdfExport(documentId)?.file
+            WorkflowExportFormat.PDF_PRIVACY ->
+                createPrivacyPdfExport(documentId)
+            WorkflowExportFormat.TEXT ->
+                createTextExport(documentId)
+            WorkflowExportFormat.CSV ->
+                createStructuredCsvExport(documentId)
+            WorkflowExportFormat.JSON ->
+                createStructuredJsonExport(documentId)
+            WorkflowExportFormat.XLSX ->
+                createStructuredXlsxExport(documentId)
+        } ?: error("Could not create workflow export")
+
+        val tree = Uri.parse(destination.treeUri)
+        val treeDocumentId = DocumentsContract.getTreeDocumentId(tree)
+        val parent = DocumentsContract.buildDocumentUriUsingTree(
+            tree,
+            treeDocumentId
+        )
+        val mime = when (format) {
+            WorkflowExportFormat.PDF,
+            WorkflowExportFormat.PDF_STANDARDIZED,
+            WorkflowExportFormat.PDF_PRIVACY -> "application/pdf"
+            WorkflowExportFormat.TEXT -> "text/plain"
+            WorkflowExportFormat.CSV -> "text/csv"
+            WorkflowExportFormat.JSON -> "application/json"
+            WorkflowExportFormat.XLSX ->
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+        val target = DocumentsContract.createDocument(
+            context.contentResolver,
+            parent,
+            mime,
+            export.name
+        ) ?: error("Destination provider could not create the output file")
+        saveExportToUri(export, target)
+    }
+
+    private fun retryDelayMillis(baseBackoff: Long, attempt: Int): Long {
+        val multiplier = 1L shl (attempt - 1).coerceIn(0, 10)
+        return (baseBackoff.coerceAtLeast(1_000L) * multiplier)
+            .coerceAtMost(6L * 60L * 60L * 1000L)
+    }
+
+    private fun scheduleNextAutomationRetry() {
+        appScope.launch(Dispatchers.IO) {
+            val run = automationDao.getNextRetryRun() ?: return@launch
+            val retryAt = run.nextRetryAt ?: return@launch
+            val wait = (retryAt - System.currentTimeMillis()).coerceAtLeast(0L)
+            if (wait > 0L) delay(wait)
+            drainAutomationQueue()
+        }
     }
 
     private suspend fun editableDocumentIds(documentIds: List<String>): List<String> {
