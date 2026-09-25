@@ -53,9 +53,16 @@ interface AutomationDao {
     ): WorkflowRunEntity?
 
     @Query(
-        "SELECT * FROM workflow_runs WHERE status = 'PENDING' " +
-            "OR (status = 'FAILED' AND nextRetryAt IS NOT NULL AND nextRetryAt <= :now) " +
-            "ORDER BY startedAt ASC LIMIT :limit"
+        "SELECT r.* FROM workflow_runs AS r WHERE (" +
+            "r.status = 'PENDING' OR " +
+            "(r.status = 'FAILED' AND r.nextRetryAt IS NOT NULL AND r.nextRetryAt <= :now)" +
+            ") AND NOT EXISTS (" +
+            "SELECT 1 FROM workflow_runs AS b " +
+            "WHERE b.documentId = r.documentId AND b.startedAt < r.startedAt AND (" +
+            "b.status IN ('PENDING', 'RUNNING') OR " +
+            "(b.status = 'FAILED' AND b.nextRetryAt IS NOT NULL)" +
+            ")" +
+            ") ORDER BY r.startedAt ASC LIMIT :limit"
     )
     suspend fun getRunnableRuns(now: Long, limit: Int = 50): List<WorkflowRunEntity>
 
@@ -93,6 +100,18 @@ interface AutomationDao {
 
     @Query("DELETE FROM workflow_rules WHERE id = :id")
     suspend fun deleteRule(id: String)
+
+    @Query(
+        "UPDATE workflow_runs SET status = 'CANCELLED', finishedAt = :now, " +
+            "nextRetryAt = NULL, summary = :summary, lastError = NULL " +
+            "WHERE documentId = :documentId AND (" +
+            "status = 'PENDING' OR (status = 'FAILED' AND nextRetryAt IS NOT NULL))"
+    )
+    suspend fun cancelRunnableRunsForDocument(
+        documentId: String,
+        now: Long,
+        summary: String
+    )
 
     @Query(
         "UPDATE workflow_runs SET status = 'CANCELLED', finishedAt = :now, " +
