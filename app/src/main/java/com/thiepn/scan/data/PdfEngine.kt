@@ -56,6 +56,11 @@ class PdfEngine(
             "PDF/A exports cannot be password encrypted"
         }
         destination.parentFile?.mkdirs()
+        requirePdfWorkspace(
+            destination = destination,
+            sourceBytes = estimatedPageBytes(pages),
+            operation = "create this PDF"
+        )
 
         PDDocument(
             MemoryUsageSetting.setupTempFileOnly()
@@ -315,6 +320,11 @@ class PdfEngine(
         require(source.isFile) { "PDF source is unavailable" }
         require(pages.isNotEmpty()) { "Document has no pages" }
         destination.parentFile?.mkdirs()
+        requirePdfWorkspace(
+            destination = destination,
+            sourceBytes = source.length(),
+            operation = "publish this PDF"
+        )
 
         PDDocument.load(
             source,
@@ -348,6 +358,11 @@ class PdfEngine(
     ) {
         require(source.isFile) { "PDF source is unavailable" }
         destination.parentFile?.mkdirs()
+        requirePdfWorkspace(
+            destination = destination,
+            sourceBytes = source.length(),
+            operation = "sanitize this PDF"
+        )
         PDDocument.load(
             source,
             MemoryUsageSetting.setupTempFileOnly()
@@ -370,6 +385,11 @@ class PdfEngine(
         require(source.isFile) { "PDF source is unavailable" }
         require(password.isNotBlank()) { "Password cannot be blank" }
         destination.parentFile?.mkdirs()
+        requirePdfWorkspace(
+            destination = destination,
+            sourceBytes = source.length(),
+            operation = "protect this PDF"
+        )
 
         PDDocument.load(
             source,
@@ -390,6 +410,11 @@ class PdfEngine(
         require(source.isFile) { "PDF source is unavailable" }
         require(pageIndices.isNotEmpty()) { "No pages selected" }
         destination.parentFile?.mkdirs()
+        requirePdfWorkspace(
+            destination = destination,
+            sourceBytes = source.length(),
+            operation = "extract PDF pages"
+        )
 
         PDDocument.load(
             source,
@@ -420,14 +445,57 @@ class PdfEngine(
         destination: File
     ) {
         require(sources.isNotEmpty()) { "No PDFs selected" }
-        sources.forEach { require(it.isFile) { "Missing PDF source" } }
+        sources.forEach {
+            require(it.isFile) { "Missing PDF source" }
+        }
         destination.parentFile?.mkdirs()
+        requirePdfWorkspace(
+            destination = destination,
+            sourceBytes = estimatedFileBytes(sources),
+            operation = "merge these PDFs"
+        )
 
         PDFMergerUtility().apply {
             sources.forEach(::addSource)
             destinationFileName = destination.absolutePath
             mergeDocuments(MemoryUsageSetting.setupTempFileOnly())
         }
+    }
+
+    private fun requirePdfWorkspace(
+        destination: File,
+        sourceBytes: Long,
+        operation: String
+    ) {
+        StorageSpaceGuard.require(
+            anchor = destination,
+            estimatedWorkingBytes =
+                StorageBudgetPolicy.pdfExportWorkingBytes(
+                    sourceBytes
+                ),
+            operation = operation
+        )
+    }
+
+    private fun estimatedPageBytes(
+        pages: List<PageEntity>
+    ): Long = estimatedFileBytes(
+        pages.map { File(it.imagePath) }
+    )
+
+    private fun estimatedFileBytes(
+        files: List<File>
+    ): Long {
+        var total = 0L
+        files.forEach { file ->
+            val length = file.length()
+                .coerceAtLeast(0L)
+            if (length > Long.MAX_VALUE - total) {
+                return Long.MAX_VALUE
+            }
+            total += length
+        }
+        return total
     }
 
     private fun applyPublishing(
