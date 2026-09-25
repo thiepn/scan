@@ -28,8 +28,35 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    val releaseStoreFile = providers.environmentVariable("SCAN_RELEASE_STORE_FILE")
+    val releaseStorePassword = providers.environmentVariable("SCAN_RELEASE_STORE_PASSWORD")
+    val releaseKeyAlias = providers.environmentVariable("SCAN_RELEASE_KEY_ALIAS")
+    val releaseKeyPassword = providers.environmentVariable("SCAN_RELEASE_KEY_PASSWORD")
+    val releaseSigningConfigured = listOf(
+        releaseStoreFile,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword
+    ).all { provider ->
+        provider.orNull?.isNotBlank() == true
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseSigningConfigured) {
+                storeFile = file(releaseStoreFile.get())
+                storePassword = releaseStorePassword.get()
+                keyAlias = releaseKeyAlias.get()
+                keyPassword = releaseKeyPassword.get()
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

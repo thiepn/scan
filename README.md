@@ -78,6 +78,22 @@ The current repository contains a native Android/Jetpack Compose application wit
 
 The capture implementation intentionally uses the production ML Kit Document Scanner in this first shippable baseline; scanner capture is isolated from the document repository so a custom CameraX/OpenCV engine can replace it without changing storage, OCR, library, or export layers.
 
+## v1.0 production certification
+
+Phase 20 adds release-wide automated certification around the frozen v1 feature set:
+
+- contiguous Room migration registration plus committed schema output
+- unit tests, release lint, minified APK and AAB builds
+- release-signature, package/version, checksum, and forbidden-permission verification
+- API 26 and modern-Android emulator install/replace/launch smoke coverage
+- baseline-to-candidate update-path checks using the same debug signing identity
+- large-font UI smoke coverage and explicit manual TalkBack/device acceptance gates
+- tag-driven production signing and GitHub Release packaging for `v1.0.0`
+
+The app remains local-first: release certification rejects `INTERNET`, broad external-storage, and package-install permissions. Production release signing keys are supplied only through GitHub Actions secrets and are never committed.
+
+See [`docs/V1_CERTIFICATION.md`](docs/V1_CERTIFICATION.md) and [`docs/RELEASE.md`](docs/RELEASE.md).
+
 ## Build
 
 Requirements:
