@@ -51,6 +51,12 @@ interface AutomationDao {
     suspend fun getRunsByStatus(status: String): List<WorkflowRunEntity>
 
     @Query(
+        "SELECT COUNT(*) FROM workflow_runs " +
+            "WHERE documentId = :documentId AND status = 'RUNNING'"
+    )
+    suspend fun getRunningRunCount(documentId: String): Int
+
+    @Query(
         "SELECT * FROM workflow_runs WHERE documentId = :documentId " +
             "AND ruleId = :ruleId AND trigger = :trigger " +
             "ORDER BY startedAt DESC LIMIT 1"
