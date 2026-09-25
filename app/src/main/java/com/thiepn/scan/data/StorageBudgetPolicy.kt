@@ -89,7 +89,7 @@ object StorageSpaceGuard {
             StorageBudgetPolicy.requiredFreeBytes(
                 estimatedWorkingBytes
             )
-        require(usable >= required) {
+        kotlin.require(usable >= required) {
             "Not enough free storage to $operation. " +
                 "Free at least " +
                 formatBytes(required - usable) +
