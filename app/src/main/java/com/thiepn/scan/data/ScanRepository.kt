@@ -173,37 +173,54 @@ class ScanRepository(
         preset: DocumentProcessingPreset,
         presetId: String? = null
     ): String = withContext(Dispatchers.IO) {
-        val cleanName = name.trim()
-        require(cleanName.isNotBlank()) { "Preset name cannot be blank" }
-        require(cleanName.length <= 80) { "Preset name is too long" }
-        require(!preset.isEmpty()) { "Choose at least one preset action" }
-        validateProcessingPreset(preset)
+        automationEnqueueMutex.withLock {
+            val cleanName = name.trim()
+            require(cleanName.isNotBlank()) { "Preset name cannot be blank" }
+            require(cleanName.length <= 80) { "Preset name is too long" }
+            require(!preset.isEmpty()) { "Choose at least one preset action" }
+            validateProcessingPreset(preset)
 
-        val now = System.currentTimeMillis()
-        val id = presetId ?: UUID.randomUUID().toString()
-        val previous = presetId?.let { automationDao.getPreset(it) }
-        automationDao.upsertPreset(
-            ProcessingPresetEntity(
-                id = id,
-                name = cleanName,
-                definition = DocumentProcessingPresetCodec.encode(preset),
-                createdAt = previous?.createdAt ?: now,
-                updatedAt = now
+            val now = System.currentTimeMillis()
+            val id = presetId ?: UUID.randomUUID().toString()
+            val previous = presetId?.let { automationDao.getPreset(it) }
+
+            if (
+                previous != null &&
+                preset.securitySettings?.vaultEnabled == true
+            ) {
+                val incompatible = automationDao.getRulesForPreset(id)
+                    .firstOrNull { !it.stopAfterMatch }
+                require(incompatible == null) {
+                    "Rule " + incompatible?.name +
+                        " must stop after matching before this preset can enable vault protection"
+                }
+            }
+
+            automationDao.upsertPreset(
+                ProcessingPresetEntity(
+                    id = id,
+                    name = cleanName,
+                    definition = DocumentProcessingPresetCodec.encode(preset),
+                    createdAt = previous?.createdAt ?: now,
+                    updatedAt = now
+                )
             )
-        )
-        id
+            id
+        }
     }
 
     suspend fun deleteProcessingPreset(presetId: String) =
         withContext(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            automationDao.cancelRunnableRunsForPreset(
-                presetId = presetId,
-                now = now,
-                summary = "Cancelled because the processing preset was deleted"
-            )
-            automationDao.deleteRulesForPreset(presetId)
-            automationDao.deletePreset(presetId)
+            automationEnqueueMutex.withLock {
+                val now = System.currentTimeMillis()
+                automationDao.cancelRunnableRunsForPreset(
+                    presetId = presetId,
+                    now = now,
+                    summary = "Cancelled because the processing preset was deleted"
+                )
+                automationDao.deleteRulesForPreset(presetId)
+                automationDao.deletePreset(presetId)
+            }
         }
 
     suspend fun saveWorkflowRule(
@@ -216,7 +233,8 @@ class ScanRepository(
         retryBackoffMillis: Long = 30_000L,
         ruleId: String? = null
     ): String = withContext(Dispatchers.IO) {
-        val cleanName = name.trim()
+        automationEnqueueMutex.withLock {
+            val cleanName = name.trim()
         require(cleanName.isNotBlank()) { "Rule name cannot be blank" }
         require(cleanName.length <= 80) { "Rule name is too long" }
         condition.minPages?.let {
@@ -262,12 +280,32 @@ class ScanRepository(
                 updatedAt = now
             )
         )
-        id
+            id
+        }
     }
 
-    suspend fun setWorkflowRuleEnabled(ruleId: String, enabled: Boolean) =
-        withContext(Dispatchers.IO) {
-            require(automationDao.getRule(ruleId) != null) { "Workflow rule not found" }
+    suspend fun setWorkflowRuleEnabled(
+        ruleId: String,
+        enabled: Boolean
+    ) = withContext(Dispatchers.IO) {
+        automationEnqueueMutex.withLock {
+            val rule = automationDao.getRule(ruleId)
+                ?: throw IllegalArgumentException("Workflow rule not found")
+            if (enabled) {
+                val presetEntity = automationDao.getPreset(rule.presetId)
+                    ?: throw IllegalArgumentException(
+                        "Processing preset no longer exists"
+                    )
+                val preset = DocumentProcessingPresetCodec.decode(
+                    presetEntity.definition
+                )
+                if (preset.securitySettings?.vaultEnabled == true) {
+                    require(rule.stopAfterMatch) {
+                        "A vault-locking rule must stop rule processing after it matches"
+                    }
+                }
+            }
+
             val now = System.currentTimeMillis()
             if (!enabled) {
                 automationDao.cancelRunnableRunsForRule(
@@ -282,15 +320,18 @@ class ScanRepository(
                 now
             )
         }
+    }
 
     suspend fun deleteWorkflowRule(ruleId: String) =
         withContext(Dispatchers.IO) {
-            automationDao.cancelRunnableRunsForRule(
-                ruleId = ruleId,
-                now = System.currentTimeMillis(),
-                summary = "Cancelled because the workflow rule was deleted"
-            )
-            automationDao.deleteRule(ruleId)
+            automationEnqueueMutex.withLock {
+                automationDao.cancelRunnableRunsForRule(
+                    ruleId = ruleId,
+                    now = System.currentTimeMillis(),
+                    summary = "Cancelled because the workflow rule was deleted"
+                )
+                automationDao.deleteRule(ruleId)
+            }
         }
 
     suspend fun saveWorkflowDestination(
@@ -485,20 +526,35 @@ class ScanRepository(
 
     suspend fun retryWorkflowRun(runId: String) =
         withContext(Dispatchers.IO) {
-            val run = automationDao.getRun(runId)
-                ?: throw IllegalArgumentException("Workflow run not found")
-            require(run.status == WorkflowRunStatus.FAILED.name) {
-                "Only failed workflow runs can be retried"
+            automationEnqueueMutex.withLock {
+                val run = automationDao.getRun(runId)
+                    ?: throw IllegalArgumentException("Workflow run not found")
+                require(run.status == WorkflowRunStatus.FAILED.name) {
+                    "Only failed workflow runs can be retried"
+                }
+                require(automationDao.getPreset(run.presetId) != null) {
+                    "Processing preset no longer exists"
+                }
+                run.ruleId?.let { ruleId ->
+                    val rule = automationDao.getRule(ruleId)
+                        ?: throw IllegalStateException(
+                            "Workflow rule no longer exists"
+                        )
+                    require(rule.enabled) {
+                        "Enable the workflow rule before retrying this run"
+                    }
+                }
+
+                automationDao.updateRunState(
+                    id = run.id,
+                    status = WorkflowRunStatus.PENDING.name,
+                    attemptCount = 0,
+                    finishedAt = null,
+                    nextRetryAt = null,
+                    summary = "Retry queued",
+                    lastError = null
+                )
             }
-            automationDao.updateRunState(
-                id = run.id,
-                status = WorkflowRunStatus.PENDING.name,
-                attemptCount = 0,
-                finishedAt = null,
-                nextRetryAt = null,
-                summary = "Retry queued",
-                lastError = null
-            )
             drainAutomationQueue()
         }
 
