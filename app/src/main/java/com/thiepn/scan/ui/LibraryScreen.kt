@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -62,6 +63,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -905,8 +912,32 @@ private fun DocumentCard(
     } else {
         document.title
     }
+    val largeText = LocalDensity.current.fontScale >= 1.30f
+    val previewWidth = if (largeText) 52.dp else 76.dp
+    val previewHeight = if (largeText) 72.dp else 104.dp
+    val selectionModifier = if (selectionMode) {
+        Modifier
+            .selectable(
+                selected = selected,
+                onClick = onToggleSelected,
+                role = Role.Checkbox
+            )
+            .semantics {
+                stateDescription = if (selected) {
+                    "Selected"
+                } else {
+                    "Not selected"
+                }
+            }
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
 
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(selectionModifier)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -914,14 +945,18 @@ private fun DocumentCard(
             if (selectionMode) {
                 Checkbox(
                     checked = selected,
-                    onCheckedChange = { onToggleSelected() },
-                    modifier = Modifier.padding(end = 6.dp)
+                    onCheckedChange = null,
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .clearAndSetSemantics { }
                 )
             }
             val coverPage = cover
             if (coverPage != null && !locked) {
                 Box(
-                    modifier = Modifier.width(76.dp).height(104.dp)
+                    modifier = Modifier
+                        .width(previewWidth)
+                        .height(previewHeight)
                 ) {
                     FileImage(
                         path = coverPage.imagePath,
@@ -947,7 +982,9 @@ private fun DocumentCard(
                 }
             } else {
                 Box(
-                    modifier = Modifier.width(76.dp).height(104.dp),
+                    modifier = Modifier
+                        .width(previewWidth)
+                        .height(previewHeight),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -973,8 +1010,9 @@ private fun DocumentCard(
                     displayTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = if (largeText) 3 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() }
                 )
                 Text(
                     if (hideLockedMetadata) {
@@ -1046,7 +1084,7 @@ private fun DocumentCard(
                         organizationLine,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
+                        maxLines = if (largeText) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 4.dp)
                     )
