@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -89,6 +88,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -2769,16 +2772,26 @@ private fun PageCard(
 
     val selectionModifier = if (selectionMode) {
         Modifier
-            .selectable(
-                selected = selected,
-                onClick = onToggleSelected,
+            .clickable(onClick = onToggleSelected)
+            .clearAndSetSemantics {
+                contentDescription =
+                    "$displayLabel, page $displayNumber"
                 role = Role.Checkbox
-            )
-            .semantics {
+                this.selected = selected
                 stateDescription = if (selected) {
                     "Selected"
                 } else {
                     "Not selected"
+                }
+                onClick(
+                    label = if (selected) {
+                        "Deselect page"
+                    } else {
+                        "Select page"
+                    }
+                ) {
+                    onToggleSelected()
+                    true
                 }
             }
     } else {
