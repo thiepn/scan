@@ -49,6 +49,25 @@ class DocumentTextSummaryTest {
     }
 
     @Test
+    fun streamingAccumulatorStaysBounded() {
+        val accumulator = DocumentTextSummary.Accumulator(
+            pageCount = 500,
+            maxChars = 20_000
+        )
+        repeat(500) { index ->
+            accumulator.add(
+                index,
+                "page-$index " + "x".repeat(3000)
+            )
+        }
+
+        val summary = accumulator.build()
+        assertTrue(summary.length <= 20_000)
+        assertTrue(summary.contains("page-0"))
+        assertTrue(summary.contains("page-499"))
+    }
+
+    @Test
     fun blankPagesDoNotConsumeBudget() {
         assertEquals(
             "useful",
