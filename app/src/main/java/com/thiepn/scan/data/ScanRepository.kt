@@ -796,58 +796,88 @@ class ScanRepository(
     ): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        val pdf = pdfUri?.let { files.copyUri(it, files.pdfFile(id)) }
         val profile = ScanModeProfiles.forMode(scanMode)
         val title = defaultTitle(now, scanMode)
-
-        dao.insertDocument(
-            DocumentEntity(
-                id = id,
-                title = title,
-                createdAt = now,
-                updatedAt = now,
-                pdfPath = pdf?.absolutePath,
-                pageCount = pageUris.size,
-                processing = true,
-                documentType = profile.defaultDocumentType.name,
-                scanMode = scanMode.name
-            )
-        )
-
         val createdPageIds = mutableListOf<String>()
-        pageUris.forEachIndexed { index, uri ->
-            val pageId = UUID.randomUUID().toString()
-            createdPageIds += pageId
-            val file = files.copyUri(uri, files.pageFile(id, pageId))
-            val size = imageSize(file)
-            dao.insertPage(
-                PageEntity(
-                    id = pageId,
-                    documentId = id,
-                    position = index,
-                    sortKey = (index + 1L) * 1000L,
-                    visualRecipe = PageVisualRecipeCodec.encode(
-                        PageVisualRecipe.forMode(scanMode)
-                    ),
-                    imagePath = file.absolutePath,
-                    width = size.first,
-                    height = size.second
+        var pdf: File? = null
+
+        try {
+            pdf = pdfUri?.let {
+                files.copyUri(
+                    it,
+                    files.pdfFile(id)
+                )
+            }
+
+            dao.insertDocument(
+                DocumentEntity(
+                    id = id,
+                    title = title,
+                    createdAt = now,
+                    updatedAt = now,
+                    pdfPath = pdf?.absolutePath,
+                    pageCount = pageUris.size,
+                    processing = true,
+                    documentType =
+                        profile.defaultDocumentType.name,
+                    scanMode = scanMode.name
                 )
             )
+
+            pageUris.forEachIndexed { index, uri ->
+                val pageId = UUID.randomUUID().toString()
+                val file = files.copyUri(
+                    uri,
+                    files.pageFile(id, pageId)
+                )
+                val size = imageSize(file)
+                dao.insertPage(
+                    PageEntity(
+                        id = pageId,
+                        documentId = id,
+                        position = index,
+                        sortKey =
+                            (index + 1L) * 1000L,
+                        visualRecipe =
+                            PageVisualRecipeCodec.encode(
+                                PageVisualRecipe.forMode(
+                                    scanMode
+                                )
+                            ),
+                        imagePath = file.absolutePath,
+                        width = size.first,
+                        height = size.second
+                    )
+                )
+                createdPageIds += pageId
+            }
+        } catch (error: Throwable) {
+            runCatching {
+                dao.deleteDocument(id)
+            }
+            files.deleteDocument(id)
+            throw error
         }
 
+        val sourcePdf = pdf
         val process: suspend () -> Unit = {
             when {
-                pageUris.isEmpty() && pdf != null ->
-                    renderPdfAndRecognize(id, pdf)
+                pageUris.isEmpty() &&
+                    sourcePdf != null ->
+                    renderPdfAndRecognize(
+                        id,
+                        sourcePdf
+                    )
                 scanMode == ScanMode.BOOK ->
                     processBookPagesAndRecognize(
                         id,
                         createdPageIds
                     )
-                else -> recognizeDocument(id)
+                else ->
+                    recognizeDocument(id)
             }
         }
+
         if (awaitProcessing) {
             process()
         } else {
