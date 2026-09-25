@@ -5,6 +5,68 @@ object DocumentTextSummary {
     private const val FIRST_PAGE_BUDGET = 16 * 1024
     private const val SEPARATOR = "\n\n"
 
+    class Accumulator(
+        pageCount: Int,
+        private val maxChars: Int = MAX_CHARS
+    ) {
+        private val totalPages = pageCount.coerceAtLeast(1)
+        private val builder = StringBuilder(
+            maxChars.coerceAtLeast(0)
+        )
+        private val firstBudget = minOf(
+            FIRST_PAGE_BUDGET,
+            (maxChars / 4).coerceAtLeast(1)
+        )
+        private val laterBudget = if (totalPages <= 1) {
+            maxChars
+        } else {
+            (
+                (
+                    maxChars -
+                        firstBudget -
+                        SEPARATOR.length * (totalPages - 1)
+                    ).coerceAtLeast(0) /
+                    (totalPages - 1)
+                ).coerceAtLeast(1)
+        }
+
+        fun add(
+            pageIndex: Int,
+            text: String
+        ) {
+            if (text.isBlank() || maxChars <= 0) return
+            if (builder.length >= maxChars) return
+
+            if (builder.isNotEmpty()) {
+                val separatorSpace =
+                    maxChars - builder.length
+                if (separatorSpace <= 0) return
+                builder.append(
+                    SEPARATOR.take(separatorSpace)
+                )
+            }
+
+            val available = maxChars - builder.length
+            if (available <= 0) return
+            val budget = if (pageIndex == 0) {
+                firstBudget
+            } else {
+                laterBudget
+            }
+            builder.append(
+                text,
+                0,
+                minOf(
+                    text.length,
+                    budget,
+                    available
+                )
+            )
+        }
+
+        fun build(): String = builder.toString()
+    }
+
     fun build(
         pageTexts: List<String>,
         maxChars: Int = MAX_CHARS
