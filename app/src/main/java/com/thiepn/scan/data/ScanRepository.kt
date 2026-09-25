@@ -3167,7 +3167,7 @@ class ScanRepository(
         require(document.trashedAt != null) {
             "Move the document to Trash before deleting it forever"
         }
-        val security = securityOverride ?: DocumentSecuritySettingsCodec.decode(
+        val security = DocumentSecuritySettingsCodec.decode(
             document.securityRecipe
         )
         searchIndex.deleteDocument(id)
@@ -3277,7 +3277,7 @@ class ScanRepository(
         require(!document.processing) {
             "Document is still processing"
         }
-        val security = DocumentSecuritySettingsCodec.decode(
+        val security = securityOverride ?: DocumentSecuritySettingsCodec.decode(
             document.securityRecipe
         )
         val pages = orderedPages(dao.getPages(documentId))
