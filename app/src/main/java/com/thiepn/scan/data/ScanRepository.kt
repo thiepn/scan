@@ -405,29 +405,35 @@ class ScanRepository(
     suspend fun evaluateAutomationRulesForDocuments(
         documentIds: List<String>
     ): AutomationBatchResult = withContext(Dispatchers.IO) {
-        val ids = editableDocumentIds(documentIds)
-        var queued = 0
+        val ids = documentIds.distinct()
+        require(ids.isNotEmpty()) { "Select at least one document" }
+
+        var preflightFailures = 0
+        val runIds = mutableListOf<String>()
         ids.forEach { id ->
-            queued += queueIntakeAutomation(id)
-        }
-        drainAutomationQueue()
-        val rules = automationDao.getEnabledRules(WorkflowTrigger.INTAKE.name)
-        var failures = 0
-        ids.forEach { id ->
-            rules.forEach { rule ->
-                val latest = automationDao.getLatestRuleRun(
-                    id,
-                    rule.id,
-                    WorkflowTrigger.INTAKE.name
-                )
-                if (latest?.status == WorkflowRunStatus.FAILED.name) {
-                    failures += 1
+            val preflightError = runCatching {
+                val document = requireEditableDocument(id)
+                require(!document.processing) {
+                    "Document is still processing"
                 }
+            }.exceptionOrNull()
+
+            if (preflightError == null) {
+                runIds += queueIntakeAutomation(id)
+            } else {
+                preflightFailures += 1
             }
         }
+
+        drainAutomationQueue()
+        val finished = runIds.mapNotNull { automationDao.getRun(it) }
         AutomationBatchResult(
-            succeeded = (queued - failures).coerceAtLeast(0),
-            failed = failures
+            succeeded = finished.count {
+                it.status == WorkflowRunStatus.SUCCEEDED.name
+            },
+            failed = preflightFailures + finished.count {
+                it.status != WorkflowRunStatus.SUCCEEDED.name
+            }
         )
     }
 
@@ -4705,7 +4711,7 @@ class ScanRepository(
             )
         }
 
-        if (queueIntakeAutomation(documentId) > 0) {
+        if (queueIntakeAutomation(documentId).isNotEmpty()) {
             appScope.launch(Dispatchers.IO) {
                 drainAutomationQueue()
             }
@@ -4774,13 +4780,17 @@ class ScanRepository(
         )
     }
 
-    private suspend fun queueIntakeAutomation(documentId: String): Int {
-        val document = dao.getDocument(documentId) ?: return 0
-        if (document.processing || document.trashedAt != null) return 0
+    private suspend fun queueIntakeAutomation(
+        documentId: String
+    ): List<String> {
+        val document = dao.getDocument(documentId) ?: return emptyList()
+        if (document.processing || document.trashedAt != null) {
+            return emptyList()
+        }
 
         val snapshot = automationSnapshot(documentId)
         val rules = automationDao.getEnabledRules(WorkflowTrigger.INTAKE.name)
-        var queued = 0
+        val queuedRunIds = mutableListOf<String>()
         val now = System.currentTimeMillis()
 
         for (rule in rules) {
@@ -4796,21 +4806,22 @@ class ScanRepository(
             }.getOrNull() ?: continue
             if (!WorkflowAutomationMatcher.matches(condition, snapshot)) continue
 
+            val runId = UUID.randomUUID().toString()
             automationDao.upsertRun(
                 WorkflowRunEntity(
-                    id = UUID.randomUUID().toString(),
+                    id = runId,
                     documentId = documentId,
                     documentTitle = document.title,
                     ruleId = rule.id,
                     presetId = rule.presetId,
                     trigger = WorkflowTrigger.INTAKE.name,
-                    startedAt = now + queued
+                    startedAt = now + queuedRunIds.size
                 )
             )
-            queued += 1
+            queuedRunIds += runId
             if (rule.stopAfterMatch) break
         }
-        return queued
+        return queuedRunIds
     }
 
     private suspend fun drainAutomationQueue() {
