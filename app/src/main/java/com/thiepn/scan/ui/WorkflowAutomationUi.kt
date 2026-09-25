@@ -1094,6 +1094,10 @@ private fun summarizePreset(preset: ProcessingPresetEntity): String {
     if (decoded.complianceSettings != null) actions += "compliance"
     if (decoded.securitySettings != null) actions += "security"
     if (decoded.destinationId != null) actions += "deliver"
-    if (decoded.archive != null) actions += "lifecycle"
+    if (
+        decoded.needsReview != null ||
+        decoded.favorite != null ||
+        decoded.archive != null
+    ) actions += "lifecycle"
     return actions.joinToString(" · ").ifBlank { "No actions" }
 }
