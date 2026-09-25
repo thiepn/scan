@@ -13,9 +13,11 @@ object DocumentTextSummary {
         val texts = pageTexts.filter { it.isNotBlank() }
         if (texts.isEmpty()) return ""
 
-        val fullLength = texts.sumOf { it.length } +
-            SEPARATOR.length * (texts.size - 1)
-        if (fullLength <= maxChars) {
+        val fullLength = texts.sumOf {
+            it.length.toLong()
+        } + SEPARATOR.length.toLong() *
+            (texts.size - 1).toLong()
+        if (fullLength <= maxChars.toLong()) {
             return texts.joinToString(SEPARATOR)
         }
 
