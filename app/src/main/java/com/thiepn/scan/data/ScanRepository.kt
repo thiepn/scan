@@ -35,6 +35,7 @@ class ScanRepository(
     private val highSpeedPolicy = HighSpeedProcessingPolicy(context)
     private val processingQueueMutex = Mutex()
     private val automationQueueMutex = Mutex()
+    private val automationEnqueueMutex = Mutex()
     @Volatile private var automationRetryToken = 0L
 
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
@@ -4799,7 +4800,7 @@ class ScanRepository(
 
     private suspend fun queueIntakeAutomation(
         documentId: String
-    ): List<String> {
+    ): List<String> = automationEnqueueMutex.withLock {
         val document = dao.getDocument(documentId) ?: return emptyList()
         if (document.processing || document.trashedAt != null) {
             return emptyList()
