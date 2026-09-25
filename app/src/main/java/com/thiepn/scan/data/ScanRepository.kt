@@ -324,6 +324,12 @@ class ScanRepository(
                 updatedAt = now
             )
         )
+        if (
+            previous != null &&
+            previous.treeUri != treeUri.toString()
+        ) {
+            releaseWorkflowTreeGrantIfUnused(previous.treeUri)
+        }
         id
     }
 
@@ -341,19 +347,41 @@ class ScanRepository(
 
             automationDao.deleteDestination(destinationId)
 
-            val stillUsed = automationDao.getDestinations().any {
-                it.treeUri == destination.treeUri
-            }
-            if (!stillUsed) {
-                runCatching {
-                    context.contentResolver.releasePersistableUriPermission(
-                        Uri.parse(destination.treeUri),
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    )
-                }
-            }
+            releaseWorkflowTreeGrantIfUnused(destination.treeUri)
         }
+
+    private suspend fun releaseWorkflowTreeGrantIfUnused(
+        treeUri: String
+    ) {
+        val stillUsed = automationDao.getDestinations().any {
+            it.treeUri == treeUri
+        }
+        if (stillUsed) return
+
+        val uri = Uri.parse(treeUri)
+        val permission = context.contentResolver.persistedUriPermissions
+            .firstOrNull { it.uri == uri }
+            ?: return
+        val flags =
+            (if (permission.isReadPermission) {
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            } else {
+                0
+            }) or
+                (if (permission.isWritePermission) {
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                } else {
+                    0
+                })
+        if (flags == 0) return
+
+        runCatching {
+            context.contentResolver.releasePersistableUriPermission(
+                uri,
+                flags
+            )
+        }
+    }
 
     suspend fun applyProcessingPresetToDocuments(
         presetId: String,
@@ -5040,9 +5068,9 @@ class ScanRepository(
         runId: String,
         existingOutputUri: String?
     ) {
-        val format = runCatching {
-            WorkflowExportFormat.valueOf(destination.exportFormat)
-        }.getOrDefault(WorkflowExportFormat.PDF)
+        val format = WorkflowExportFormat.entries.firstOrNull {
+            it.name == destination.exportFormat
+        } ?: error("Unknown workflow export format")
 
         val export = when (format) {
             WorkflowExportFormat.PDF ->
