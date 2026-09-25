@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      SCAN_RELEASE_STORE_FILE: ${{ runner.temp }}/scan-certification.jks
+      SCAN_RELEASE_STORE_FILE: /tmp/scan-certification.jks
       SCAN_RELEASE_STORE_PASSWORD: certification-only
       SCAN_RELEASE_KEY_ALIAS: scan-certification
       SCAN_RELEASE_KEY_PASSWORD: certification-only

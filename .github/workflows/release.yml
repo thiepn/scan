@@ -18,7 +18,7 @@ jobs:
       SCAN_RELEASE_KEY_ALIAS: ${{ secrets.SCAN_RELEASE_KEY_ALIAS }}
       SCAN_RELEASE_KEY_PASSWORD: ${{ secrets.SCAN_RELEASE_KEY_PASSWORD }}
       SCAN_RELEASE_KEYSTORE_BASE64: ${{ secrets.SCAN_RELEASE_KEYSTORE_BASE64 }}
-      SCAN_RELEASE_STORE_FILE: ${{ runner.temp }}/scan-production.jks
+      SCAN_RELEASE_STORE_FILE: /tmp/scan-production.jks
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v5
