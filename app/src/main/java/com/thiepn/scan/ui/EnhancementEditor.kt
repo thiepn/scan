@@ -207,7 +207,7 @@ fun EnhancementEditorDialog(
                     PositiveSlider("Background whitening", recipe.backgroundWhitening) {
                         recipe = recipe.copy(backgroundWhitening = it)
                     }
-                    PositiveSlider("Shadow normalization", recipe.shadowNormalization) {
+                    PositiveSlider("Shadow removal", recipe.shadowNormalization) {
                         recipe = recipe.copy(shadowNormalization = it)
                     }
                 }
