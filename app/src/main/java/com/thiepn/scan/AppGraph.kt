@@ -23,7 +23,6 @@ class AppGraph(context: Context) {
     val vault = SecurityVaultManager(
         context = appContext,
         dao = database.documentDao(),
-        automationDao = database.automationDao(),
         files = files,
         scope = scope
     )
@@ -31,6 +30,7 @@ class AppGraph(context: Context) {
     val repository = ScanRepository(
         context = appContext,
         dao = database.documentDao(),
+        automationDao = database.automationDao(),
         files = files,
         ocr = ocr,
         rasterizer = PdfPageRasterizer(),
