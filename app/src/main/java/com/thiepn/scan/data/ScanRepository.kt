@@ -130,6 +130,207 @@ class ScanRepository(
         }
     }
 
+    suspend fun saveProcessingPreset(
+        name: String,
+        preset: DocumentProcessingPreset,
+        presetId: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val cleanName = name.trim()
+        require(cleanName.isNotBlank()) { "Preset name cannot be blank" }
+        require(cleanName.length <= 80) { "Preset name is too long" }
+        require(!preset.isEmpty()) { "Choose at least one preset action" }
+        validateProcessingPreset(preset)
+
+        val now = System.currentTimeMillis()
+        val id = presetId ?: UUID.randomUUID().toString()
+        val previous = presetId?.let { automationDao.getPreset(it) }
+        automationDao.upsertPreset(
+            ProcessingPresetEntity(
+                id = id,
+                name = cleanName,
+                definition = DocumentProcessingPresetCodec.encode(preset),
+                createdAt = previous?.createdAt ?: now,
+                updatedAt = now
+            )
+        )
+        id
+    }
+
+    suspend fun deleteProcessingPreset(presetId: String) =
+        withContext(Dispatchers.IO) {
+            automationDao.deleteRulesForPreset(presetId)
+            automationDao.deletePreset(presetId)
+        }
+
+    suspend fun saveWorkflowRule(
+        name: String,
+        condition: AutomationCondition,
+        presetId: String,
+        priority: Int = 100,
+        stopAfterMatch: Boolean = false,
+        maxAttempts: Int = 3,
+        retryBackoffMillis: Long = 30_000L,
+        ruleId: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val cleanName = name.trim()
+        require(cleanName.isNotBlank()) { "Rule name cannot be blank" }
+        require(cleanName.length <= 80) { "Rule name is too long" }
+        require(automationDao.getPreset(presetId) != null) {
+            "Processing preset no longer exists"
+        }
+        val now = System.currentTimeMillis()
+        val id = ruleId ?: UUID.randomUUID().toString()
+        val previous = ruleId?.let { automationDao.getRule(it) }
+        automationDao.upsertRule(
+            WorkflowRuleEntity(
+                id = id,
+                name = cleanName,
+                enabled = previous?.enabled ?: true,
+                priority = priority.coerceIn(0, 10_000),
+                trigger = WorkflowTrigger.INTAKE.name,
+                condition = AutomationConditionCodec.encode(condition),
+                presetId = presetId,
+                stopAfterMatch = stopAfterMatch,
+                maxAttempts = maxAttempts.coerceIn(1, 10),
+                retryBackoffMillis = retryBackoffMillis.coerceIn(
+                    1_000L,
+                    24L * 60L * 60L * 1000L
+                ),
+                createdAt = previous?.createdAt ?: now,
+                updatedAt = now
+            )
+        )
+        id
+    }
+
+    suspend fun setWorkflowRuleEnabled(ruleId: String, enabled: Boolean) =
+        withContext(Dispatchers.IO) {
+            require(automationDao.getRule(ruleId) != null) { "Workflow rule not found" }
+            automationDao.setRuleEnabled(
+                ruleId,
+                enabled,
+                System.currentTimeMillis()
+            )
+        }
+
+    suspend fun deleteWorkflowRule(ruleId: String) =
+        withContext(Dispatchers.IO) {
+            automationDao.deleteRule(ruleId)
+        }
+
+    suspend fun saveWorkflowDestination(
+        name: String,
+        treeUri: Uri,
+        exportFormat: WorkflowExportFormat,
+        destinationId: String? = null
+    ): String = withContext(Dispatchers.IO) {
+        val cleanName = name.trim()
+        require(cleanName.isNotBlank()) { "Destination name cannot be blank" }
+        require(cleanName.length <= 80) { "Destination name is too long" }
+        require(treeUri.scheme == "content") { "Choose a document-provider folder" }
+
+        val now = System.currentTimeMillis()
+        val id = destinationId ?: UUID.randomUUID().toString()
+        val previous = destinationId?.let { automationDao.getDestination(it) }
+        automationDao.upsertDestination(
+            WorkflowDestinationEntity(
+                id = id,
+                name = cleanName,
+                treeUri = treeUri.toString(),
+                exportFormat = exportFormat.name,
+                createdAt = previous?.createdAt ?: now,
+                updatedAt = now
+            )
+        )
+        id
+    }
+
+    suspend fun deleteWorkflowDestination(destinationId: String) =
+        withContext(Dispatchers.IO) {
+            val inUse = automationDao.getPresets().any { entity ->
+                DocumentProcessingPresetCodec.decode(entity.definition)
+                    .destinationId == destinationId
+            }
+            require(!inUse) {
+                "This destination is used by a processing preset"
+            }
+            automationDao.deleteDestination(destinationId)
+        }
+
+    suspend fun applyProcessingPresetToDocuments(
+        presetId: String,
+        documentIds: List<String>
+    ): AutomationBatchResult = withContext(Dispatchers.IO) {
+        val preset = automationDao.getPreset(presetId)
+            ?: throw IllegalArgumentException("Processing preset not found")
+        val ids = editableDocumentIds(documentIds)
+        val runIds = ids.map { documentId ->
+            val document = dao.getDocument(documentId)
+                ?: throw IllegalArgumentException("Document not found")
+            val run = WorkflowRunEntity(
+                id = UUID.randomUUID().toString(),
+                documentId = documentId,
+                documentTitle = document.title,
+                ruleId = null,
+                presetId = preset.id,
+                trigger = WorkflowTrigger.MANUAL.name,
+                startedAt = System.currentTimeMillis()
+            )
+            automationDao.upsertRun(run)
+            run.id
+        }
+        drainAutomationQueue()
+        val finished = runIds.mapNotNull { automationDao.getRun(it) }
+        AutomationBatchResult(
+            succeeded = finished.count {
+                it.status == WorkflowRunStatus.SUCCEEDED.name
+            },
+            failed = finished.count {
+                it.status == WorkflowRunStatus.FAILED.name
+            }
+        )
+    }
+
+    suspend fun evaluateAutomationRulesForDocuments(
+        documentIds: List<String>
+    ): AutomationBatchResult = withContext(Dispatchers.IO) {
+        val ids = editableDocumentIds(documentIds)
+        val queued = ids.sumOf { queueIntakeAutomation(it) }
+        drainAutomationQueue()
+        val failures = ids.sumOf { id ->
+            automationDao.getEnabledRules(WorkflowTrigger.INTAKE.name).count { rule ->
+                automationDao.getLatestRuleRun(
+                    id,
+                    rule.id,
+                    WorkflowTrigger.INTAKE.name
+                )?.status == WorkflowRunStatus.FAILED.name
+            }
+        }
+        AutomationBatchResult(
+            succeeded = (queued - failures).coerceAtLeast(0),
+            failed = failures
+        )
+    }
+
+    suspend fun retryWorkflowRun(runId: String) =
+        withContext(Dispatchers.IO) {
+            val run = automationDao.getRun(runId)
+                ?: throw IllegalArgumentException("Workflow run not found")
+            require(run.status == WorkflowRunStatus.FAILED.name) {
+                "Only failed workflow runs can be retried"
+            }
+            automationDao.updateRunState(
+                id = run.id,
+                status = WorkflowRunStatus.PENDING.name,
+                attemptCount = 0,
+                finishedAt = null,
+                nextRetryAt = null,
+                summary = "Retry queued",
+                lastError = null
+            )
+            drainAutomationQueue()
+        }
+
     suspend fun ingestHighSpeedCapture(
         pageUris: List<Uri>,
         scanMode: ScanMode
