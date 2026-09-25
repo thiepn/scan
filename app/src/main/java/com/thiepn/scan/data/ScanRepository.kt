@@ -3171,6 +3171,7 @@ class ScanRepository(
             document.securityRecipe
         )
         searchIndex.deleteDocument(id)
+        automationDao.deleteRunsForDocument(id)
         dao.deleteDocument(id)
         if (security.bestEffortSecureDelete) {
             vault.bestEffortSecureDelete(id)
