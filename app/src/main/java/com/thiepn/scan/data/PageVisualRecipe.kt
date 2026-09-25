@@ -46,21 +46,21 @@ data class PageVisualRecipe(
 ) {
     fun normalized(): PageVisualRecipe = copy(
         version = CURRENT_VERSION,
-        brightness = brightness.coerceIn(-1f, 1f),
-        contrast = contrast.coerceIn(-1f, 1f),
-        highlights = highlights.coerceIn(-1f, 1f),
-        shadows = shadows.coerceIn(-1f, 1f),
-        blackPoint = blackPoint.coerceIn(0f, 1f),
-        whitePoint = whitePoint.coerceIn(0f, 1f),
-        warmth = warmth.coerceIn(-1f, 1f),
-        saturation = saturation.coerceIn(-1f, 1f),
-        sharpness = sharpness.coerceIn(0f, 1f),
-        backgroundWhitening = backgroundWhitening.coerceIn(0f, 1f),
-        shadowNormalization = shadowNormalization.coerceIn(0f, 1f),
-        illuminationCorrection = illuminationCorrection.coerceIn(0f, 1f),
-        localContrast = localContrast.coerceIn(0f, 1f),
-        whiteBalance = whiteBalance.coerceIn(0f, 1f),
-        adaptiveBlackWhite = adaptiveBlackWhite.coerceIn(0f, 1f)
+        brightness = finiteClamp(brightness, -1f, 1f),
+        contrast = finiteClamp(contrast, -1f, 1f),
+        highlights = finiteClamp(highlights, -1f, 1f),
+        shadows = finiteClamp(shadows, -1f, 1f),
+        blackPoint = finiteClamp(blackPoint, 0f, 1f),
+        whitePoint = finiteClamp(whitePoint, 0f, 1f),
+        warmth = finiteClamp(warmth, -1f, 1f),
+        saturation = finiteClamp(saturation, -1f, 1f),
+        sharpness = finiteClamp(sharpness, 0f, 1f),
+        backgroundWhitening = finiteClamp(backgroundWhitening, 0f, 1f),
+        shadowNormalization = finiteClamp(shadowNormalization, 0f, 1f),
+        illuminationCorrection = finiteClamp(illuminationCorrection, 0f, 1f),
+        localContrast = finiteClamp(localContrast, 0f, 1f),
+        whiteBalance = finiteClamp(whiteBalance, 0f, 1f),
+        adaptiveBlackWhite = finiteClamp(adaptiveBlackWhite, 0f, 1f)
     )
 
     fun isOriginal(epsilon: Float = 0.0001f): Boolean =
@@ -279,6 +279,16 @@ data class PageVisualRecipe(
             ).normalized()
         }
 
+        private fun finiteClamp(
+            value: Float,
+            minimum: Float,
+            maximum: Float
+        ): Float = if (value.isFinite()) {
+            value.coerceIn(minimum, maximum)
+        } else {
+            0f
+        }
+
         fun defaultProfile(preset: ScanPreset): RestorationProfile = when (preset) {
             ScanPreset.ORIGINAL -> RestorationProfile.OFF
             ScanPreset.RECEIPT -> RestorationProfile.RECEIPT
@@ -329,6 +339,7 @@ object PageVisualRecipeCodec {
 
     private fun decodeV1(parts: List<String>): PageVisualRecipe =
         runCatching {
+            require(parts[0].toInt() == 1)
             PageVisualRecipe(
                 version = 1,
                 preset = ScanPreset.valueOf(parts[1]),
