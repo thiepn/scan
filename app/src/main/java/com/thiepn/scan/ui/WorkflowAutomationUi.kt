@@ -353,6 +353,16 @@ fun WorkflowAutomationDialog(
                             "Rules run once after OCR and field extraction. Lower priority numbers run first."
                         )
                         val presetNames = presets.associate { it.id to it.name }
+                        val selectedRulePresetLocksVault = presets
+                            .firstOrNull { it.id == rulePresetId }
+                            ?.let { preset ->
+                                runCatching {
+                                    com.thiepn.scan.data.DocumentProcessingPresetCodec
+                                        .decode(preset.definition)
+                                        .securitySettings
+                                        ?.vaultEnabled == true
+                                }.getOrDefault(false)
+                            } == true
                         rules.forEach { rule ->
                             AutomationRow(
                                 title = rule.name,
@@ -464,10 +474,20 @@ fun WorkflowAutomationDialog(
                             onCheckedChange = { ruleOnlyUnfiled = it }
                         )
                         ToggleRow(
-                            checked = ruleStopAfterMatch,
+                            checked = ruleStopAfterMatch || selectedRulePresetLocksVault,
                             label = "Stop after this rule matches",
-                            onCheckedChange = { ruleStopAfterMatch = it }
+                            onCheckedChange = {
+                                if (!selectedRulePresetLocksVault) {
+                                    ruleStopAfterMatch = it
+                                }
+                            }
                         )
+                        if (selectedRulePresetLocksVault) {
+                            Text(
+                                "Vault protection ends rule chaining so later rules are not blocked by a newly locked document.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         TextButton(
                             enabled = rulePresetId != null,
                             onClick = {
@@ -488,7 +508,9 @@ fun WorkflowAutomationDialog(
                                             ),
                                             presetId = presetId,
                                             priority = rulePriority.toIntOrNull() ?: 100,
-                                            stopAfterMatch = ruleStopAfterMatch
+                                            stopAfterMatch =
+                                                ruleStopAfterMatch ||
+                                                    selectedRulePresetLocksVault
                                         )
                                     }.onSuccess {
                                         ruleName = ""
