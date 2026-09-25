@@ -4,6 +4,7 @@ import android.content.Context
 import com.tom_roush.pdfbox.cos.COSArray
 import com.tom_roush.pdfbox.cos.COSDictionary
 import com.tom_roush.pdfbox.cos.COSName
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -336,7 +337,10 @@ object PdfComplianceValidator {
         }
 
         runCatching {
-            PDDocument.load(file).use { document ->
+            PDDocument.load(
+                file,
+                MemoryUsageSetting.setupTempFileOnly()
+            ).use { document ->
                 val catalog = document.documentCatalog
 
                 if (normalized.isPdfA()) {
