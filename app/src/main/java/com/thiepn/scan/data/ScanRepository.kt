@@ -231,10 +231,18 @@ class ScanRepository(
     suspend fun setWorkflowRuleEnabled(ruleId: String, enabled: Boolean) =
         withContext(Dispatchers.IO) {
             require(automationDao.getRule(ruleId) != null) { "Workflow rule not found" }
+            val now = System.currentTimeMillis()
+            if (!enabled) {
+                automationDao.cancelRunnableRunsForRule(
+                    ruleId = ruleId,
+                    now = now,
+                    summary = "Cancelled because the workflow rule was disabled"
+                )
+            }
             automationDao.setRuleEnabled(
                 ruleId,
                 enabled,
-                System.currentTimeMillis()
+                now
             )
         }
 
