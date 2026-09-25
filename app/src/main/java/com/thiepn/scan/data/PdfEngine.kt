@@ -316,7 +316,10 @@ class PdfEngine(
         require(pages.isNotEmpty()) { "Document has no pages" }
         destination.parentFile?.mkdirs()
 
-        PDDocument.load(source).use { document ->
+        PDDocument.load(
+            source,
+            MemoryUsageSetting.setupTempFileOnly()
+        ).use { document ->
             require(document.numberOfPages == pages.size) {
                 "PDF page count no longer matches the document"
             }
@@ -345,7 +348,10 @@ class PdfEngine(
     ) {
         require(source.isFile) { "PDF source is unavailable" }
         destination.parentFile?.mkdirs()
-        PDDocument.load(source).use { document ->
+        PDDocument.load(
+            source,
+            MemoryUsageSetting.setupTempFileOnly()
+        ).use { document ->
             document.documentInformation =
                 PDDocumentInformation()
             document.documentCatalog.metadata = null
@@ -365,7 +371,10 @@ class PdfEngine(
         require(password.isNotBlank()) { "Password cannot be blank" }
         destination.parentFile?.mkdirs()
 
-        PDDocument.load(source).use { document ->
+        PDDocument.load(
+            source,
+            MemoryUsageSetting.setupTempFileOnly()
+        ).use { document ->
             protect(document, password)
             document.save(destination)
         }
@@ -382,7 +391,10 @@ class PdfEngine(
         require(pageIndices.isNotEmpty()) { "No pages selected" }
         destination.parentFile?.mkdirs()
 
-        PDDocument.load(source).use { sourceDocument ->
+        PDDocument.load(
+            source,
+            MemoryUsageSetting.setupTempFileOnly()
+        ).use { sourceDocument ->
             PDDocument(
                 MemoryUsageSetting.setupTempFileOnly()
             ).use { output ->
