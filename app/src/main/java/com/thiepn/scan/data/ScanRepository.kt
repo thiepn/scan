@@ -28,6 +28,7 @@ class ScanRepository(
     private val ocr: OcrEngine,
     private val rasterizer: PdfPageRasterizer,
     private val pdfEngine: PdfEngine,
+    private val deviceCapabilities: DeviceCapabilityPolicy,
     private val searchIndex: OcrSearchIndex,
     private val vault: SecurityVaultManager,
     private val appScope: CoroutineScope
@@ -2428,7 +2429,8 @@ class ScanRepository(
         } else {
             val bitmap = renderSemanticPageBitmap(
                 page = page,
-                maxLongEdge = 2800
+                maxLongEdge =
+                    deviceCapabilities.budget.semanticProcessingLongEdge
             )
             try {
                 ocr.recognizeDetailed(bitmap, script)
@@ -2846,7 +2848,8 @@ class ScanRepository(
 
         val bitmap = renderSemanticPageBitmap(
             page = page,
-            maxLongEdge = 3600
+            maxLongEdge =
+                deviceCapabilities.budget.bookProcessingLongEdge
         )
         val temporary = File.createTempFile(
             "book-source-",
