@@ -22,8 +22,7 @@ class PendingScanActionCodecTest {
                 sessionId = "session-1"
             ),
             PendingScanAction.IdBack(
-                stagedFrontPath =
-                    "/data/user/0/scan/cache/id.front.jpg"
+                documentId = "doc-id-card"
             ),
             PendingScanAction.Append(
                 documentId = "doc-c",
