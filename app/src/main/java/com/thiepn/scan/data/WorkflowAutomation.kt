@@ -80,6 +80,7 @@ data class WorkflowRunEntity(
     val startedAt: Long,
     val finishedAt: Long? = null,
     val nextRetryAt: Long? = null,
+    val outputUri: String? = null,
     val summary: String = "",
     val lastError: String? = null
 )
