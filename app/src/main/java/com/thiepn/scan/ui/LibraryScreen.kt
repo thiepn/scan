@@ -1135,8 +1135,7 @@ private fun DocumentCard(
                     Text(
                         remember(
                             document.id,
-                            document.updatedAt,
-                            document.ocrText
+                            document.updatedAt
                         ) {
                             document.ocrText
                                 .take(800)
