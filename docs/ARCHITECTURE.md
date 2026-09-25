@@ -54,6 +54,24 @@ Workflow execution is serialized behind a repository mutex. Every run transition
 
 Security remains last in the preset action order so local vault protection can be applied after optional destination output has been generated. Destination exports still pass through the existing PDF/text/structured export paths, preserving their existing vault, compliance, OCR, and source-integrity checks rather than introducing a second renderer.
 
+### Full restoration engine V2
+
+Phase 18 upgrades the visual enhancement seam into a deterministic custom-CV restoration pipeline without adding a mandatory native computer-vision runtime. `PageVisualRecipe` v2 retains all previous tonal controls and adds illumination correction, local contrast, white balance, adaptive B&W, and an explicit restoration profile. The codec continues to read v1 recipes; legacy pages do not receive new restoration strengths unless the user reapplies a preset or edits them.
+
+`DocumentRestorationEngine` analyzes only a tiny aspect-preserving derivative. A repeatedly smoothed luminance grid estimates low-frequency page illumination while bright low-chroma samples estimate a bounded neutral balance. The full-resolution renderer then uses bilinear field sampling for multiplicative illumination normalization, bounded shadow flattening, local detail contrast, white balance, and local adaptive thresholding. This keeps analysis memory effectively constant with page resolution and avoids retaining a second full-resolution analysis image.
+
+Profiles tune the same engine rather than branching into unrelated renderers. Receipt favors stronger paper normalization and adaptive text separation; Whiteboard raises the paper target while protecting chromatic marker strokes from whitening; Book deliberately preserves warmer paper and applies milder white balance; Notes and Form use intermediate settings. Photo mode remains restoration-off by default.
+
+The visual pipeline remains non-destructive and coordinate-safe:
+
+`source → perspective/crop → cleanup → restoration/enhancement → display rotation`
+
+When saved OCR text replacements exist, their established orientation requirement remains authoritative:
+
+`source → perspective/crop → cleanup → display rotation → text replacement → restoration/enhancement`
+
+Form fill and markup continue after the visible page raster is prepared. Canonical source images are never replaced. Restoration is intentionally visual/output state: OCR/search continue to use the semantic geometry + cleanup pipeline, so changing brightness or restoration sliders cannot silently change searchable text or word coordinates.
+
 ### Smart cleanup
 
 Cleanup is a reversible semantic operation layer over immutable page sources. `PageEntity.cleanupRecipe` stores a compact vector recipe made of normalized strokes and accepted automatic suggestions; no cleaned source JPEG replaces the canonical page image.
