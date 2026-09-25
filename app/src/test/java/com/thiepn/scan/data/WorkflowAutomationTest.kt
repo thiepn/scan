@@ -145,6 +145,26 @@ class WorkflowAutomationTest {
     }
 
     @Test
+    fun corruptedPageBoundFailsClosed() {
+        val encoded = AutomationConditionCodec.encode(
+            AutomationCondition(minPages = 2)
+        )
+        val corrupted = encoded.lineSequence().joinToString("\n") { line ->
+            if (line.startsWith("minPages=")) {
+                "minPages=Zm9v"
+            } else {
+                line
+            }
+        }
+
+        assertTrue(
+            runCatching {
+                AutomationConditionCodec.decode(corrupted)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun corruptedSecurityPolicyFailsClosed() {
         val encoded = DocumentProcessingPresetCodec.encode(
             DocumentProcessingPreset(
