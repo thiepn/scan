@@ -749,7 +749,7 @@ class ScanRepository(
                     position = nextPosition++,
                     sortKey = nextSortKey,
                     visualRecipe = PageVisualRecipeCodec.encode(
-                        PageVisualRecipe.forPreset(profile.defaultPreset)
+                        PageVisualRecipe.forMode(mode)
                     ),
                     imagePath = file.absolutePath,
                     width = size.first,
@@ -825,7 +825,7 @@ class ScanRepository(
                     position = index,
                     sortKey = (index + 1L) * 1000L,
                     visualRecipe = PageVisualRecipeCodec.encode(
-                        PageVisualRecipe.forPreset(profile.defaultPreset)
+                        PageVisualRecipe.forMode(scanMode)
                     ),
                     imagePath = file.absolutePath,
                     width = size.first,
@@ -1158,7 +1158,8 @@ class ScanRepository(
         require(!document.processing) { "Document is still processing" }
 
         val currentPages = orderedPages(dao.getPages(documentId))
-        val profile = ScanModeProfiles.forMode(ScanMode.fromStored(document.scanMode))
+        val mode = ScanMode.fromStored(document.scanMode)
+        val profile = ScanModeProfiles.forMode(mode)
         val targetIndex = insertIndex.coerceIn(0, currentPages.size)
         val nextPosition = dao.getMaxPagePosition(documentId) + 1
         val nextSortKey = dao.getMaxPageSortKey(documentId) + 1000L
@@ -1178,7 +1179,7 @@ class ScanRepository(
                     position = nextPosition + index,
                     sortKey = nextSortKey + index * 1000L,
                     visualRecipe = PageVisualRecipeCodec.encode(
-                        PageVisualRecipe.forPreset(profile.defaultPreset)
+                        PageVisualRecipe.forMode(mode)
                     ),
                     imagePath = file.absolutePath,
                     width = size.first,
@@ -1223,7 +1224,8 @@ class ScanRepository(
         require(!document.processing) { "Document is still processing" }
 
         val currentPages = orderedPages(dao.getPages(documentId))
-        val profile = ScanModeProfiles.forMode(ScanMode.fromStored(document.scanMode))
+        val mode = ScanMode.fromStored(document.scanMode)
+        val profile = ScanModeProfiles.forMode(mode)
         val sourceIndex = currentPages.indexOfFirst { it.id == pageId }
         require(sourceIndex >= 0) { "Page not found" }
         val source = currentPages[sourceIndex]
@@ -1250,7 +1252,7 @@ class ScanRepository(
                 rotationDegrees = 0,
                 cropQuad = null,
                 visualRecipe = PageVisualRecipeCodec.encode(
-                    PageVisualRecipe.forPreset(profile.defaultPreset)
+                    PageVisualRecipe.forMode(mode)
                 ),
                 cleanupRecipe = null,
                 imagePath = replacementFile.absolutePath,
@@ -2110,7 +2112,13 @@ class ScanRepository(
         val selected = pages.filter { it.id in requested }
         require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
-        val encoded = PageVisualRecipeCodec.encode(PageVisualRecipe.forPreset(preset))
+        val mode = ScanMode.fromStored(document.scanMode)
+        val encoded = PageVisualRecipeCodec.encode(
+            PageVisualRecipe.forPresetInMode(
+                preset = preset,
+                mode = mode
+            )
+        )
         selected.forEach { dao.setPageVisualRecipe(it.id, encoded) }
         dao.touchDocument(documentId, System.currentTimeMillis())
     }
@@ -3044,7 +3052,7 @@ class ScanRepository(
 
         if (applyEnhancementDefaults) {
             val recipe = PageVisualRecipeCodec.encode(
-                PageVisualRecipe.forPreset(profile.defaultPreset)
+                PageVisualRecipe.forMode(scanMode)
             )
             pages.forEach { page ->
                 dao.setPageVisualRecipe(page.id, recipe)
