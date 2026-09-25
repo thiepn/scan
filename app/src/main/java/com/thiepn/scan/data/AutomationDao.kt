@@ -41,6 +41,9 @@ interface AutomationDao {
     @Query("SELECT * FROM workflow_runs WHERE id = :id LIMIT 1")
     suspend fun getRun(id: String): WorkflowRunEntity?
 
+    @Query("SELECT * FROM workflow_runs WHERE status = :status ORDER BY startedAt ASC")
+    suspend fun getRunsByStatus(status: String): List<WorkflowRunEntity>
+
     @Query(
         "SELECT * FROM workflow_runs WHERE documentId = :documentId " +
             "AND ruleId = :ruleId AND trigger = :trigger " +
