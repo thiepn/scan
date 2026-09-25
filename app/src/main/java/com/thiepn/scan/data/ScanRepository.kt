@@ -176,8 +176,15 @@ class ScanRepository(
         val cleanName = name.trim()
         require(cleanName.isNotBlank()) { "Rule name cannot be blank" }
         require(cleanName.length <= 80) { "Rule name is too long" }
-        require(automationDao.getPreset(presetId) != null) {
-            "Processing preset no longer exists"
+        val presetEntity = automationDao.getPreset(presetId)
+            ?: throw IllegalArgumentException("Processing preset no longer exists")
+        val preset = DocumentProcessingPresetCodec.decode(
+            presetEntity.definition
+        )
+        if (preset.securitySettings?.vaultEnabled == true) {
+            require(stopAfterMatch) {
+                "A vault-locking rule must stop rule processing after it matches"
+            }
         }
         val now = System.currentTimeMillis()
         val id = ruleId ?: UUID.randomUUID().toString()
