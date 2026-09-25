@@ -4982,6 +4982,7 @@ class ScanRepository(
                 originalTitle = run.documentTitle,
                 preset = preset,
                 runId = run.id,
+                runStartedAt = run.startedAt,
                 existingOutputUri = run.outputUri
             )
             automationDao.updateRunState(
@@ -5045,6 +5046,7 @@ class ScanRepository(
         originalTitle: String,
         preset: DocumentProcessingPreset,
         runId: String,
+        runStartedAt: Long,
         existingOutputUri: String?
     ): String {
         val actions = mutableListOf<String>()
@@ -5113,8 +5115,9 @@ class ScanRepository(
                 titleOverride = originalTitle
             )
             val title = WorkflowNameTemplate.render(
-                preset.renameTemplate,
-                snapshot
+                template = preset.renameTemplate,
+                snapshot = snapshot,
+                now = runStartedAt
             )
             dao.rename(
                 documentId,
