@@ -135,6 +135,103 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private data class DocumentPageUiMetrics(
+    val bookReviewPages: List<PageEntity>,
+    val bookSplitCount: Int,
+    val hasAnyPageEdits: Boolean,
+    val formFieldCount: Int,
+    val formFilledCount: Int,
+    val formIssueCount: Int,
+    val structuredTableCount: Int,
+    val structuredFieldCount: Int,
+    val structuredReviewCount: Int,
+    val structuredStaleCount: Int
+)
+
+private fun calculateDocumentPageUiMetrics(
+    pages: List<PageEntity>,
+    scanMode: ScanMode
+): DocumentPageUiMetrics {
+    val bookReviewPages = mutableListOf<PageEntity>()
+    val bookSources = mutableSetOf<String>()
+    var hasAnyPageEdits = false
+    var formFieldCount = 0
+    var formFilledCount = 0
+    var formIssueCount = 0
+    var structuredTableCount = 0
+    var structuredFieldCount = 0
+    var structuredReviewCount = 0
+    var structuredStaleCount = 0
+
+    pages.forEach { page ->
+        if (scanMode == ScanMode.BOOK) {
+            if (BookReviewPolicy.needsManualReview(page)) {
+                bookReviewPages += page
+            }
+            page.sourceSpreadPageId?.let(bookSources::add)
+        }
+
+        if (!hasAnyPageEdits) {
+            hasAnyPageEdits =
+                page.rotationDegrees != 0 ||
+                    !CropQuadCodec.decode(
+                        page.cropQuad
+                    ).isFullFrame() ||
+                    !PageVisualRecipeCodec.decode(
+                        page.visualRecipe
+                    ).isOriginal() ||
+                    !PageCleanupRecipeCodec.decode(
+                        page.cleanupRecipe
+                    ).isEmpty() ||
+                    !page.textEditRecipe.isNullOrBlank() ||
+                    !PageMarkupRecipeCodec.decode(
+                        page.markupRecipe
+                    ).isEmpty() ||
+                    !PageFormRecipeCodec.decode(
+                        page.formFillRecipe
+                    ).isEmpty()
+        }
+
+        val form = PageFormRecipeCodec.decode(
+            page.formFillRecipe
+        )
+        formFieldCount += form.fields.size
+        formFilledCount += form.fields.count {
+            it.isFilled()
+        }
+        formIssueCount += FormValidator.validate(form).size
+
+        val structured = PageStructuredDataCodec.decode(
+            page.structuredData
+        )
+        structuredTableCount += structured.tables.size
+        structuredFieldCount += structured.keyValues.size
+        structuredReviewCount += structured.reviewCount()
+        if (
+            structured.isStale(
+                OcrLayoutCodec.decode(
+                    page.ocrLayout ?: page.ocrBaseLayout
+                )
+            )
+        ) {
+            structuredStaleCount += 1
+        }
+    }
+
+    return DocumentPageUiMetrics(
+        bookReviewPages = bookReviewPages,
+        bookSplitCount = bookSources.size,
+        hasAnyPageEdits = hasAnyPageEdits,
+        formFieldCount = formFieldCount,
+        formFilledCount = formFilledCount,
+        formIssueCount = formIssueCount,
+        structuredTableCount = structuredTableCount,
+        structuredFieldCount = structuredFieldCount,
+        structuredReviewCount = structuredReviewCount,
+        structuredStaleCount = structuredStaleCount
+    )
+}
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun DocumentScreen(
@@ -416,45 +513,32 @@ fun DocumentScreen(
     val scanMode = ScanMode.fromStored(doc.scanMode)
     val scanProfile = ScanModeProfiles.forMode(scanMode)
 
-    val bookReviewPages = if (scanMode == ScanMode.BOOK) {
-        pages.filter(BookReviewPolicy::needsManualReview)
-    } else {
-        emptyList()
-    }
-    val bookReviewCount = bookReviewPages.size
-    val bookSplitCount = if (scanMode == ScanMode.BOOK) {
-        pages.mapNotNull { it.sourceSpreadPageId }.distinct().size
-    } else {
-        0
-    }
-
-    val hasAnyPageEdits = pages.any { page ->
-        page.rotationDegrees != 0 ||
-            !CropQuadCodec.decode(page.cropQuad).isFullFrame() ||
-            !PageVisualRecipeCodec.decode(page.visualRecipe).isOriginal() ||
-            !PageCleanupRecipeCodec.decode(page.cleanupRecipe).isEmpty() ||
-            !page.textEditRecipe.isNullOrBlank() ||
-            !PageMarkupRecipeCodec.decode(page.markupRecipe).isEmpty() ||
-            !PageFormRecipeCodec.decode(page.formFillRecipe).isEmpty()
-    }
-
-    val pageFormRecipes = pages.map { PageFormRecipeCodec.decode(it.formFillRecipe) }
-    val formFieldCount = pageFormRecipes.sumOf { it.fields.size }
-    val formFilledCount = pageFormRecipes.sumOf { recipe ->
-        recipe.fields.count { it.isFilled() }
-    }
-    val formIssueCount = pageFormRecipes.sumOf { FormValidator.validate(it).size }
-
-    val structuredPages = pages.map { page ->
-        page to PageStructuredDataCodec.decode(page.structuredData)
-    }
-    val structuredTableCount = structuredPages.sumOf { it.second.tables.size }
-    val structuredFieldCount = structuredPages.sumOf { it.second.keyValues.size }
-    val structuredReviewCount = structuredPages.sumOf { it.second.reviewCount() }
-    val structuredStaleCount = structuredPages.count { pair ->
-        pair.second.isStale(
-            OcrLayoutCodec.decode(pair.first.ocrLayout ?: pair.first.ocrBaseLayout)
+    val pageMetrics = remember(pages, scanMode) {
+        calculateDocumentPageUiMetrics(
+            pages = pages,
+            scanMode = scanMode
         )
+    }
+    val bookReviewPages = pageMetrics.bookReviewPages
+    val bookReviewCount = bookReviewPages.size
+    val bookSplitCount = pageMetrics.bookSplitCount
+    val hasAnyPageEdits = pageMetrics.hasAnyPageEdits
+    val formFieldCount = pageMetrics.formFieldCount
+    val formFilledCount = pageMetrics.formFilledCount
+    val formIssueCount = pageMetrics.formIssueCount
+    val structuredTableCount =
+        pageMetrics.structuredTableCount
+    val structuredFieldCount =
+        pageMetrics.structuredFieldCount
+    val structuredReviewCount =
+        pageMetrics.structuredReviewCount
+    val structuredStaleCount =
+        pageMetrics.structuredStaleCount
+
+    val searchHitPageIds = remember(documentSearchHits) {
+        documentSearchHits.mapTo(linkedSetOf()) {
+            it.pageId
+        }
     }
 
     Scaffold(
@@ -1138,7 +1222,7 @@ fun DocumentScreen(
                     selectionMode = selectionMode,
                     selected = page.id in selectedPageIds,
                     highlightQuery = documentSearchQuery.takeIf {
-                        page.id in documentSearchHits.map { hit -> hit.pageId }
+                        page.id in searchHitPageIds
                     },
                     canMoveUp = editable && index > 0,
                     canMoveDown = editable && index < pages.lastIndex,
