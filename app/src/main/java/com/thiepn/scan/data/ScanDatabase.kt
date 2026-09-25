@@ -21,13 +21,18 @@ import kotlinx.coroutines.Dispatchers
         ExtractionSchemaEntity::class,
         CaptureSessionEntity::class,
         PageProcessingEntity::class,
-        PageEntity::class
+        PageEntity::class,
+        ProcessingPresetEntity::class,
+        WorkflowRuleEntity::class,
+        WorkflowDestinationEntity::class,
+        WorkflowRunEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
+    abstract fun automationDao(): AutomationDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -466,6 +471,111 @@ abstract class ScanDatabase : RoomDatabase() {
             }
         }
 
+
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS processing_presets (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        definition TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_processing_presets_name " +
+                        "ON processing_presets(name)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workflow_rules (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        priority INTEGER NOT NULL,
+                        trigger TEXT NOT NULL,
+                        condition TEXT NOT NULL,
+                        presetId TEXT NOT NULL,
+                        stopAfterMatch INTEGER NOT NULL,
+                        maxAttempts INTEGER NOT NULL,
+                        retryBackoffMillis INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_rules_enabled ON workflow_rules(enabled)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_rules_priority ON workflow_rules(priority)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_rules_trigger ON workflow_rules(trigger)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_rules_presetId ON workflow_rules(presetId)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workflow_destinations (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        treeUri TEXT NOT NULL,
+                        exportFormat TEXT NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_destinations_name " +
+                        "ON workflow_destinations(name)"
+                )
+
+                connection.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workflow_runs (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        documentId TEXT NOT NULL,
+                        documentTitle TEXT NOT NULL,
+                        ruleId TEXT,
+                        presetId TEXT NOT NULL,
+                        trigger TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        attemptCount INTEGER NOT NULL,
+                        startedAt INTEGER NOT NULL,
+                        finishedAt INTEGER,
+                        nextRetryAt INTEGER,
+                        summary TEXT NOT NULL,
+                        lastError TEXT
+                    )
+                    """.trimIndent()
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_runs_documentId ON workflow_runs(documentId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_runs_ruleId ON workflow_runs(ruleId)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_runs_status ON workflow_runs(status)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_runs_nextRetryAt ON workflow_runs(nextRetryAt)"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workflow_runs_documentId_ruleId_trigger " +
+                        "ON workflow_runs(documentId, ruleId, trigger)"
+                )
+            }
+        }
+
         fun create(context: Context): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
@@ -490,7 +600,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 MIGRATION_16_17,
                 MIGRATION_17_18,
                 MIGRATION_18_19,
-                MIGRATION_19_20
+                MIGRATION_19_20,
+                MIGRATION_20_21
             )
             .setDriver(BundledSQLiteDriver())
             .setQueryCoroutineContext(Dispatchers.IO)
