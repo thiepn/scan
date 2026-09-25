@@ -37,7 +37,8 @@ enum class PdfQuality(
 
 class PdfEngine(
     private val context: Context,
-    private val ocr: OcrEngine
+    private val ocr: OcrEngine,
+    private val deviceCapabilities: DeviceCapabilityPolicy
 ) {
     suspend fun createSearchablePdf(
         pages: List<PageEntity>,
@@ -115,7 +116,9 @@ class PdfEngine(
                     val rawGeometry = PageGeometryRenderer.renderUnrotatedForPdf(
                         file = imageFile,
                         cropQuad = cropQuad,
-                        maxLongEdge = quality.maxLongEdge
+                        maxLongEdge = deviceCapabilities.budget.exportLongEdge(
+                            quality.maxLongEdge
+                        )
                     )
                     val cleanedGeometry = PageCleanupRenderer.apply(
                         rawGeometry,
