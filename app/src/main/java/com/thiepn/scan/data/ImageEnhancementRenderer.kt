@@ -12,17 +12,22 @@ object ImageEnhancementRenderer {
         source: Bitmap,
         recipe: PageVisualRecipe
     ): Bitmap {
-        val r = recipe.normalized()
+        val r = recipe.normalized().let {
+            if (recipe.version < PageVisualRecipe.CURRENT_VERSION) {
+                it.copy(version = recipe.version)
+            } else {
+                it
+            }
+        }
         if (r.isOriginal()) return source
 
         val width = source.width
         val height = source.height
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val illumination = if (r.shadowNormalization > 0.001f) {
-            estimateIllumination(source)
-        } else {
-            null
-        }
+        val restoration = DocumentRestorationEngine.analyze(
+            source = source,
+            recipe = r
+        )
 
         if (r.sharpness <= 0.001f || width < 3 || height < 3) {
             val raw = IntArray(width)
@@ -36,7 +41,7 @@ object ImageEnhancementRenderer {
                     width = width,
                     height = height,
                     recipe = r,
-                    illumination = illumination
+                    restoration = restoration
                 )
                 output.setPixels(transformed, 0, width, 0, y, width, 1)
             }
@@ -66,40 +71,11 @@ object ImageEnhancementRenderer {
         return output
     }
 
-    private data class IlluminationGrid(
-        val values: FloatArray,
-        val width: Int,
-        val height: Int,
-        val median: Float
-    ) {
-        fun sample(
-            x: Int,
-            y: Int,
-            imageWidth: Int,
-            imageHeight: Int
-        ): Float {
-            val fx = if (imageWidth <= 1) 0f else x.toFloat() / (imageWidth - 1)
-            val fy = if (imageHeight <= 1) 0f else y.toFloat() / (imageHeight - 1)
-            val px = fx * (width - 1)
-            val py = fy * (height - 1)
-            val x0 = px.toInt().coerceIn(0, width - 1)
-            val y0 = py.toInt().coerceIn(0, height - 1)
-            val x1 = min(width - 1, x0 + 1)
-            val y1 = min(height - 1, y0 + 1)
-            val tx = px - x0
-            val ty = py - y0
-
-            val a = lerp(values[y0 * width + x0], values[y0 * width + x1], tx)
-            val b = lerp(values[y1 * width + x0], values[y1 * width + x1], tx)
-            return lerp(a, b, ty)
-        }
-    }
-
     private fun transformedRow(
         source: Bitmap,
         y: Int,
         recipe: PageVisualRecipe,
-        illumination: IlluminationGrid?
+        restoration: RestorationAnalysis?
     ): IntArray {
         val width = source.width
         val input = IntArray(width)
@@ -112,7 +88,7 @@ object ImageEnhancementRenderer {
             width = width,
             height = source.height,
             recipe = recipe,
-            illumination = illumination
+            restoration = restoration
         )
         return output
     }
@@ -124,7 +100,7 @@ object ImageEnhancementRenderer {
         width: Int,
         height: Int,
         recipe: PageVisualRecipe,
-        illumination: IlluminationGrid?
+        restoration: RestorationAnalysis?
     ) {
         val black = (recipe.blackPoint * 0.42f).coerceIn(0f, 0.42f)
         val white = (1f - recipe.whitePoint * 0.28f).coerceIn(0.58f, 1f)
@@ -144,16 +120,54 @@ object ImageEnhancementRenderer {
             var blue = Color.blue(color) / 255f
             val alpha = Color.alpha(color)
 
-            illumination?.let { grid ->
-                val local = grid.sample(x, y, width, height)
-                val correction = (
-                    (grid.median - local) *
-                        recipe.shadowNormalization *
-                        0.70f
-                    ).coerceIn(-0.22f, 0.30f)
-                red = (red + correction).coerceIn(0f, 1f)
-                green = (green + correction).coerceIn(0f, 1f)
-                blue = (blue + correction).coerceIn(0f, 1f)
+            var localIllumination = luma(red, green, blue)
+            var illuminationFactor = 1f
+
+            restoration?.let { analysis ->
+                red = (red * analysis.redGain).coerceIn(0f, 1f)
+                green = (green * analysis.greenGain).coerceIn(0f, 1f)
+                blue = (blue * analysis.blueGain).coerceIn(0f, 1f)
+
+                localIllumination = analysis.sampleIllumination(
+                    x = x,
+                    y = y,
+                    imageWidth = width,
+                    imageHeight = height
+                )
+                illuminationFactor = RestorationMath.illuminationFactor(
+                    observed = localIllumination,
+                    target = analysis.paperLuma,
+                    strength = recipe.illuminationCorrection
+                )
+                red = (red * illuminationFactor).coerceIn(0f, 1f)
+                green = (green * illuminationFactor).coerceIn(0f, 1f)
+                blue = (blue * illuminationFactor).coerceIn(0f, 1f)
+
+                if (recipe.shadowNormalization > 0.001f) {
+                    val correctedLocal = (
+                        localIllumination * illuminationFactor
+                        ).coerceIn(0f, 1f)
+                    val correction = (
+                        (analysis.paperLuma - correctedLocal) *
+                            recipe.shadowNormalization *
+                            0.48f
+                        ).coerceIn(-0.16f, 0.24f)
+                    red = (red + correction).coerceIn(0f, 1f)
+                    green = (green + correction).coerceIn(0f, 1f)
+                    blue = (blue + correction).coerceIn(0f, 1f)
+                }
+
+                if (recipe.localContrast > 0.001f) {
+                    val correctedLocal = (
+                        localIllumination * illuminationFactor
+                        ).coerceIn(0f, 1f)
+                    val currentLuminance = luma(red, green, blue)
+                    val detail = currentLuminance - correctedLocal
+                    val boost = detail * recipe.localContrast * 0.72f
+                    red = (red + boost).coerceIn(0f, 1f)
+                    green = (green + boost).coerceIn(0f, 1f)
+                    blue = (blue + boost).coerceIn(0f, 1f)
+                }
             }
 
             var luminance = luma(red, green, blue)
@@ -188,7 +202,21 @@ object ImageEnhancementRenderer {
 
             if (recipe.backgroundWhitening > 0.001f) {
                 val lum = luma(red, green, blue)
-                val mask = smoothstep(0.58f, 0.95f, lum) * recipe.backgroundWhitening
+                val maxChannel = max(red, max(green, blue))
+                val minChannel = min(red, min(green, blue))
+                val chroma = maxChannel - minChannel
+                val colorProtection = if (
+                    recipe.restorationProfile == RestorationProfile.WHITEBOARD
+                ) {
+                    smoothstep(0.07f, 0.34f, chroma) * 0.86f
+                } else {
+                    0f
+                }
+                val mask = (
+                    smoothstep(0.58f, 0.95f, lum) *
+                        recipe.backgroundWhitening *
+                        (1f - colorProtection)
+                    ).coerceIn(0f, 1f)
                 red += (1f - red) * mask
                 green += (1f - green) * mask
                 blue += (1f - blue) * mask
@@ -201,7 +229,37 @@ object ImageEnhancementRenderer {
                 blue = value
             }
 
-            if (recipe.preset == ScanPreset.BLACK_WHITE) {
+            val adaptiveStrength = when {
+                recipe.version < PageVisualRecipe.CURRENT_VERSION -> 0f
+                recipe.preset == ScanPreset.BLACK_WHITE ->
+                    max(recipe.adaptiveBlackWhite, 0.82f)
+                else -> recipe.adaptiveBlackWhite
+            }
+            if (adaptiveStrength > 0.001f) {
+                val correctedLocal = (
+                    localIllumination * illuminationFactor
+                    ).coerceIn(0f, 1f)
+                val current = luma(red, green, blue)
+                val adapted = RestorationMath.adaptiveMix(
+                    luminance = current,
+                    localPaper = correctedLocal,
+                    strength = adaptiveStrength,
+                    profile = recipe.restorationProfile
+                )
+                if (
+                    recipe.preset == ScanPreset.BLACK_WHITE ||
+                    grayscale
+                ) {
+                    red = adapted
+                    green = adapted
+                    blue = adapted
+                } else {
+                    val delta = adapted - current
+                    red = (red + delta).coerceIn(0f, 1f)
+                    green = (green + delta).coerceIn(0f, 1f)
+                    blue = (blue + delta).coerceIn(0f, 1f)
+                }
+            } else if (recipe.preset == ScanPreset.BLACK_WHITE) {
                 val threshold =
                     0.70f -
                         recipe.blackPoint * 0.14f +
@@ -222,46 +280,6 @@ object ImageEnhancementRenderer {
                 (green * 255f).roundToInt().coerceIn(0, 255),
                 (blue * 255f).roundToInt().coerceIn(0, 255)
             )
-        }
-    }
-
-    private fun estimateIllumination(source: Bitmap): IlluminationGrid {
-        val gridWidth = 12
-        val gridHeight = 12
-        val reduced = Bitmap.createScaledBitmap(
-            source,
-            gridWidth,
-            gridHeight,
-            true
-        )
-        return try {
-            val pixels = IntArray(gridWidth * gridHeight)
-            reduced.getPixels(
-                pixels,
-                0,
-                gridWidth,
-                0,
-                0,
-                gridWidth,
-                gridHeight
-            )
-            val values = FloatArray(pixels.size) { index ->
-                val color = pixels[index]
-                luma(
-                    Color.red(color) / 255f,
-                    Color.green(color) / 255f,
-                    Color.blue(color) / 255f
-                )
-            }
-            val sorted = values.copyOf().apply { sort() }
-            IlluminationGrid(
-                values = values,
-                width = gridWidth,
-                height = gridHeight,
-                median = sorted[sorted.size / 2]
-            )
-        } finally {
-            if (reduced !== source) reduced.recycle()
         }
     }
 
