@@ -84,6 +84,8 @@ Full OCR truth remains in `pages.ocrText` plus FTS. `documents.ocrText` is only 
 
 Large page batches use set membership in UI/repository filtering and conservative 900-ID SQL chunks for `IN` mutations. The same chunking applies to bulk document filing/classification/review/favorite/archive operations and tag replacement. Page-wide Compose metrics (Book review, edit presence, form counts, structured-data counts/staleness) are computed in one memoized pass keyed by document revision rather than decoded on every transient UI recomposition.
 
+Large-output paths are also stream-oriented. Text exports write page-by-page, JSON writes directly to a buffered writer, and XLSX worksheets are emitted directly into the ZIP without duplicating worksheet row matrices. Generated PDFs and existing source-PDF edits/validation use PDFBox temp-file-backed scratch storage. Digital-signature inspection reads the embedded CMS value through the PDFBox streaming API and streams the declared signed ByteRange from disk into Bouncy Castle rather than materializing the full PDF plus signed content in heap.
+
 
 ### Smart cleanup
 
