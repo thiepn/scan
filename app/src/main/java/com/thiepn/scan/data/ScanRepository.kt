@@ -3189,6 +3189,11 @@ class ScanRepository(
         if (document.trashedAt != null) return@withContext
         require(!document.processing) { "Wait for document processing to finish before moving it to Trash" }
         val now = System.currentTimeMillis()
+        automationDao.cancelRunnableRunsForDocument(
+            documentId = id,
+            now = now,
+            summary = "Cancelled because the document was moved to Trash"
+        )
         dao.setTrashed(id, now, now)
     }
 
