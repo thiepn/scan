@@ -228,13 +228,21 @@ class SecurityVaultManager(
                 val directory = files.documentDir(id)
                 recoverInterruptedTransactions(directory)
                 directory.walkTopDown()
-                    .filter { it.isFile && !isSealed(it) }
+                    .filter {
+                        it.isFile && !isSealed(it)
+                    }
                     .toList()
                     .takeIf { it.isNotEmpty() }
                     ?.let {
-                        validatePlaintextIntegrityIfPresent(id, directory, failed)
+                        validatePlaintextIntegrityIfPresent(
+                            id,
+                            directory,
+                            failed
+                        )
                     }
                 sealDirectory(directory)
+            }.onFailure {
+                failed += id
             }
         }
         _state.value = _state.value.copy(
