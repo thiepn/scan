@@ -145,6 +145,30 @@ class WorkflowAutomationTest {
     }
 
     @Test
+    fun corruptedSecurityPolicyFailsClosed() {
+        val encoded = DocumentProcessingPresetCodec.encode(
+            DocumentProcessingPreset(
+                securitySettings = DocumentSecuritySettings(
+                    vaultEnabled = true
+                )
+            )
+        )
+        val corrupted = encoded.lineSequence().joinToString("\n") { line ->
+            if (line.startsWith("security=")) {
+                "security=Z2FyYmFnZQ"
+            } else {
+                line
+            }
+        }
+
+        assertTrue(
+            runCatching {
+                DocumentProcessingPresetCodec.decode(corrupted)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun unknownConditionVersionIsRejected() {
         val encoded = AutomationConditionCodec.encode(AutomationCondition())
             .replaceFirst("v=MQ", "v=Mg")
