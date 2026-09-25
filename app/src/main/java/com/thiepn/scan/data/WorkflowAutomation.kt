@@ -284,26 +284,46 @@ object DocumentProcessingPresetCodec {
                 decodeWorkflowBoolean("archive", it)
             },
             extractionSchemaId = map["schemaId"],
-            complianceSettings = when {
-                map["compliancePresent"]?.let {
-                    decodeWorkflowBoolean("compliancePresent", it)
-                } == true ->
-                    decodeWorkflowCompliance(map["compliance"].orEmpty())
-                map.containsKey("compliance") ->
-                    decodeWorkflowCompliance(map["compliance"].orEmpty())
-                else -> null
-            },
-            securitySettings = when {
-                map["securityPresent"]?.let {
-                    decodeWorkflowBoolean("securityPresent", it)
-                } == true ->
-                    decodeWorkflowSecurity(map["security"].orEmpty())
-                map.containsKey("security") ->
-                    decodeWorkflowSecurity(map["security"].orEmpty())
-                else -> null
-            },
+            complianceSettings = decodeOptionalWorkflowCompliance(map),
+            securitySettings = decodeOptionalWorkflowSecurity(map),
             destinationId = map["destinationId"]
         )
+    }
+}
+
+private fun decodeOptionalWorkflowCompliance(
+    map: Map<String, String>
+): ComplianceSettings? {
+    val marker = map["compliancePresent"]?.let {
+        decodeWorkflowBoolean("compliancePresent", it)
+    }
+    return when (marker) {
+        true -> decodeWorkflowCompliance(map["compliance"].orEmpty())
+        false -> {
+            require(!map.containsKey("compliance")) {
+                "Compliance payload present while workflow policy is disabled"
+            }
+            null
+        }
+        null -> map["compliance"]?.let(::decodeWorkflowCompliance)
+    }
+}
+
+private fun decodeOptionalWorkflowSecurity(
+    map: Map<String, String>
+): DocumentSecuritySettings? {
+    val marker = map["securityPresent"]?.let {
+        decodeWorkflowBoolean("securityPresent", it)
+    }
+    return when (marker) {
+        true -> decodeWorkflowSecurity(map["security"].orEmpty())
+        false -> {
+            require(!map.containsKey("security")) {
+                "Security payload present while workflow policy is disabled"
+            }
+            null
+        }
+        null -> map["security"]?.let(::decodeWorkflowSecurity)
     }
 }
 
