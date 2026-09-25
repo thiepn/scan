@@ -47,6 +47,7 @@ These are evidence gates and must not be marked complete from CI alone.
 - [ ] Real 1,000-page import/open/search/export stress case
 - [ ] Low-storage failure/recovery on a real device
 - [ ] Process-death recovery during capture and queued processing
+- [ ] Encrypted portable backup restore after app-data wipe; verify document/pages/OCR/assets, wrong-password rejection, and tamper rejection
 - [ ] Fresh install from the production-signed APK
 - [ ] Upgrade from the last pre-v1 candidate while retaining documents, OCR, folders/tags, security state, workflows, and settings
 - [ ] Production keystore fingerprint recorded outside the repository
