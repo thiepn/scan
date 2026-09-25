@@ -791,7 +791,8 @@ class ScanRepository(
     suspend fun ingestScan(
         pageUris: List<Uri>,
         pdfUri: Uri?,
-        scanMode: ScanMode = ScanMode.DOCUMENT
+        scanMode: ScanMode = ScanMode.DOCUMENT,
+        awaitProcessing: Boolean = false
     ): String = withContext(Dispatchers.IO) {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -835,11 +836,23 @@ class ScanRepository(
             )
         }
 
-        appScope.launch(Dispatchers.IO) {
+        val process: suspend () -> Unit = {
             when {
-                pageUris.isEmpty() && pdf != null -> renderPdfAndRecognize(id, pdf)
-                scanMode == ScanMode.BOOK -> processBookPagesAndRecognize(id, createdPageIds)
+                pageUris.isEmpty() && pdf != null ->
+                    renderPdfAndRecognize(id, pdf)
+                scanMode == ScanMode.BOOK ->
+                    processBookPagesAndRecognize(
+                        id,
+                        createdPageIds
+                    )
                 else -> recognizeDocument(id)
+            }
+        }
+        if (awaitProcessing) {
+            process()
+        } else {
+            appScope.launch(Dispatchers.IO) {
+                process()
             }
         }
         id
