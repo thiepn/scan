@@ -88,7 +88,7 @@ class ScanRepository(
             searchIndex.rebuildAll()
             dao.markCapturingSessionsInterrupted(now)
             dao.resetInterruptedProcessingJobs(now)
-            automationDao.resetInterruptedRuns(now)
+            recoverInterruptedAutomationRuns(now)
 
             val queuedDocumentIds = dao.getCaptureSessionsByStatus(
                 listOf(
@@ -128,6 +128,41 @@ class ScanRepository(
                     }
                 }
             drainAutomationQueue()
+        }
+    }
+
+    private suspend fun recoverInterruptedAutomationRuns(now: Long) {
+        val interrupted = automationDao.getRunsByStatus(
+            WorkflowRunStatus.RUNNING.name
+        )
+        interrupted.forEach { run ->
+            val preset = automationDao.getPreset(run.presetId)
+                ?.let { entity ->
+                    runCatching {
+                        DocumentProcessingPresetCodec.decode(
+                            entity.definition
+                        )
+                    }.getOrNull()
+                }
+            val vaultCapable = preset?.securitySettings?.vaultEnabled == true
+            val retryable = preset != null && !vaultCapable
+
+            automationDao.updateRunState(
+                id = run.id,
+                status = WorkflowRunStatus.FAILED.name,
+                attemptCount = run.attemptCount,
+                finishedAt = now,
+                nextRetryAt = if (retryable) now else null,
+                summary = when {
+                    preset == null ->
+                        "Interrupted; processing preset is unavailable or invalid"
+                    vaultCapable ->
+                        "Interrupted during a vault-capable workflow; unlock and retry manually"
+                    else ->
+                        "Interrupted; retry queued"
+                },
+                lastError = "App closed before workflow completion was confirmed"
+            )
         }
     }
 
