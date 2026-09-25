@@ -2291,7 +2291,9 @@ class ScanRepository(
             val pages = dao.getPages(documentId)
             dao.finishProcessing(
                 documentId,
-                pages.joinToString("\n\n") { it.ocrText },
+                DocumentTextSummary.build(
+                    pages.map { it.ocrText }
+                ),
                 false,
                 pages.size,
                 System.currentTimeMillis()
@@ -2345,7 +2347,7 @@ class ScanRepository(
 
         dao.finishProcessing(
             id = documentId,
-            text = recognized.joinToString("\n\n"),
+            text = DocumentTextSummary.build(recognized),
             processing = false,
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
@@ -4651,7 +4653,9 @@ class ScanRepository(
         val pages = orderedPages(dao.getPages(documentId))
         dao.finishProcessing(
             id = documentId,
-            text = pages.map { it.ocrText }.filter { it.isNotBlank() }.joinToString("\n\n"),
+            text = DocumentTextSummary.build(
+                pages.map { it.ocrText }
+            ),
             processing = processing,
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
