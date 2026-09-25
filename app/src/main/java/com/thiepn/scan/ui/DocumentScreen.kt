@@ -1272,6 +1272,7 @@ fun DocumentScreen(
     if (enhancePage != null) {
         EnhancementEditorDialog(
             page = enhancePage,
+            scanMode = ScanMode.fromStored(doc.scanMode),
             onDismiss = { enhancePageId = null },
             onSave = { recipe ->
                 enhancePageId = null
