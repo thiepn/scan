@@ -305,32 +305,6 @@ private fun ScanApp(
         )
     }
 
-    fun persistStagedIdFront(path: String, message: String) {
-        scope.launch {
-            busy = true
-            val file = File(path)
-            try {
-                runCatching {
-                    repository.ingestScan(
-                        pageUris = listOf(Uri.fromFile(file)),
-                        pdfUri = null,
-                        scanMode = ScanMode.ID_CARD
-                    )
-                }
-                    .onSuccess { id ->
-                        selectedDocumentId = id
-                        snackbar.showSnackbar(message)
-                    }
-                    .onFailure {
-                        snackbar.showSnackbar(it.message ?: "Could not save ID card")
-                    }
-            } finally {
-                file.delete()
-                busy = false
-            }
-        }
-    }
-
     scannerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
@@ -344,10 +318,12 @@ private fun ScanApp(
         if (result.resultCode != Activity.RESULT_OK) {
             when (action) {
                 is PendingScanAction.IdBack -> {
-                    persistStagedIdFront(
-                        action.stagedFrontPath,
-                        "Front saved. The back can be added later."
-                    )
+                    selectedDocumentId = action.documentId
+                    scope.launch {
+                        snackbar.showSnackbar(
+                            "Front saved. The back can be added later."
+                        )
+                    }
                 }
 
                 is PendingScanAction.RapidContinue -> {
@@ -379,27 +355,37 @@ private fun ScanApp(
                     val front = pages.firstOrNull()
                     if (front == null) {
                         scope.launch {
-                            snackbar.showSnackbar("No ID-card image was returned")
+                            snackbar.showSnackbar(
+                                "No ID-card image was returned"
+                            )
                         }
                     } else {
                         scope.launch {
                             busy = true
-                            val staged = runCatching {
-                                stageCapture(context, front)
-                            }.getOrElse {
+                            val documentId = runCatching {
+                                repository.ingestScan(
+                                    pageUris = listOf(front),
+                                    pdfUri = null,
+                                    scanMode = ScanMode.ID_CARD,
+                                    awaitProcessing = true
+                                )
+                            }.getOrElse { error ->
                                 busy = false
                                 snackbar.showSnackbar(
-                                    it.message ?: "Could not stage ID-card front"
+                                    error.message
+                                        ?: "Could not save ID-card front"
                                 )
                                 return@launch
                             }
                             busy = false
-                            pendingScanAction = PendingScanAction.IdBack(
-                                stagedFrontPath = staged.absolutePath
+                            selectedDocumentId = documentId
+                            pendingScanAction =
+                                PendingScanAction.IdBack(
+                                    documentId = documentId
+                                )
+                            snackbar.showSnackbar(
+                                "Front saved. Now scan the back."
                             )
-                            launch {
-                                snackbar.showSnackbar("Front captured. Now scan the back.")
-                            }
                             startModeScanner(
                                 activity = activity,
                                 mode = ScanMode.ID_CARD,
@@ -407,11 +393,13 @@ private fun ScanApp(
                                 launcher = scannerLauncher,
                                 onFailure = { error ->
                                     pendingScanAction = null
-                                    persistStagedIdFront(
-                                        staged.absolutePath,
-                                        error.message
-                                            ?: "Back scanner unavailable; front was saved."
-                                    )
+                                    selectedDocumentId = documentId
+                                    scope.launch {
+                                        snackbar.showSnackbar(
+                                            error.message
+                                                ?: "Back scanner unavailable; front was saved."
+                                        )
+                                    }
                                 }
                             )
                         }
@@ -547,37 +535,40 @@ private fun ScanApp(
             }
 
             is PendingScanAction.IdBack -> {
-                val stagedFront = File(action.stagedFrontPath)
                 val back = pages.firstOrNull()
                 scope.launch {
                     busy = true
                     try {
-                        val pageUris = buildList {
-                            add(Uri.fromFile(stagedFront))
-                            if (back != null) add(back)
-                        }
-                        runCatching {
-                            repository.ingestScan(
-                                pageUris = pageUris,
-                                pdfUri = null,
-                                scanMode = ScanMode.ID_CARD
+                        if (back == null) {
+                            selectedDocumentId =
+                                action.documentId
+                            snackbar.showSnackbar(
+                                "Front saved. The back can be added later."
                             )
-                        }
-                            .onSuccess { id ->
-                                selectedDocumentId = id
-                                if (back == null) {
-                                    snackbar.showSnackbar(
-                                        "Front saved. The back can be added later."
-                                    )
-                                }
-                            }
-                            .onFailure {
-                                snackbar.showSnackbar(
-                                    it.message ?: "Could not save ID card"
+                        } else {
+                            runCatching {
+                                repository.appendScan(
+                                    action.documentId,
+                                    listOf(back)
                                 )
                             }
+                                .onSuccess {
+                                    selectedDocumentId =
+                                        action.documentId
+                                    snackbar.showSnackbar(
+                                        "ID card front and back saved"
+                                    )
+                                }
+                                .onFailure { error ->
+                                    selectedDocumentId =
+                                        action.documentId
+                                    snackbar.showSnackbar(
+                                        error.message
+                                            ?: "Front is saved, but the back could not be added."
+                                    )
+                                }
+                        }
                     } finally {
-                        stagedFront.delete()
                         busy = false
                     }
                 }
@@ -1022,18 +1013,3 @@ private fun startModeScanner(
         }
         .addOnFailureListener(onFailure)
 }
-
-private suspend fun stageCapture(context: Context, uri: Uri): File =
-    withContext(Dispatchers.IO) {
-        val destination = File(
-            context.cacheDir,
-            "scan-id-front-${UUID.randomUUID()}.jpg"
-        )
-        context.contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "Unable to read ID-card front" }
-            destination.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        destination
-    }
