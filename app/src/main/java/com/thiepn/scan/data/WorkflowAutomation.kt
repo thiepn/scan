@@ -204,11 +204,19 @@ object DocumentProcessingPresetCodec {
             value.favorite?.let { put("favorite", if (it) "1" else "0") }
             value.archive?.let { put("archive", if (it) "1" else "0") }
             value.extractionSchemaId?.let { put("schemaId", it) }
-            ComplianceSettingsCodec.encode(value.complianceSettings)?.let {
-                put("compliance", it)
+            value.complianceSettings?.let { settings ->
+                put("compliancePresent", "1")
+                put(
+                    "compliance",
+                    ComplianceSettingsCodec.encode(settings).orEmpty()
+                )
             }
-            DocumentSecuritySettingsCodec.encode(value.securitySettings)?.let {
-                put("security", it)
+            value.securitySettings?.let { settings ->
+                put("securityPresent", "1")
+                put(
+                    "security",
+                    DocumentSecuritySettingsCodec.encode(settings).orEmpty()
+                )
             }
             value.destinationId?.let { put("destinationId", it) }
         }
@@ -230,8 +238,20 @@ object DocumentProcessingPresetCodec {
             favorite = map["favorite"]?.let { it == "1" },
             archive = map["archive"]?.let { it == "1" },
             extractionSchemaId = map["schemaId"],
-            complianceSettings = map["compliance"]?.let { ComplianceSettingsCodec.decode(it) },
-            securitySettings = map["security"]?.let { DocumentSecuritySettingsCodec.decode(it) },
+            complianceSettings = when {
+                map["compliancePresent"] == "1" ->
+                    ComplianceSettingsCodec.decode(map["compliance"])
+                map.containsKey("compliance") ->
+                    ComplianceSettingsCodec.decode(map["compliance"])
+                else -> null
+            },
+            securitySettings = when {
+                map["securityPresent"] == "1" ->
+                    DocumentSecuritySettingsCodec.decode(map["security"])
+                map.containsKey("security") ->
+                    DocumentSecuritySettingsCodec.decode(map["security"])
+                else -> null
+            },
             destinationId = map["destinationId"]
         )
     }
