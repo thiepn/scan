@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -141,6 +142,8 @@ fun LibraryScreen(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedDocumentIds by remember { mutableStateOf(emptySet<String>()) }
     var bulkOrganizeOpen by remember { mutableStateOf(false) }
+    var automationCenterOpen by remember { mutableStateOf(false) }
+    var bulkAutomationOpen by remember { mutableStateOf(false) }
     var scanModeOpen by remember { mutableStateOf(false) }
 
     val documentsFlow = remember(filter) { repository.observeDocuments(filter, "") }
@@ -283,6 +286,15 @@ fun LibraryScreen(
                             Icon(Icons.Default.Label, contentDescription = "Organize selected documents")
                         }
                         IconButton(
+                            onClick = { bulkAutomationOpen = true },
+                            enabled = selectedDocumentIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = "Run workflow on selected documents"
+                            )
+                        }
+                        IconButton(
                             onClick = {
                                 val ids = selectedDocumentIds.toList()
                                 val favorite = filter != LibraryFilter.FAVORITES
@@ -341,6 +353,12 @@ fun LibraryScreen(
                         }
                         IconButton(onClick = { tagManagerOpen = true }) {
                             Icon(Icons.Default.Label, contentDescription = "Manage tags")
+                        }
+                        IconButton(onClick = { automationCenterOpen = true }) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = "Automation Center"
+                            )
                         }
                         IconButton(
                             onClick = {
@@ -686,6 +704,29 @@ fun LibraryScreen(
                         .onFailure { onMessage(it.message ?: "Could not delete tag") }
                 }
             }
+        )
+    }
+
+    if (automationCenterOpen) {
+        WorkflowAutomationDialog(
+            repository = repository,
+            folders = folders,
+            tags = tags,
+            onDismiss = { automationCenterOpen = false },
+            onMessage = onMessage
+        )
+    }
+
+    if (bulkAutomationOpen) {
+        ProcessingPresetPickerDialog(
+            repository = repository,
+            selectedDocumentIds = selectedDocumentIds.toList(),
+            onDismiss = {
+                bulkAutomationOpen = false
+                selectionMode = false
+                selectedDocumentIds = emptySet()
+            },
+            onMessage = onMessage
         )
     }
 
