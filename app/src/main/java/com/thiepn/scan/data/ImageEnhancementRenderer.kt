@@ -231,7 +231,8 @@ object ImageEnhancementRenderer {
 
             val adaptiveStrength = when {
                 recipe.version < PageVisualRecipe.CURRENT_VERSION -> 0f
-                recipe.preset == ScanPreset.BLACK_WHITE ->
+                recipe.preset == ScanPreset.BLACK_WHITE &&
+                    recipe.restorationProfile != RestorationProfile.OFF ->
                     max(recipe.adaptiveBlackWhite, 0.82f)
                 else -> recipe.adaptiveBlackWhite
             }
