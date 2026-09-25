@@ -4979,13 +4979,38 @@ class ScanRepository(
             )
         } catch (error: Throwable) {
             val rule = run.ruleId?.let { automationDao.getRule(it) }
+            val presetStillExists =
+                automationDao.getPreset(run.presetId) != null
+            val ruleStillAllowsRetry = when {
+                run.ruleId == null -> true
+                rule == null -> false
+                !rule.enabled -> false
+                else -> true
+            }
+            val retryAllowed =
+                presetStillExists && ruleStillAllowsRetry
             val maxAttempts = rule?.maxAttempts ?: 3
             val baseBackoff = rule?.retryBackoffMillis ?: 30_000L
             val delayMillis = retryDelayMillis(baseBackoff, attempt)
-            val nextRetryAt = if (attempt < maxAttempts) {
+            val nextRetryAt = if (
+                retryAllowed &&
+                attempt < maxAttempts
+            ) {
                 System.currentTimeMillis() + delayMillis
             } else {
                 null
+            }
+            val summary = when {
+                !presetStillExists ->
+                    "Failed; processing preset was deleted"
+                run.ruleId != null && rule == null ->
+                    "Failed; workflow rule was deleted"
+                rule != null && !rule.enabled ->
+                    "Failed; workflow rule is disabled"
+                nextRetryAt != null ->
+                    "Failed; retry scheduled"
+                else ->
+                    "Failed after " + attempt + " attempt(s)"
             }
             automationDao.updateRunState(
                 id = run.id,
@@ -4993,11 +5018,7 @@ class ScanRepository(
                 attemptCount = attempt,
                 finishedAt = System.currentTimeMillis(),
                 nextRetryAt = nextRetryAt,
-                summary = if (nextRetryAt == null) {
-                    "Failed after " + attempt + " attempt(s)"
-                } else {
-                    "Failed; retry scheduled"
-                },
+                summary = summary,
                 lastError = error.message ?: error::class.java.simpleName
             )
         }
