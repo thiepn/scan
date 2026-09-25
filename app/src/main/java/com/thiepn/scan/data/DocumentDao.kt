@@ -357,6 +357,18 @@ interface DocumentDao {
     @Query("UPDATE pages SET deleted = :deleted WHERE id IN (:pageIds)")
     suspend fun setPagesDeleted(pageIds: List<String>, deleted: Boolean)
 
+    @Transaction
+    suspend fun setPagesDeletedSafely(
+        pageIds: List<String>,
+        deleted: Boolean
+    ) {
+        pageIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                setPagesDeleted(chunk, deleted)
+            }
+    }
+
     @Query("UPDATE pages SET rotationDegrees = :rotationDegrees WHERE id = :pageId")
     suspend fun setPageRotation(pageId: String, rotationDegrees: Int)
 
@@ -644,6 +656,17 @@ interface DocumentDao {
     suspend fun deletePageRecords(pageIds: List<String>)
 
     @Transaction
+    suspend fun deletePageRecordsSafely(
+        pageIds: List<String>
+    ) {
+        pageIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                deletePageRecords(chunk)
+            }
+    }
+
+    @Transaction
     suspend fun markCapturedPageDuplicate(
         pageId: String,
         fingerprintHash: String,
@@ -782,7 +805,10 @@ interface DocumentDao {
         insertPages(targetPages)
         replacePageOrder(targetDocumentId, targetOrder)
         if (sourcePageIdsToDeactivate.isNotEmpty()) {
-            setPagesDeleted(sourcePageIdsToDeactivate, true)
+            setPagesDeletedSafely(
+                sourcePageIdsToDeactivate,
+                true
+            )
         }
     }
 
@@ -812,7 +838,7 @@ interface DocumentDao {
         val source = getPage(sourcePageId) ?: error("Book source page not found")
         require(source.preservedBookSource) { "Page is not a preserved book source" }
         if (derivedPageIds.isNotEmpty()) {
-            deletePageRecords(derivedPageIds)
+            deletePageRecordsSafely(derivedPageIds)
         }
         setBookSourceState(sourcePageId, deleted = false, preserved = false)
         replacePageOrder(source.documentId, orderedPageIds)
@@ -827,6 +853,10 @@ interface DocumentDao {
         insertPage(newPage)
         deletePageRecord(oldPageId)
         replacePageOrder(newPage.documentId, orderedPageIds)
+    }
+
+    companion object {
+        private const val SQLITE_SAFE_ID_BATCH = 900
     }
 
     @Transaction
