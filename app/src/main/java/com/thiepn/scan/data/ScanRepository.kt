@@ -2352,24 +2352,30 @@ class ScanRepository(
         }
 
         val script = OcrScript.fromStored(document.ocrScript)
-        val recognized = mutableListOf<String>()
+        val summary = DocumentTextSummary.Accumulator(
+            pageCount = pages.size
+        )
 
-        pages.forEach { page ->
-            val recognition = runCatching { recognizePage(page, script) }.getOrNull()
+        pages.forEachIndexed { index, page ->
+            val recognition = runCatching {
+                recognizePage(page, script)
+            }.getOrNull()
             if (recognition == null) {
                 dao.clearPageOcr(page.id)
                 searchIndex.deletePage(page.id)
-                return@forEach
+                return@forEachIndexed
             }
-            val persisted = persistRecognition(documentId, page.id, recognition)
-            if (persisted.text.isNotBlank()) {
-                recognized += persisted.text
-            }
+            val persisted = persistRecognition(
+                documentId,
+                page.id,
+                recognition
+            )
+            summary.add(index, persisted.text)
         }
 
         dao.finishProcessing(
             id = documentId,
-            text = DocumentTextSummary.build(recognized),
+            text = summary.build(),
             processing = false,
             pageCount = pages.size,
             updatedAt = System.currentTimeMillis()
