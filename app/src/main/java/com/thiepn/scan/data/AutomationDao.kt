@@ -67,8 +67,14 @@ interface AutomationDao {
     suspend fun getRunnableRuns(now: Long, limit: Int = 50): List<WorkflowRunEntity>
 
     @Query(
-        "SELECT * FROM workflow_runs WHERE status = 'FAILED' AND nextRetryAt IS NOT NULL " +
-            "ORDER BY nextRetryAt ASC LIMIT 1"
+        "SELECT r.* FROM workflow_runs AS r " +
+            "WHERE r.status = 'FAILED' AND r.nextRetryAt IS NOT NULL AND NOT EXISTS (" +
+            "SELECT 1 FROM workflow_runs AS b " +
+            "WHERE b.documentId = r.documentId AND b.startedAt < r.startedAt AND (" +
+            "b.status IN ('PENDING', 'RUNNING') OR " +
+            "(b.status = 'FAILED' AND b.nextRetryAt IS NOT NULL)" +
+            ")" +
+            ") ORDER BY r.nextRetryAt ASC LIMIT 1"
     )
     suspend fun getNextRetryRun(): WorkflowRunEntity?
 
