@@ -5,12 +5,12 @@ plugins {
     id("androidx.room")
 }
 
-room {
-    schemaDirectory("$projectDir/schemas")
-}
-
 android {
     namespace = "com.thiepn.scan"
+
+    room {
+        schemaDirectory("$projectDir/schemas")
+    }
     compileSdk {
         version = release(37) {
             minorApiLevel = 0
