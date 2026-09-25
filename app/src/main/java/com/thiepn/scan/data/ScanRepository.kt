@@ -4626,7 +4626,28 @@ class ScanRepository(
     ): AutomationDocumentSnapshot {
         val document = dao.getDocument(documentId)
             ?: throw IllegalArgumentException("Document not found")
-        val fields = dao.getDocumentFields(documentId)
+        val storedFields = dao.getDocumentFields(documentId)
+        val structuredFields = orderedPages(dao.getPages(documentId))
+            .flatMap { page ->
+                PageStructuredDataCodec.decode(page.structuredData)
+                    .keyValues
+            }
+            .map { field ->
+                DocumentFieldEntity(
+                    documentId = documentId,
+                    fieldKey = field.key,
+                    label = field.label.ifBlank { field.key },
+                    value = field.value,
+                    confidence = field.confidence,
+                    source = "STRUCTURED_DATA"
+                )
+            }
+        val fields = (storedFields + structuredFields)
+            .groupBy { it.fieldKey.lowercase() }
+            .values
+            .mapNotNull { candidates ->
+                candidates.maxByOrNull { it.confidence }
+            }
         return AutomationDocumentSnapshot(
             document = if (titleOverride == null) {
                 document
