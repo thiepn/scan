@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -66,6 +65,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -917,16 +920,25 @@ private fun DocumentCard(
     val previewHeight = if (largeText) 72.dp else 104.dp
     val selectionModifier = if (selectionMode) {
         Modifier
-            .selectable(
-                selected = selected,
-                onClick = onToggleSelected,
+            .clickable(onClick = onToggleSelected)
+            .clearAndSetSemantics {
+                contentDescription = displayTitle
                 role = Role.Checkbox
-            )
-            .semantics {
+                this.selected = selected
                 stateDescription = if (selected) {
                     "Selected"
                 } else {
                     "Not selected"
+                }
+                onClick(
+                    label = if (selected) {
+                        "Deselect document"
+                    } else {
+                        "Select document"
+                    }
+                ) {
+                    onToggleSelected()
+                    true
                 }
             }
     } else {
