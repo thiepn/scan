@@ -350,13 +350,12 @@ fun DocumentScreen(
     var bookReviewAnalysis by remember { mutableStateOf<BookSpreadAnalysis?>(null) }
     var bookReviewBusy by remember { mutableStateOf(false) }
     val pageListState = rememberLazyListState()
+    val documentRevision = document?.updatedAt ?: 0L
 
     LaunchedEffect(
         documentSearchOpen,
         documentSearchQuery,
-        pages.map {
-            listOf(it.ocrFingerprint, it.textEditRecipe, it.markupRecipe, it.formFillRecipe)
-        }
+        documentRevision
     ) {
         if (!documentSearchOpen || documentSearchQuery.isBlank()) {
             documentSearchBusy = false
@@ -370,16 +369,23 @@ fun DocumentScreen(
         }
     }
 
-    LaunchedEffect(pages.map { it.id }) {
-        val activeIds = pages.map { it.id }.toSet()
-        selectedPageIds = selectedPageIds.filter { it in activeIds }
+    LaunchedEffect(pages.size, documentRevision) {
+        if (selectedPageIds.isNotEmpty()) {
+            val activeIds = pages.asSequence()
+                .map { it.id }
+                .toHashSet()
+            selectedPageIds = selectedPageIds.filter {
+                it in activeIds
+            }
+        }
     }
 
     val doc = document
     LaunchedEffect(
         doc?.id,
         doc?.processing,
-        pages.map { it.ocrLayout to it.ocrScript }
+        documentRevision,
+        pages.size
     ) {
         if (doc != null && !doc.processing && pages.isNotEmpty()) {
             runCatching { repository.ensureSpatialOcr(doc.id) }
