@@ -513,7 +513,11 @@ fun DocumentScreen(
     val scanMode = ScanMode.fromStored(doc.scanMode)
     val scanProfile = ScanModeProfiles.forMode(scanMode)
 
-    val pageMetrics = remember(pages, scanMode) {
+    val pageMetrics = remember(
+        documentRevision,
+        pages.size,
+        scanMode
+    ) {
         calculateDocumentPageUiMetrics(
             pages = pages,
             scanMode = scanMode
