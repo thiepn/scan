@@ -86,6 +86,8 @@ Large page batches use set membership in UI/repository filtering and conservativ
 
 Large-output paths are also stream-oriented. Text exports write page-by-page, JSON writes directly to a buffered writer, and XLSX worksheets are emitted directly into the ZIP without duplicating worksheet row matrices. Generated PDFs and existing source-PDF edits/validation use PDFBox temp-file-backed scratch storage. Digital-signature inspection reads the embedded CMS value through the PDFBox streaming API and streams the declared signed ByteRange from disk into Bouncy Castle rather than materializing the full PDF plus signed content in heap.
 
+Low-storage protection is explicit rather than relying on write failures. `StorageBudgetPolicy` keeps a 64 MiB emergency reserve, uses saturating arithmetic for large estimates, and applies conservative source-size multipliers for PDF import/export working sets. Known-size imports are rejected before document creation when insufficient space is available; post-copy import processing is checked again for unknown-size providers. Heavy PDF generation, native PDF edits/merges, signing, standards validation, and signature inspection preflight their scratch space. Interrupted page/file/export copies remove staged temporary files before propagating the error.
+
 
 ### Smart cleanup
 
