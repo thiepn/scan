@@ -20,7 +20,15 @@ class FileStore(private val context: Context) {
     fun copyPageFile(documentId: String, source: File, newPageId: String): File {
         require(source.isFile) { "Source page is unavailable" }
         val destination = pageFile(documentId, newPageId)
-        val temporary = File(destination.parentFile, destination.name + ".tmp")
+        StorageSpaceGuard.require(
+            anchor = destination,
+            estimatedWorkingBytes = source.length(),
+            operation = "copy this page"
+        )
+        val temporary = File(
+            destination.parentFile,
+            destination.name + ".tmp"
+        )
         source.inputStream().use { input ->
             temporary.outputStream().use { output -> input.copyTo(output) }
         }
@@ -28,9 +36,33 @@ class FileStore(private val context: Context) {
         return destination
     }
 
-    suspend fun copyUri(uri: Uri, destination: File): File {
+    suspend fun copyUri(
+        uri: Uri,
+        destination: File
+    ): File {
         destination.parentFile?.mkdirs()
-        val temporary = File(destination.parentFile, destination.name + ".tmp")
+        val expectedBytes = runCatching {
+            context.contentResolver
+                .openAssetFileDescriptor(uri, "r")
+                ?.use { descriptor ->
+                    descriptor.length.takeIf {
+                        it >= 0L
+                    }
+                }
+        }.getOrNull()
+
+        if (expectedBytes != null) {
+            StorageSpaceGuard.require(
+                anchor = destination,
+                estimatedWorkingBytes = expectedBytes,
+                operation = "import this file"
+            )
+        }
+
+        val temporary = File(
+            destination.parentFile,
+            destination.name + ".tmp"
+        )
         context.contentResolver.openInputStream(uri).use { input ->
             requireNotNull(input) { "Unable to open input" }
             temporary.outputStream().use { output -> input.copyTo(output) }
@@ -82,6 +114,14 @@ class FileStore(private val context: Context) {
 
     fun copyToExport(source: File, destination: File): File {
         require(source.isFile) { "PDF source is unavailable" }
+        StorageSpaceGuard.require(
+            anchor = destination,
+            estimatedWorkingBytes =
+                StorageBudgetPolicy.pdfExportWorkingBytes(
+                    source.length()
+                ),
+            operation = "export this PDF"
+        )
         val temporary = temporaryExport(destination)
         source.inputStream().use { input ->
             temporary.outputStream().use { output -> input.copyTo(output) }
