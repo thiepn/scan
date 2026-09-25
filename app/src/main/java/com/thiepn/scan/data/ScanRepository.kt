@@ -3167,7 +3167,7 @@ class ScanRepository(
         require(document.trashedAt != null) {
             "Move the document to Trash before deleting it forever"
         }
-        val security = DocumentSecuritySettingsCodec.decode(
+        val security = securityOverride ?: DocumentSecuritySettingsCodec.decode(
             document.securityRecipe
         )
         searchIndex.deleteDocument(id)
@@ -3262,6 +3262,11 @@ class ScanRepository(
 
     suspend fun createPrivacyPdfExport(
         documentId: String
+    ): File? = createPrivacyPdfExport(documentId, null)
+
+    private suspend fun createPrivacyPdfExport(
+        documentId: String,
+        securityOverride: DocumentSecuritySettings?
     ): File? = withContext(Dispatchers.IO) {
         requireVaultUnlocked(documentId)
         val document = dao.getDocument(documentId)
@@ -4830,7 +4835,11 @@ class ScanRepository(
         preset.destinationId?.let { destinationId ->
             val destination = automationDao.getDestination(destinationId)
                 ?: error("Workflow destination no longer exists")
-            exportToWorkflowDestination(documentId, destination)
+            exportToWorkflowDestination(
+                documentId = documentId,
+                destination = destination,
+                securityOverride = preset.securitySettings
+            )
             actions += "delivered to " + destination.name
         }
 
@@ -4853,7 +4862,8 @@ class ScanRepository(
 
     private suspend fun exportToWorkflowDestination(
         documentId: String,
-        destination: WorkflowDestinationEntity
+        destination: WorkflowDestinationEntity,
+        securityOverride: DocumentSecuritySettings? = null
     ) {
         val format = runCatching {
             WorkflowExportFormat.valueOf(destination.exportFormat)
@@ -4865,7 +4875,7 @@ class ScanRepository(
             WorkflowExportFormat.PDF_STANDARDIZED ->
                 createStandardsPdfExport(documentId)?.file
             WorkflowExportFormat.PDF_PRIVACY ->
-                createPrivacyPdfExport(documentId)
+                createPrivacyPdfExport(documentId, securityOverride)
             WorkflowExportFormat.TEXT ->
                 createTextExport(documentId)
             WorkflowExportFormat.CSV ->
