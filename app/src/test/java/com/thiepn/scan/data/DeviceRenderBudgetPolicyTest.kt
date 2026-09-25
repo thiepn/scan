@@ -44,6 +44,30 @@ class DeviceRenderBudgetPolicyTest {
     }
 
     @Test
+    fun renderBudgetsNeverUpscaleCallerRequests() {
+        val budget = DeviceRenderBudgetPolicy.forMemory(
+            memoryClassMb = 192,
+            lowRamDevice = true
+        )
+
+        assertEquals(
+            120,
+            budget.previewLongEdge(
+                requested = 120,
+                pageCount = 1
+            )
+        )
+        assertEquals(
+            100,
+            budget.thumbnailLongEdge(100)
+        )
+        assertEquals(
+            320,
+            budget.enhancementLongEdge(320)
+        )
+    }
+
+    @Test
     fun editedExportNeverExceedsDeviceCap() {
         val budget = DeviceRenderBudgetPolicy.forMemory(192, false)
 
