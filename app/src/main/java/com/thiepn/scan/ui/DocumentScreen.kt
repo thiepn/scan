@@ -1099,6 +1099,7 @@ fun DocumentScreen(
                 PageCard(
                     page = page,
                     displayNumber = index + 1,
+                    documentPageCount = pages.size,
                     displayLabel = when {
                         scanMode == ScanMode.ID_CARD && index == 0 -> "ID front"
                         scanMode == ScanMode.ID_CARD && index == 1 -> "ID back"
@@ -2568,6 +2569,7 @@ fun DocumentScreen(
 private fun PageCard(
     page: PageEntity,
     displayNumber: Int,
+    documentPageCount: Int,
     displayLabel: String,
     selectionMode: Boolean,
     selected: Boolean,
@@ -2765,6 +2767,7 @@ private fun PageCard(
             FileImage(
                 path = page.imagePath,
                 modifier = Modifier.fillMaxWidth().height(460.dp),
+                documentPageCount = documentPageCount,
                 rotationDegrees = page.rotationDegrees,
                 cropQuad = page.cropQuad,
                 visualRecipe = page.visualRecipe,
