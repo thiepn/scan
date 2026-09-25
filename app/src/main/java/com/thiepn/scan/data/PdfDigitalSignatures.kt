@@ -340,7 +340,9 @@ object PdfSignatureInspector {
         return runCatching {
             val byteRange = signature.byteRange
             val contents = trimCmsPadding(
-                signature.getContents()
+                pdfFile.inputStream().buffered().use {
+                    signature.getContents(it)
+                }
             )
             val cms = CMSSignedData(
                 SignatureByteRangeData(
