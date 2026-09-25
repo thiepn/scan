@@ -72,6 +72,19 @@ When saved OCR text replacements exist, their established orientation requiremen
 
 Form fill and markup continue after the visible page raster is prepared. Canonical source images are never replaced. Restoration is intentionally visual/output state: OCR/search continue to use the semantic geometry + cleanup pipeline, so changing brightness or restoration sliders cannot silently change searchable text or word coordinates.
 
+### Accessibility, large-document, and device hardening
+
+Phase 19 treats accessibility and scale as system invariants rather than per-screen patches. Selection mode exposes each page/document as one checkbox-like semantics node with explicit selected state and action labels, avoiding duplicate TalkBack targets from nested image/text/check controls. Page/document titles are headings, long-running document processing is announced through polite live regions, page action controls occupy a separate horizontally scrollable row, and library thumbnails shrink when system font scale is large so text retains usable width.
+
+`DeviceCapabilityPolicy` derives a static render budget from Android memory class plus `isLowRamDevice`. The budget controls library thumbnails, normal and large-document page previews, enhancement/restoration previews, imported-PDF derivatives, OCR semantic rendering, Book-processing intermediates, and edited-page export rasters. Direct untouched JPEG/native-PDF passthrough remains original quality because it does not allocate large ARGB intermediates. This avoids using `largeHeap` as a substitute for bounded memory behavior.
+
+PDF import is incremental. `PdfPageRasterizer.renderIncrementally` renders one page, writes its JPEG derivative, commits/updates that deterministic page record and document page count, then proceeds. A failure therefore leaves a usable partial document instead of discarding all completed work; the document is marked Needs Review. Bitmap lifetime remains page-scoped.
+
+Full OCR truth remains in `pages.ocrText` plus FTS. `documents.ocrText` is only a bounded cross-page summary (128 KiB) used for lightweight classification/specialized summaries and library preview, eliminating multi-megabyte duplicate text payloads in normal library queries. Text/PDF exports continue reading page rows and are lossless.
+
+Large page batches use set membership in UI/repository filtering and conservative 900-ID SQL chunks for `IN` mutations. The same chunking applies to bulk document filing/classification/review/favorite/archive operations and tag replacement. Page-wide Compose metrics (Book review, edit presence, form counts, structured-data counts/staleness) are computed in one memoized pass keyed by document revision rather than decoded on every transient UI recomposition.
+
+
 ### Smart cleanup
 
 Cleanup is a reversible semantic operation layer over immutable page sources. `PageEntity.cleanupRecipe` stores a compact vector recipe made of normalized strokes and accepted automatic suggestions; no cleaned source JPEG replaces the canonical page image.
