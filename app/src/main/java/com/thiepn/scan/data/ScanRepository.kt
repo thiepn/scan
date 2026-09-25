@@ -3184,16 +3184,25 @@ class ScanRepository(
     ): List<DocumentPageSearchHit> = withContext(Dispatchers.IO) {
         requireVaultUnlocked(documentId)
         val pages = orderedPages(dao.getPages(documentId))
-        val numberById = pages.mapIndexed { index, page -> page.id to (index + 1) }.toMap()
+        val pageById = pages.associateBy { it.id }
+        val numberById = pages.mapIndexed { index, page ->
+            page.id to (index + 1)
+        }.toMap()
+
         searchIndex.searchPages(documentId, query).mapNotNull { indexed ->
-            val page = pages.firstOrNull { it.id == indexed.pageId } ?: return@mapNotNull null
+            val page = pageById[indexed.pageId]
+                ?: return@mapNotNull null
             val layout = OcrLayoutCodec.decode(page.ocrLayout)
             DocumentPageSearchHit(
                 pageId = indexed.pageId,
-                pageNumber = numberById[indexed.pageId] ?: page.position + 1,
+                pageNumber = numberById[indexed.pageId]
+                    ?: page.position + 1,
                 snippet = indexed.snippet,
                 rank = indexed.rank,
-                matchingWords = OcrSearchTerms.matchingWords(layout, query)
+                matchingWords = OcrSearchTerms.matchingWords(
+                    layout,
+                    query
+                )
             )
         }
     }
