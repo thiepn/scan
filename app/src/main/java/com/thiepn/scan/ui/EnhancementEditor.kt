@@ -52,6 +52,7 @@ import com.thiepn.scan.data.PageVisualRecipeCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanPreset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
@@ -231,6 +232,7 @@ private fun EnhancementPreview(
         page.cleanupRecipe,
         recipe
     ) {
+        delay(70)
         value = withContext(Dispatchers.Default) {
             runCatching {
                 val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
