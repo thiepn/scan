@@ -38,6 +38,9 @@ interface AutomationDao {
     @Query("SELECT * FROM workflow_destinations WHERE id = :id LIMIT 1")
     suspend fun getDestination(id: String): WorkflowDestinationEntity?
 
+    @Query("SELECT * FROM workflow_destinations ORDER BY updatedAt DESC, name COLLATE NOCASE")
+    suspend fun getDestinations(): List<WorkflowDestinationEntity>
+
     @Query("SELECT * FROM workflow_runs WHERE id = :id LIMIT 1")
     suspend fun getRun(id: String): WorkflowRunEntity?
 
