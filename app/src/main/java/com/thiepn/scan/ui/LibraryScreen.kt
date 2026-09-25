@@ -1133,7 +1133,15 @@ private fun DocumentCard(
 
                 if (document.ocrText.isNotBlank()) {
                     Text(
-                        document.ocrText.replace('\n', ' '),
+                        remember(
+                            document.id,
+                            document.updatedAt,
+                            document.ocrText
+                        ) {
+                            document.ocrText
+                                .take(800)
+                                .replace('\n', ' ')
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
