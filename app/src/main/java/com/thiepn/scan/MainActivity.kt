@@ -771,14 +771,20 @@ private fun ScanApp(
             }
 
             if (protectedDocument && lockedDocument) {
+                val vaultPreparing =
+                    id in vaultState.busyDocumentIds
                 VaultLockedScreen(
                     contentPadding = padding,
-                    busy = vaultUnlockBusy,
+                    busy =
+                        vaultUnlockBusy || vaultPreparing,
                     integrityWarning =
                         id in
                             vaultState.integrityFailedDocumentIds,
                     onUnlock = {
-                        if (!vaultUnlockBusy) {
+                        if (
+                            !vaultUnlockBusy &&
+                            !vaultPreparing
+                        ) {
                             vaultUnlockBusy = true
                             authenticate(
                                 {
