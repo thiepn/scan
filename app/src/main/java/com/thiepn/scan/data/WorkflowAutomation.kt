@@ -209,7 +209,22 @@ object AutomationConditionCodec {
             onlyUnfiled = map["onlyUnfiled"]?.let {
                 decodeWorkflowBoolean("onlyUnfiled", it)
             } ?: false
-        )
+        ).also { condition ->
+            condition.minPages?.let {
+                require(it >= 0) { "Minimum page count cannot be negative" }
+            }
+            condition.maxPages?.let {
+                require(it >= 0) { "Maximum page count cannot be negative" }
+            }
+            if (
+                condition.minPages != null &&
+                condition.maxPages != null
+            ) {
+                require(condition.minPages <= condition.maxPages) {
+                    "Minimum page count cannot exceed maximum page count"
+                }
+            }
+        }
     }
 }
 
