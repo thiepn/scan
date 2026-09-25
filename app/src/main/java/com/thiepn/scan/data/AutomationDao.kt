@@ -73,7 +73,10 @@ interface AutomationDao {
             "(r.status = 'FAILED' AND r.nextRetryAt IS NOT NULL AND r.nextRetryAt <= :now)" +
             ") AND NOT EXISTS (" +
             "SELECT 1 FROM workflow_runs AS b " +
-            "WHERE b.documentId = r.documentId AND b.startedAt < r.startedAt AND (" +
+            "WHERE b.documentId = r.documentId AND (" +
+            "b.startedAt < r.startedAt OR " +
+            "(b.startedAt = r.startedAt AND b.id < r.id)" +
+            ") AND (" +
             "b.status IN ('PENDING', 'RUNNING') OR " +
             "(b.status = 'FAILED' AND b.nextRetryAt IS NOT NULL)" +
             ")" +
@@ -85,7 +88,10 @@ interface AutomationDao {
         "SELECT r.* FROM workflow_runs AS r " +
             "WHERE r.status = 'FAILED' AND r.nextRetryAt IS NOT NULL AND NOT EXISTS (" +
             "SELECT 1 FROM workflow_runs AS b " +
-            "WHERE b.documentId = r.documentId AND b.startedAt < r.startedAt AND (" +
+            "WHERE b.documentId = r.documentId AND (" +
+            "b.startedAt < r.startedAt OR " +
+            "(b.startedAt = r.startedAt AND b.id < r.id)" +
+            ") AND (" +
             "b.status IN ('PENDING', 'RUNNING') OR " +
             "(b.status = 'FAILED' AND b.nextRetryAt IS NOT NULL)" +
             ")" +
