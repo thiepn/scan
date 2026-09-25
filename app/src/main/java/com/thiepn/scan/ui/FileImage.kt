@@ -19,7 +19,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import com.thiepn.scan.data.CropQuadCodec
+import com.thiepn.scan.data.DeviceCapabilityPolicy
 import com.thiepn.scan.data.FormFillRenderer
 import com.thiepn.scan.data.ImageEnhancementRenderer
 import com.thiepn.scan.data.OcrWordBox
@@ -42,6 +44,7 @@ fun FileImage(
     path: String,
     modifier: Modifier = Modifier,
     maxDecodeEdge: Int = 1600,
+    documentPageCount: Int = 1,
     rotationDegrees: Int = 0,
     cropQuad: String? = null,
     visualRecipe: String? = null,
@@ -54,10 +57,29 @@ fun FileImage(
     highlightSourceHeight: Int = 0,
     contentDescription: String? = null
 ) {
+    val context = LocalContext.current
+    val deviceCapabilities = remember(context.applicationContext) {
+        DeviceCapabilityPolicy(context.applicationContext)
+    }
+    val effectiveMaxDecodeEdge = remember(
+        maxDecodeEdge,
+        documentPageCount,
+        deviceCapabilities
+    ) {
+        if (maxDecodeEdge <= 640) {
+            deviceCapabilities.budget.thumbnailLongEdge(maxDecodeEdge)
+        } else {
+            deviceCapabilities.budget.previewLongEdge(
+                requested = maxDecodeEdge,
+                pageCount = documentPageCount
+            )
+        }
+    }
+
     val bitmap by produceState<Bitmap?>(
         initialValue = null,
         path,
-        maxDecodeEdge,
+        effectiveMaxDecodeEdge,
         rotationDegrees,
         cropQuad,
         visualRecipe,
@@ -71,7 +93,7 @@ fun FileImage(
                 val geometry = PageGeometryRenderer.renderUnrotatedForPdf(
                     file = File(path),
                     cropQuad = CropQuadCodec.decode(cropQuad),
-                    maxLongEdge = maxDecodeEdge
+                    maxLongEdge = effectiveMaxDecodeEdge
                 )
                 val cleaned = PageCleanupRenderer.apply(
                     geometry,
