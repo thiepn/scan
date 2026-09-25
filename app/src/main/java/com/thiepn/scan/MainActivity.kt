@@ -51,7 +51,7 @@ import java.io.File
 import java.util.Base64
 import java.util.UUID
 
-private sealed interface PendingScanAction {
+internal sealed interface PendingScanAction {
     data class NewDocument(
         val mode: ScanMode,
         val rapid: Boolean = false
@@ -82,7 +82,7 @@ private sealed interface PendingScanAction {
     ) : PendingScanAction
 }
 
-private object PendingScanActionCodec {
+internal object PendingScanActionCodec {
     private const val VERSION = "1"
 
     fun encode(action: PendingScanAction): String {
