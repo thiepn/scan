@@ -125,14 +125,25 @@ fun WorkflowAutomationDialog(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            runCatching {
+            val persisted = runCatching {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
+                context.contentResolver.persistedUriPermissions.any {
+                    it.uri == uri && it.isWritePermission
+                }
+            }.getOrDefault(false)
+
+            if (persisted) {
+                destinationUri = uri
+            } else {
+                destinationUri = null
+                onMessage(
+                    "This folder provider did not grant persistent write access"
+                )
             }
-            destinationUri = uri
         }
     }
 
