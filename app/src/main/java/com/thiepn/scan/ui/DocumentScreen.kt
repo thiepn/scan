@@ -85,9 +85,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -575,8 +577,16 @@ fun DocumentScreen(
                         }
                     } else {
                         if (doc.processing) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                            Row(
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.semantics {
+                                    liveRegion = LiveRegionMode.Polite
+                                }
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.height(20.dp)
+                                )
                                 Text(
                                     if (scanProfile.ocrEnabled) "Recognizing text…"
                                     else "Preparing scan…",
@@ -1273,7 +1283,14 @@ fun DocumentScreen(
                 item {
                     Text(
                         if (doc.processing) "Preparing pages…" else "No page previews available for this document.",
-                        modifier = Modifier.padding(24.dp),
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .semantics {
+                                if (doc.processing) {
+                                    liveRegion =
+                                        LiveRegionMode.Polite
+                                }
+                            },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
