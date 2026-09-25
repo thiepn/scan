@@ -258,6 +258,13 @@ class ScanRepository(
         require(cleanName.isNotBlank()) { "Destination name cannot be blank" }
         require(cleanName.length <= 80) { "Destination name is too long" }
         require(treeUri.scheme == "content") { "Choose a document-provider folder" }
+        require(
+            context.contentResolver.persistedUriPermissions.any {
+                it.uri == treeUri && it.isWritePermission
+            }
+        ) {
+            "Persistent write access to this folder was not granted"
+        }
 
         val now = System.currentTimeMillis()
         val id = destinationId ?: UUID.randomUUID().toString()
