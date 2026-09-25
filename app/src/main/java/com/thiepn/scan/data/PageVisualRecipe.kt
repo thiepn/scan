@@ -257,6 +257,28 @@ data class PageVisualRecipe(
             }.normalized()
         }
 
+        fun forPresetInMode(
+            preset: ScanPreset,
+            mode: ScanMode
+        ): PageVisualRecipe {
+            val defaultPreset = ScanModeProfiles.forMode(mode).defaultPreset
+            if (preset == defaultPreset) return forMode(mode)
+
+            val profile = when (mode) {
+                ScanMode.RECEIPT -> RestorationProfile.RECEIPT
+                ScanMode.WHITEBOARD -> RestorationProfile.WHITEBOARD
+                ScanMode.BOOK -> RestorationProfile.BOOK
+                ScanMode.NOTES -> RestorationProfile.NOTES
+                ScanMode.FORM -> RestorationProfile.FORM
+                ScanMode.PHOTO -> RestorationProfile.OFF
+                else -> RestorationProfile.DOCUMENT
+            }
+            return forPreset(
+                preset = preset,
+                restorationProfile = profile
+            ).normalized()
+        }
+
         fun defaultProfile(preset: ScanPreset): RestorationProfile = when (preset) {
             ScanPreset.ORIGINAL -> RestorationProfile.OFF
             ScanPreset.RECEIPT -> RestorationProfile.RECEIPT
