@@ -48,13 +48,13 @@ object ImageEnhancementRenderer {
             return output
         }
 
-        var previous = transformedRow(source, 0, r, illumination)
-        var current = transformedRow(source, 1, r, illumination)
+        var previous = transformedRow(source, 0, r, restoration)
+        var current = transformedRow(source, 1, r, restoration)
         output.setPixels(previous, 0, width, 0, 0, width, 1)
 
         val sharpened = IntArray(width)
         for (y in 1 until height - 1) {
-            val next = transformedRow(source, y + 1, r, illumination)
+            val next = transformedRow(source, y + 1, r, restoration)
             sharpenRow(
                 previous = previous,
                 current = current,
