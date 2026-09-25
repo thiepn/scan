@@ -189,10 +189,13 @@ class SecurityVaultManager(
     private val mutex = Mutex()
     private val random = SecureRandom()
     private val _state = MutableStateFlow(
-        VaultState(
-            protectedDocumentIds = registeredIds(),
-            lockedDocumentIds = registeredIds()
-        )
+        registeredIds().let { registered ->
+            VaultState(
+                protectedDocumentIds = registered,
+                lockedDocumentIds = registered,
+                busyDocumentIds = registered
+            )
+        }
     )
     val state: StateFlow<VaultState> = _state.asStateFlow()
 
@@ -327,6 +330,11 @@ class SecurityVaultManager(
 
     suspend fun unlock(documentId: String): Boolean = mutex.withLock {
         if (documentId !in registeredIds()) return true
+        require(
+            documentId !in _state.value.busyDocumentIds
+        ) {
+            "Secure document is still being prepared"
+        }
         _state.value = _state.value.copy(
             busyDocumentIds =
                 _state.value.busyDocumentIds + documentId
