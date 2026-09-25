@@ -29,6 +29,9 @@ interface AutomationDao {
     @Query("SELECT * FROM workflow_rules WHERE id = :id LIMIT 1")
     suspend fun getRule(id: String): WorkflowRuleEntity?
 
+    @Query("SELECT * FROM workflow_rules WHERE presetId = :presetId ORDER BY priority ASC, createdAt ASC")
+    suspend fun getRulesForPreset(presetId: String): List<WorkflowRuleEntity>
+
     @Query(
         "SELECT * FROM workflow_rules WHERE enabled = 1 AND trigger = :trigger " +
             "ORDER BY priority ASC, createdAt ASC"
