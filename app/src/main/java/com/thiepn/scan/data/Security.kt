@@ -205,6 +205,12 @@ class SecurityVaultManager(
     fun isUnlocked(documentId: String): Boolean =
         !isProtected(documentId) || !isLocked(documentId)
 
+    fun sealRegisteredOnColdStartAsync() {
+        scope.launch(Dispatchers.IO) {
+            sealRegisteredOnColdStart()
+        }
+    }
+
     suspend fun sealRegisteredOnColdStart() = mutex.withLock {
         val ids = registeredIds()
         _state.value = _state.value.copy(
