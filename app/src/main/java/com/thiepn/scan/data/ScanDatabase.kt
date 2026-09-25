@@ -28,7 +28,7 @@ import kotlinx.coroutines.Dispatchers
         WorkflowRunEntity::class
     ],
     version = 22,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class ScanDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
