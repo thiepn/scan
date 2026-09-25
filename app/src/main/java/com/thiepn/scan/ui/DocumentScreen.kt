@@ -340,7 +340,9 @@ fun DocumentScreen(
     }
     var cleanupDetecting by remember { mutableStateOf(false) }
     var selectionMode by remember { mutableStateOf(false) }
-    var selectedPageIds by remember { mutableStateOf(emptyList<String>()) }
+    var selectedPageIds by remember {
+        mutableStateOf(emptySet<String>())
+    }
     var batchFilterOpen by remember { mutableStateOf(false) }
     var batchMoveOpen by remember { mutableStateOf(false) }
     var batchDeleteOpen by remember { mutableStateOf(false) }
@@ -382,7 +384,9 @@ fun DocumentScreen(
             val activeIds = pages.asSequence()
                 .map { it.id }
                 .toHashSet()
-            selectedPageIds = selectedPageIds.filter {
+            selectedPageIds = selectedPageIds.filterTo(
+                linkedSetOf()
+            ) {
                 it in activeIds
             }
         }
@@ -471,7 +475,7 @@ fun DocumentScreen(
                     if (selectionMode) {
                         IconButton(onClick = {
                             selectionMode = false
-                            selectedPageIds = emptyList()
+                            selectedPageIds = emptySet()
                         }) {
                             Icon(Icons.Default.Close, contentDescription = "Exit page selection")
                         }
@@ -997,7 +1001,7 @@ fun DocumentScreen(
                             OutlinedButton(
                                 onClick = {
                                     selectionMode = true
-                                    selectedPageIds = emptyList()
+                                    selectedPageIds = emptySet()
                                 },
                                 enabled = !doc.processing && pages.isNotEmpty()
                             ) {
@@ -1038,7 +1042,7 @@ fun DocumentScreen(
                         selectedCount = selectedPageIds.size,
                         canDelete = pages.size - selectedPageIds.size >= 1,
                         onRotate = {
-                            val selected = selectedPageIds
+                            val selected = selectedPageIds.toList()
                             scope.launch {
                                 runCatching { repository.rotatePages(doc.id, selected) }
                                     .onSuccess { onMessage("Selected pages rotated") }
@@ -1047,7 +1051,7 @@ fun DocumentScreen(
                         },
                         onFilter = { batchFilterOpen = true },
                         onCleanup = {
-                            val selected = selectedPageIds
+                            val selected = selectedPageIds.toList()
                             scope.launch {
                                 runCatching {
                                     repository.autoCleanupPages(
@@ -1073,19 +1077,19 @@ fun DocumentScreen(
                         },
                         onMove = { batchMoveOpen = true },
                         onDuplicate = {
-                            val selected = selectedPageIds
+                            val selected = selectedPageIds.toList()
                             scope.launch {
                                 runCatching { repository.duplicatePages(doc.id, selected) }
                                     .onSuccess { count ->
                                         selectionMode = false
-                                        selectedPageIds = emptyList()
+                                        selectedPageIds = emptySet()
                                         onMessage("$count page${if (count == 1) "" else "s"} duplicated")
                                     }
                                     .onFailure { onMessage(it.message ?: "Could not duplicate pages") }
                             }
                         },
                         onReset = {
-                            val selected = selectedPageIds
+                            val selected = selectedPageIds.toList()
                             scope.launch {
                                 runCatching { repository.resetPageEdits(doc.id, selected) }
                                     .onSuccess { onMessage("Selected page edits reset") }
@@ -2189,7 +2193,7 @@ fun DocumentScreen(
             onDismiss = { batchFilterOpen = false },
             onApply = { preset ->
                 batchFilterOpen = false
-                val selected = selectedPageIds
+                val selected = selectedPageIds.toList()
                 scope.launch {
                     runCatching { repository.applyPresetToPages(doc.id, selected, preset) }
                         .onSuccess { onMessage("Filter applied to selected pages") }
@@ -2206,12 +2210,12 @@ fun DocumentScreen(
             onDismiss = { batchMoveOpen = false },
             onMove = { targetIndex ->
                 batchMoveOpen = false
-                val selected = selectedPageIds
+                val selected = selectedPageIds.toList()
                 scope.launch {
                     runCatching { repository.movePages(doc.id, selected, targetIndex) }
                         .onSuccess {
                             selectionMode = false
-                            selectedPageIds = emptyList()
+                            selectedPageIds = emptySet()
                             onMessage("Selected pages moved")
                         }
                         .onFailure { onMessage(it.message ?: "Could not move pages") }
@@ -2268,12 +2272,12 @@ fun DocumentScreen(
             confirmButton = {
                 TextButton(onClick = {
                     batchDeleteOpen = false
-                    val selected = selectedPageIds
+                    val selected = selectedPageIds.toList()
                     scope.launch {
                         runCatching { repository.softDeletePages(doc.id, selected) }
                             .onSuccess {
                                 selectionMode = false
-                                selectedPageIds = emptyList()
+                                selectedPageIds = emptySet()
                                 onMessage("Selected pages moved to Deleted pages")
                             }
                             .onFailure { onMessage(it.message ?: "Could not delete pages") }
@@ -2287,7 +2291,7 @@ fun DocumentScreen(
     }
 
     if (batchExportOpen) {
-        val selected = selectedPageIds
+        val selected = selectedPageIds.toList()
         SelectedExportDialog(
             selectedCount = selected.size,
             defaultQuality = scanProfile.defaultPdfQuality,
