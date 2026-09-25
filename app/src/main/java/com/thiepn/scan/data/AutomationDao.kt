@@ -94,6 +94,31 @@ interface AutomationDao {
     @Query("DELETE FROM workflow_rules WHERE id = :id")
     suspend fun deleteRule(id: String)
 
+    @Query(
+        "UPDATE workflow_runs SET status = 'CANCELLED', finishedAt = :now, " +
+            "nextRetryAt = NULL, summary = :summary, lastError = NULL " +
+            "WHERE presetId = :presetId AND (" +
+            "status = 'PENDING' OR (status = 'FAILED' AND nextRetryAt IS NOT NULL))"
+    )
+    suspend fun cancelRunnableRunsForPreset(
+        presetId: String,
+        now: Long,
+        summary: String
+    )
+
+    @Query(
+        "UPDATE workflow_runs SET status = 'CANCELLED', finishedAt = :now, " +
+            "nextRetryAt = NULL, summary = :summary, lastError = NULL " +
+            "WHERE ruleId = :ruleId AND (" +
+            "status = 'PENDING' OR (status = 'FAILED' AND nextRetryAt IS NOT NULL))"
+    )
+    suspend fun cancelRunnableRunsForRule(
+        ruleId: String,
+        now: Long,
+        summary: String
+    )
+
+
     @Query("DELETE FROM workflow_destinations WHERE id = :id")
     suspend fun deleteDestination(id: String)
 
