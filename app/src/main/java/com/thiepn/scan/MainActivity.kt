@@ -65,7 +65,9 @@ internal sealed interface PendingScanAction {
         val mode: ScanMode,
         val sessionId: String
     ) : PendingScanAction
-    data class IdBack(val stagedFrontPath: String) : PendingScanAction
+    data class IdBack(
+        val documentId: String
+    ) : PendingScanAction
     data class Append(
         val documentId: String,
         val mode: ScanMode
@@ -109,7 +111,7 @@ internal object PendingScanActionCodec {
             is PendingScanAction.IdBack ->
                 listOf(
                     "ID_BACK",
-                    action.stagedFrontPath
+                    action.documentId
                 )
             is PendingScanAction.Append ->
                 listOf(
@@ -178,7 +180,7 @@ internal object PendingScanActionCodec {
                     )
                 "ID_BACK" ->
                     PendingScanAction.IdBack(
-                        stagedFrontPath = fields[2]
+                        documentId = fields[2]
                     )
                 "APPEND" ->
                     PendingScanAction.Append(
