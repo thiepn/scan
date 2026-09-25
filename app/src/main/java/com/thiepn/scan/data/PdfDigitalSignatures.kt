@@ -1,5 +1,6 @@
 package com.thiepn.scan.data
 
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.PDSignature
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface
@@ -20,6 +21,7 @@ import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.cert.CertPathBuilder
@@ -86,7 +88,10 @@ object PdfDigitalSigner {
         val material = loadKeyMaterial(pkcs12Input, password)
         val signingCertificate = material.certificates.first()
 
-        PDDocument.load(source).use { document ->
+        PDDocument.load(
+            source,
+            MemoryUsageSetting.setupTempFileOnly()
+        ).use { document ->
             val signature = PDSignature().apply {
                 setFilter(PDSignature.FILTER_ADOBE_PPKLITE)
                 setSubFilter(
@@ -221,17 +226,19 @@ object PdfSignatureInspector {
 
     fun inspect(file: File): PdfSignatureReport {
         if (!file.isFile) return PdfSignatureReport(emptyList())
-        val bytes = file.readBytes()
         val results = mutableListOf<PdfSignatureValidation>()
 
         runCatching {
-            PDDocument.load(file).use { document ->
+            PDDocument.load(
+                file,
+                MemoryUsageSetting.setupTempFileOnly()
+            ).use { document ->
                 document.signatureDictionaries
                     .forEachIndexed { index, signature ->
                         results += inspectSignature(
                             index,
                             signature,
-                            bytes
+                            file
                         )
                     }
             }
@@ -259,21 +266,86 @@ object PdfSignatureInspector {
         return PdfSignatureReport(results)
     }
 
+    private class SignatureByteRangeData(
+        private val file: File,
+        private val byteRange: IntArray
+    ) : CMSTypedData {
+        init {
+            require(
+                byteRange.size >= 4 &&
+                    byteRange.size % 2 == 0
+            ) {
+                "PDF signature byte range is invalid"
+            }
+            val fileLength = file.length()
+            byteRange.asList()
+                .chunked(2)
+                .forEach { pair ->
+                    val start = pair[0].toLong()
+                    val length = pair[1].toLong()
+                    require(
+                        start >= 0L &&
+                            length >= 0L &&
+                            start + length <= fileLength
+                    ) {
+                        "PDF signature byte range is outside the file"
+                    }
+                }
+        }
+
+        override fun getContentType(): ASN1ObjectIdentifier =
+            CMSObjectIdentifiers.data
+
+        override fun getContent(): Any = file
+
+        override fun write(output: OutputStream) {
+            RandomAccessFile(file, "r").use { input ->
+                val buffer = ByteArray(32 * 1024)
+                var pairIndex = 0
+                while (pairIndex + 1 < byteRange.size) {
+                    val start = byteRange[pairIndex].toLong()
+                    var remaining =
+                        byteRange[pairIndex + 1].toLong()
+                    input.seek(start)
+                    while (remaining > 0L) {
+                        val request = minOf(
+                            buffer.size.toLong(),
+                            remaining
+                        ).toInt()
+                        val read = input.read(
+                            buffer,
+                            0,
+                            request
+                        )
+                        if (read < 0) {
+                            throw java.io.EOFException(
+                                "Unexpected end of signed PDF"
+                            )
+                        }
+                        output.write(buffer, 0, read)
+                        remaining -= read.toLong()
+                    }
+                    pairIndex += 2
+                }
+            }
+        }
+    }
+
     private fun inspectSignature(
         index: Int,
         signature: PDSignature,
-        pdfBytes: ByteArray
+        pdfFile: File
     ): PdfSignatureValidation {
         val signingDate = signature.signDate?.time
         return runCatching {
-            val signedContent =
-                signature.getSignedContent(pdfBytes)
+            val byteRange = signature.byteRange
             val contents = trimCmsPadding(
-                signature.getContents(pdfBytes)
+                signature.getContents()
             )
             val cms = CMSSignedData(
-                org.bouncycastle.cms.CMSProcessableByteArray(
-                    signedContent
+                SignatureByteRangeData(
+                    file = pdfFile,
+                    byteRange = byteRange
                 ),
                 contents
             )
