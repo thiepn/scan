@@ -178,6 +178,30 @@ class WorkflowAutomationTest {
     }
 
     @Test
+    fun contradictoryPolicyPresenceMarkerFailsClosed() {
+        val encoded = DocumentProcessingPresetCodec.encode(
+            DocumentProcessingPreset(
+                securitySettings = DocumentSecuritySettings(
+                    vaultEnabled = true
+                )
+            )
+        )
+        val corrupted = encoded.lineSequence().joinToString("\n") { line ->
+            if (line.startsWith("securityPresent=")) {
+                "securityPresent=MA"
+            } else {
+                line
+            }
+        }
+
+        assertTrue(
+            runCatching {
+                DocumentProcessingPresetCodec.decode(corrupted)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun corruptedSecurityPolicyFailsClosed() {
         val encoded = DocumentProcessingPresetCodec.encode(
             DocumentProcessingPreset(
