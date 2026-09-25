@@ -145,6 +145,19 @@ class WorkflowAutomationTest {
     }
 
     @Test
+    fun negativeStoredPageBoundIsRejected() {
+        val encoded = AutomationConditionCodec.encode(
+            AutomationCondition(minPages = -1)
+        )
+
+        assertTrue(
+            runCatching {
+                AutomationConditionCodec.decode(encoded)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun corruptedPageBoundFailsClosed() {
         val encoded = AutomationConditionCodec.encode(
             AutomationCondition(minPages = 2)
