@@ -19,9 +19,22 @@ jarsigner -verify -strict "${AAB}" >/dev/null
 
 APPLICATION_ID="$("${APK_ANALYZER}" manifest application-id "${APK}")"
 VERSION_NAME="$("${APK_ANALYZER}" manifest version-name "${APK}")"
+VERSION_CODE="$("${APK_ANALYZER}" manifest version-code "${APK}")"
+MIN_SDK="$("${APK_ANALYZER}" manifest min-sdk "${APK}")"
+TARGET_SDK="$("${APK_ANALYZER}" manifest target-sdk "${APK}")"
+DEBUGGABLE="$("${APK_ANALYZER}" manifest debuggable "${APK}")"
+MANIFEST="$("${APK_ANALYZER}" manifest print "${APK}")"
 
 test "${APPLICATION_ID}" = "com.thiepn.scan"
 test "${VERSION_NAME}" = "1.0.0"
+test "${VERSION_CODE}" = "1"
+test "${MIN_SDK}" = "26"
+test "${TARGET_SDK}" = "36"
+test "${DEBUGGABLE}" = "false"
+
+grep -Fq 'android:allowBackup="false"' <<<"${MANIFEST}"
+grep -Fq 'android:usesCleartextTraffic="false"' <<<"${MANIFEST}"
+grep -Fq 'android:name="androidx.core.content.FileProvider"' <<<"${MANIFEST}"
 
 PERMISSIONS="$("${APK_ANALYZER}" manifest permissions "${APK}")"
 FORBIDDEN_PERMISSIONS=(

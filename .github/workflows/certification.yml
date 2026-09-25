@@ -152,6 +152,8 @@ jobs:
             adb shell am start -W -n com.thiepn.scan/.MainActivity
             adb shell run-as com.thiepn.scan sh -c 'test -f databases/scan.db'
 
+            gradle :app:connectedDebugAndroidTest --stacktrace
+
             adb uninstall com.thiepn.scan
             adb install "${RELEASE_APK}"
             adb shell am start -W -n com.thiepn.scan/.MainActivity

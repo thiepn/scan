@@ -613,10 +613,13 @@ abstract class ScanDatabase : RoomDatabase() {
                 migration.startVersion to migration.endVersion
             }
 
-        fun create(context: Context): ScanDatabase = Room.databaseBuilder(
+        fun create(
+            context: Context,
+            databaseName: String = "scan.db"
+        ): ScanDatabase = Room.databaseBuilder(
             context.applicationContext,
             ScanDatabase::class.java,
-            "scan.db"
+            databaseName
         )
             .addMigrations(*ALL_MIGRATIONS)
             .setDriver(BundledSQLiteDriver())
