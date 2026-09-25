@@ -337,6 +337,11 @@ object PdfComplianceValidator {
         }
 
         runCatching {
+            StorageSpaceGuard.require(
+                anchor = file,
+                estimatedWorkingBytes = file.length(),
+                operation = "validate this PDF"
+            )
             PDDocument.load(
                 file,
                 MemoryUsageSetting.setupTempFileOnly()
