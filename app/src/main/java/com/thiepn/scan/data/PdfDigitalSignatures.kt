@@ -84,6 +84,14 @@ object PdfDigitalSigner {
             "Signed output must use a different file"
         }
         destination.parentFile?.mkdirs()
+        StorageSpaceGuard.require(
+            anchor = destination,
+            estimatedWorkingBytes =
+                StorageBudgetPolicy.pdfExportWorkingBytes(
+                    source.length()
+                ),
+            operation = "sign this PDF"
+        )
 
         val material = loadKeyMaterial(pkcs12Input, password)
         val signingCertificate = material.certificates.first()
@@ -225,8 +233,42 @@ object PdfSignatureInspector {
     private val provider = BouncyCastleProvider()
 
     fun inspect(file: File): PdfSignatureReport {
-        if (!file.isFile) return PdfSignatureReport(emptyList())
-        val results = mutableListOf<PdfSignatureValidation>()
+        if (!file.isFile) {
+            return PdfSignatureReport(emptyList())
+        }
+        val results =
+            mutableListOf<PdfSignatureValidation>()
+
+        runCatching {
+            StorageSpaceGuard.require(
+                anchor = file,
+                estimatedWorkingBytes = file.length(),
+                operation = "inspect PDF signatures"
+            )
+        }.onFailure { error ->
+            return PdfSignatureReport(
+                listOf(
+                    PdfSignatureValidation(
+                        index = 0,
+                        name = "",
+                        subject = "",
+                        issuer = "",
+                        serialNumber = "",
+                        reason = "",
+                        location = "",
+                        signingTimeMillis = null,
+                        certificateNotBeforeMillis = null,
+                        certificateNotAfterMillis = null,
+                        cryptographicallyValid = false,
+                        certificateValidAtSigning = false,
+                        trustedByDevice = false,
+                        coversWholeDocument = false,
+                        message = error.message
+                            ?: "Not enough storage to inspect PDF signatures."
+                    )
+                )
+            )
+        }
 
         runCatching {
             PDDocument.load(
