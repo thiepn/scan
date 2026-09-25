@@ -41,6 +41,7 @@ class AppGraph(context: Context) {
             ocr = ocr,
             deviceCapabilities = deviceCapabilities
         ),
+        deviceCapabilities = deviceCapabilities,
         searchIndex = searchIndex,
         vault = vault,
         appScope = scope
