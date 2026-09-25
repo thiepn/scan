@@ -569,6 +569,91 @@ interface DocumentDao {
         updatedAt: Long
     )
 
+    @Transaction
+    suspend fun setDocumentFolderSafely(
+        documentIds: List<String>,
+        folderId: String?,
+        updatedAt: Long
+    ) {
+        documentIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                setDocumentFolder(
+                    chunk,
+                    folderId,
+                    updatedAt
+                )
+            }
+    }
+
+    @Transaction
+    suspend fun setDocumentTypeSafely(
+        documentIds: List<String>,
+        documentType: String,
+        updatedAt: Long
+    ) {
+        documentIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                setDocumentType(
+                    chunk,
+                    documentType,
+                    updatedAt
+                )
+            }
+    }
+
+    @Transaction
+    suspend fun setDocumentsNeedsReviewSafely(
+        documentIds: List<String>,
+        needsReview: Boolean,
+        updatedAt: Long
+    ) {
+        documentIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                setDocumentsNeedsReview(
+                    chunk,
+                    needsReview,
+                    updatedAt
+                )
+            }
+    }
+
+    @Transaction
+    suspend fun setDocumentsFavoriteSafely(
+        documentIds: List<String>,
+        favorite: Boolean,
+        updatedAt: Long
+    ) {
+        documentIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                setDocumentsFavorite(
+                    chunk,
+                    favorite,
+                    updatedAt
+                )
+            }
+    }
+
+    @Transaction
+    suspend fun setDocumentsArchivedSafely(
+        documentIds: List<String>,
+        archived: Boolean,
+        updatedAt: Long
+    ) {
+        documentIds.distinct()
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                setDocumentsArchived(
+                    chunk,
+                    archived,
+                    updatedAt
+                )
+            }
+    }
+
     @Query("UPDATE folders SET name = :name, normalizedName = :normalizedName, updatedAt = :updatedAt WHERE id = :id")
     suspend fun renameFolder(
         id: String,
@@ -735,9 +820,14 @@ interface DocumentDao {
         tagIds: List<String>
     ) {
         if (documentIds.isEmpty()) return
-        deleteDocumentTagsForDocuments(documentIds)
+        val distinctIds = documentIds.distinct()
+        distinctIds
+            .chunked(SQLITE_SAFE_ID_BATCH)
+            .forEach { chunk ->
+                deleteDocumentTagsForDocuments(chunk)
+            }
         val links = buildList {
-            documentIds.distinct().forEach { documentId ->
+            distinctIds.forEach { documentId ->
                 tagIds.distinct().forEach { tagId ->
                     add(DocumentTagCrossRef(documentId, tagId))
                 }
