@@ -90,6 +90,12 @@ Low-storage protection is explicit rather than relying on write failures. `Stora
 
 External-scanner UI intent is also restoration-safe. `PendingScanAction` is serialized into a small versioned String through a custom Compose `Saver`, so a scanner result can still be routed to new-document, append, insert, retake, rapid-capture, or ID-back handling after activity/process recreation. Malformed restored state fails closed. Two-sided ID capture does not keep the front in cache: the first side is inserted as a normal ID document and OCR processing is awaited before the back scanner opens; the pending action retains only the document ID, and a cancelled/failed back scan leaves the front safely usable. The persistent processing queues remain Room-backed and are recovered independently on application startup. Preview decoding is exception-contained; once loading finishes without a bitmap, the UI renders an explicit unavailable-preview state rather than crashing or silently displaying an empty image.
 
+Secure-vault cold-start sealing is asynchronous to avoid blocking application startup, but the initial vault state is fail-closed: all registered secure documents are locked and busy before the sealing coroutine begins. Unlock controls remain disabled while sealing is active, per-document sealing failures are surfaced through the integrity-warning state, and ordinary persisted document processing that was intentionally skipped while locked is re-scheduled on the repository IO scope immediately after a successful unlock.
+
+Room schema history is configured as a build output through the Room 2.8 Gradle plugin. The root build declares the plugin version, the app module applies it inside the Android configuration with `schemaDirectory("$projectDir/schemas")`, and `ScanDatabase` sets `exportSchema = true`. This keeps future schema snapshots reproducible and available for migration validation rather than relying only on hand-written runtime migration registration.
+
+Inserted PDFs follow the same storage discipline as imported PDFs. Known source size is checked before copy when available, the copied source is checked again using the conservative PDF-import working-set multiplier before rasterization, and failure cleanup removes generated page files and returns the document to a non-processing state.
+
 
 ### Smart cleanup
 
