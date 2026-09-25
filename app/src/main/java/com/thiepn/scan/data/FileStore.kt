@@ -48,15 +48,7 @@ class FileStore(private val context: Context) {
         destination: File
     ): File {
         destination.parentFile?.mkdirs()
-        val expectedBytes = runCatching {
-            context.contentResolver
-                .openAssetFileDescriptor(uri, "r")
-                ?.use { descriptor ->
-                    descriptor.length.takeIf {
-                        it >= 0L
-                    }
-                }
-        }.getOrNull()
+        val expectedBytes = estimateUriSize(uri)
 
         if (expectedBytes != null) {
             StorageSpaceGuard.require(
@@ -88,6 +80,17 @@ class FileStore(private val context: Context) {
             throw error
         }
     }
+
+    fun estimateUriSize(uri: Uri): Long? =
+        runCatching {
+            context.contentResolver
+                .openAssetFileDescriptor(uri, "r")
+                ?.use { descriptor ->
+                    descriptor.length.takeIf {
+                        it >= 0L
+                    }
+                }
+        }.getOrNull()
 
     fun pdfExportFile(documentId: String, title: String, protected: Boolean): File {
         val suffix = if (protected) "-protected" else ""
