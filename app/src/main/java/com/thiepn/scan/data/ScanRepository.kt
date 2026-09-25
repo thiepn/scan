@@ -3,6 +3,7 @@ package com.thiepn.scan.data
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.DocumentsContract
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -21,6 +22,7 @@ import kotlin.math.roundToInt
 class ScanRepository(
     private val context: Context,
     private val dao: DocumentDao,
+    private val automationDao: AutomationDao,
     private val files: FileStore,
     private val ocr: OcrEngine,
     private val rasterizer: PdfPageRasterizer,
@@ -31,6 +33,7 @@ class ScanRepository(
 ) {
     private val highSpeedPolicy = HighSpeedProcessingPolicy(context)
     private val processingQueueMutex = Mutex()
+    private val automationQueueMutex = Mutex()
 
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
         val normalized = query.trim()
@@ -62,6 +65,14 @@ class ScanRepository(
     fun observeFormTemplates(): Flow<List<FormTemplateEntity>> = dao.observeFormTemplates()
     fun observeExtractionSchemas(): Flow<List<ExtractionSchemaEntity>> =
         dao.observeExtractionSchemas()
+    fun observeProcessingPresets(): Flow<List<ProcessingPresetEntity>> =
+        automationDao.observePresets()
+    fun observeWorkflowRules(): Flow<List<WorkflowRuleEntity>> =
+        automationDao.observeRules()
+    fun observeWorkflowDestinations(): Flow<List<WorkflowDestinationEntity>> =
+        automationDao.observeDestinations()
+    fun observeWorkflowRuns(limit: Int = 100): Flow<List<WorkflowRunEntity>> =
+        automationDao.observeRecentRuns(limit)
     fun observeVaultState(): kotlinx.coroutines.flow.StateFlow<VaultState> =
         vault.state
 
@@ -76,6 +87,7 @@ class ScanRepository(
             searchIndex.rebuildAll()
             dao.markCapturingSessionsInterrupted(now)
             dao.resetInterruptedProcessingJobs(now)
+            automationDao.resetInterruptedRuns(now)
 
             val queuedDocumentIds = dao.getCaptureSessionsByStatus(
                 listOf(
@@ -114,6 +126,7 @@ class ScanRepository(
                         recognizeDocument(document.id)
                     }
                 }
+            drainAutomationQueue()
         }
     }
 
