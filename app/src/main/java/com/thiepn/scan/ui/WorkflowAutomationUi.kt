@@ -106,10 +106,14 @@ fun WorkflowAutomationDialog(
     var ruleOcrContains by remember { mutableStateOf("") }
     var ruleFieldKey by remember { mutableStateOf("") }
     var ruleFieldContains by remember { mutableStateOf("") }
+    var ruleMinPages by remember { mutableStateOf("") }
+    var ruleMaxPages by remember { mutableStateOf("") }
     var ruleNeedsReview by remember { mutableStateOf<Boolean?>(null) }
     var ruleOnlyUnfiled by remember { mutableStateOf(false) }
     var ruleStopAfterMatch by remember { mutableStateOf(false) }
     var rulePriority by remember { mutableStateOf("100") }
+    var ruleMaxAttempts by remember { mutableStateOf("3") }
+    var ruleRetrySeconds by remember { mutableStateOf("30") }
 
     var destinationName by remember { mutableStateOf("") }
     var destinationUri by remember { mutableStateOf<Uri?>(null) }
@@ -451,6 +455,28 @@ fun WorkflowAutomationDialog(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = ruleMinPages,
+                                onValueChange = {
+                                    ruleMinPages = it.filter(Char::isDigit)
+                                },
+                                label = { Text("Min pages") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = ruleMaxPages,
+                                onValueChange = {
+                                    ruleMaxPages = it.filter(Char::isDigit)
+                                },
+                                label = { Text("Max pages") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                         ChoiceMenu(
                             label = "Review condition",
                             selected = ruleNeedsReview,
@@ -468,6 +494,28 @@ fun WorkflowAutomationDialog(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = ruleMaxAttempts,
+                                onValueChange = {
+                                    ruleMaxAttempts = it.filter(Char::isDigit)
+                                },
+                                label = { Text("Max attempts") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = ruleRetrySeconds,
+                                onValueChange = {
+                                    ruleRetrySeconds = it.filter(Char::isDigit)
+                                },
+                                label = { Text("Retry base (seconds)") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                         ToggleRow(
                             checked = ruleOnlyUnfiled,
                             label = "Only unfiled documents",
@@ -503,6 +551,8 @@ fun WorkflowAutomationDialog(
                                                 ocrContains = ruleOcrContains,
                                                 fieldKey = ruleFieldKey,
                                                 fieldContains = ruleFieldContains,
+                                                minPages = ruleMinPages.toIntOrNull(),
+                                                maxPages = ruleMaxPages.toIntOrNull(),
                                                 needsReview = ruleNeedsReview,
                                                 onlyUnfiled = ruleOnlyUnfiled
                                             ),
@@ -510,7 +560,12 @@ fun WorkflowAutomationDialog(
                                             priority = rulePriority.toIntOrNull() ?: 100,
                                             stopAfterMatch =
                                                 ruleStopAfterMatch ||
-                                                    selectedRulePresetLocksVault
+                                                    selectedRulePresetLocksVault,
+                                            maxAttempts =
+                                                ruleMaxAttempts.toIntOrNull() ?: 3,
+                                            retryBackoffMillis =
+                                                (ruleRetrySeconds.toLongOrNull() ?: 30L) *
+                                                    1000L
                                         )
                                     }.onSuccess {
                                         ruleName = ""
@@ -521,10 +576,14 @@ fun WorkflowAutomationDialog(
                                         ruleOcrContains = ""
                                         ruleFieldKey = ""
                                         ruleFieldContains = ""
+                                        ruleMinPages = ""
+                                        ruleMaxPages = ""
                                         ruleNeedsReview = null
                                         ruleOnlyUnfiled = false
                                         ruleStopAfterMatch = false
                                         rulePriority = "100"
+                                        ruleMaxAttempts = "3"
+                                        ruleRetrySeconds = "30"
                                         onMessage("Automation rule saved")
                                     }.onFailure {
                                         onMessage(it.message ?: "Could not save rule")
