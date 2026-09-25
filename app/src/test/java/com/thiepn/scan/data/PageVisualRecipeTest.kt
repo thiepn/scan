@@ -131,6 +131,40 @@ class PageVisualRecipeTest {
     }
 
     @Test
+    fun nonFiniteValuesAreSanitized() {
+        val normalized = PageVisualRecipe(
+            brightness = Float.NaN,
+            localContrast = Float.POSITIVE_INFINITY,
+            whiteBalance = Float.NEGATIVE_INFINITY
+        ).normalized()
+
+        assertEquals(0f, normalized.brightness, 0f)
+        assertEquals(0f, normalized.localContrast, 0f)
+        assertEquals(0f, normalized.whiteBalance, 0f)
+    }
+
+    @Test
+    fun unknownLegacyVersionFallsBackToOriginal() {
+        val invalidLegacy = listOf(
+            "9",
+            ScanPreset.CLEAN.name,
+            "0.0",
+            "0.18",
+            "-0.12",
+            "0.14",
+            "0.05",
+            "0.10",
+            "0.0",
+            "-0.08",
+            "0.20",
+            "0.22",
+            "0.20"
+        ).joinToString("|")
+
+        assertTrue(PageVisualRecipeCodec.decode(invalidLegacy).isOriginal())
+    }
+
+    @Test
     fun malformedRecipeFallsBackToOriginal() {
         assertTrue(PageVisualRecipeCodec.decode("not|a|valid|recipe").isOriginal())
     }
