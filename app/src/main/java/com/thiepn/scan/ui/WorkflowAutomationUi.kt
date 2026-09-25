@@ -691,19 +691,23 @@ fun WorkflowAutomationDialog(
                         runs.forEach { run ->
                             val locked = run.documentId in vaultState.lockedDocumentIds
                             val title = if (locked) "Locked document" else run.documentTitle
-                            val subtitle = buildString {
-                                append(run.status)
-                                if (run.attemptCount > 0) {
-                                    append(" · attempt ")
-                                    append(run.attemptCount)
-                                }
-                                if (run.summary.isNotBlank()) {
-                                    append(" · ")
-                                    append(run.summary)
-                                }
-                                run.lastError?.takeIf(String::isNotBlank)?.let {
-                                    append(" · ")
-                                    append(it)
+                            val subtitle = if (locked) {
+                                "Vault locked"
+                            } else {
+                                buildString {
+                                    append(run.status)
+                                    if (run.attemptCount > 0) {
+                                        append(" · attempt ")
+                                        append(run.attemptCount)
+                                    }
+                                    if (run.summary.isNotBlank()) {
+                                        append(" · ")
+                                        append(run.summary)
+                                    }
+                                    run.lastError?.takeIf(String::isNotBlank)?.let {
+                                        append(" · ")
+                                        append(it)
+                                    }
                                 }
                             }
                             AutomationRow(
