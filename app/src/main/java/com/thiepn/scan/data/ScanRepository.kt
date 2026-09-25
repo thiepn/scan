@@ -1348,7 +1348,10 @@ class ScanRepository(
             require(requested.isNotEmpty()) { "Select at least one page" }
 
             val pages = orderedPages(dao.getPages(documentId))
-            val selected = pages.filter { it.id in requested }
+            val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
             selected.forEach { requireNoCoordinateEdits(it, "rotating selected pages") }
 
@@ -1908,7 +1911,10 @@ class ScanRepository(
         require(requested.isNotEmpty()) { "Select at least one page" }
 
         val pages = orderedPages(dao.getPages(documentId))
-        val selected = pages.filter { it.id in requested }
+        val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
         require(selected.size == requested.size) {
             "One or more selected pages are unavailable"
         }
@@ -1999,7 +2005,10 @@ class ScanRepository(
             val requested = pageIds.distinct()
             require(requested.isNotEmpty()) { "Select at least one page" }
             val pages = orderedPages(dao.getPages(documentId))
-            val selected = pages.filter { it.id in requested }
+            val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
             var nextPosition = dao.getMaxPagePosition(documentId) + 1
@@ -2110,7 +2119,10 @@ class ScanRepository(
         val requested = pageIds.distinct()
         require(requested.isNotEmpty()) { "Select at least one page" }
         val pages = orderedPages(dao.getPages(documentId))
-        val selected = pages.filter { it.id in requested }
+        val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
         require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
         val mode = ScanMode.fromStored(document.scanMode)
@@ -2131,7 +2143,10 @@ class ScanRepository(
             val requested = pageIds.distinct()
             require(requested.isNotEmpty()) { "Select at least one page" }
             val pages = orderedPages(dao.getPages(documentId))
-            val selected = pages.filter { it.id in requested }
+            val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
             val requiresOcr = mutableListOf<String>()
@@ -3477,7 +3492,10 @@ class ScanRepository(
             val requested = pageIds.distinct()
             require(requested.isNotEmpty()) { "Select at least one page" }
             val pages = orderedPages(dao.getPages(documentId))
-            val selected = pages.filter { it.id in requested }
+            val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
             require(selected.size == requested.size) { "One or more selected pages are unavailable" }
             require(pages.size - selected.size >= 1) { "A document must keep at least one page" }
 
@@ -3502,7 +3520,10 @@ class ScanRepository(
             val requested = pageIds.distinct()
             require(requested.isNotEmpty()) { "Select at least one page" }
             val deleted = dao.getDeletedPages(documentId)
-            val selected = deleted.filter { it.id in requested }
+            val requestedSet = requested.toHashSet()
+            val selected = deleted.filter {
+                it.id in requestedSet
+            }
             require(selected.size == requested.size) { "One or more deleted pages are unavailable" }
 
             dao.setPagesDeletedSafely(
@@ -4057,7 +4078,10 @@ class ScanRepository(
         val requested = pageIds.distinct()
         require(requested.isNotEmpty()) { "Select at least one page" }
         val pages = orderedPages(dao.getPages(id))
-        val selected = pages.filter { it.id in requested }
+        val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
         require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
         val destination = files.selectedPdfExportFile(id, document.title)
@@ -4115,7 +4139,10 @@ class ScanRepository(
         val requested = pageIds.distinct()
         require(requested.isNotEmpty()) { "Select at least one page" }
         val pages = orderedPages(dao.getPages(id))
-        val selected = pages.filter { it.id in requested }
+        val requestedSet = requested.toHashSet()
+        val selected = pages.filter {
+            it.id in requestedSet
+        }
         require(selected.size == requested.size) { "One or more selected pages are unavailable" }
 
         val output = files.selectedTextExportFile(id, document.title)
