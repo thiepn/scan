@@ -3370,6 +3370,9 @@ class ScanRepository(
         val document = dao.getDocument(id) ?: return@withContext
         if (document.trashedAt != null) return@withContext
         require(!document.processing) { "Wait for document processing to finish before moving it to Trash" }
+        require(automationDao.getRunningRunCount(id) == 0) {
+            "Wait for the active document workflow to finish before moving it to Trash"
+        }
         val now = System.currentTimeMillis()
         automationDao.cancelRunnableRunsForDocument(
             documentId = id,
@@ -4941,6 +4944,19 @@ class ScanRepository(
     }
 
     private suspend fun executeAutomationRun(run: WorkflowRunEntity) {
+        if (!vault.isUnlocked(run.documentId)) {
+            automationDao.updateRunState(
+                id = run.id,
+                status = WorkflowRunStatus.FAILED.name,
+                attemptCount = run.attemptCount,
+                finishedAt = System.currentTimeMillis(),
+                nextRetryAt = null,
+                summary = "Vault locked; unlock and retry manually",
+                lastError = "Secure vault is locked"
+            )
+            return
+        }
+
         val attempt = run.attemptCount + 1
         automationDao.updateRunState(
             id = run.id,
