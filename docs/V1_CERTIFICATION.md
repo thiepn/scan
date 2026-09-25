@@ -32,7 +32,7 @@ The `v1 Production Certification` workflow must pass on the final release commit
 | Fresh install | Release APK installs and launches on API 26 and API 35 emulators |
 | Update path | Baseline debug build is installed, launched to create its local database, then replaced in-place by the candidate and relaunched |
 | Large-document contracts | 1,000-page preview-budget and saturating-storage tests run in the unit suite |
-| Large text | Emulator smoke relaunches the release candidate at 130% font scale and verifies the primary Scan surface remains present |
+| Large text | Emulator smoke relaunches the release candidate at 200% font scale and verifies the primary Scan surface remains present |
 | Checksums | SHA-256 generated for APK and AAB |
 
 ## Manual release gates
@@ -43,7 +43,7 @@ These are evidence gates and must not be marked complete from CI alone.
 - [ ] Pixel physical-device pass
 - [ ] Mid-range / constrained-memory Android pass
 - [ ] TalkBack pass for library, scan entry, document view, editor actions, export, security, and destructive confirmations
-- [ ] 200% font-scale spot check with no unreachable critical action
+- [ ] Manual 200% font-scale spot check with no unreachable critical action
 - [ ] Real 1,000-page import/open/search/export stress case
 - [ ] Low-storage failure/recovery on a real device
 - [ ] Process-death recovery during capture and queued processing

@@ -159,7 +159,7 @@ jobs:
             adb shell am start -W -n com.thiepn.scan/.MainActivity
             adb shell pidof com.thiepn.scan
 
-            adb shell settings put system font_scale 1.30
+            adb shell settings put system font_scale 2.00
             adb shell am force-stop com.thiepn.scan
             adb shell am start -W -n com.thiepn.scan/.MainActivity
             adb shell uiautomator dump /sdcard/scan-window.xml
