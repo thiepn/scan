@@ -193,8 +193,12 @@ object AutomationConditionCodec {
             fieldContains = map["fieldContains"].orEmpty(),
             minPages = map["minPages"]?.toIntOrNull(),
             maxPages = map["maxPages"]?.toIntOrNull(),
-            needsReview = map["needsReview"]?.let { it == "1" },
-            onlyUnfiled = map["onlyUnfiled"] == "1"
+            needsReview = map["needsReview"]?.let {
+                decodeWorkflowBoolean("needsReview", it)
+            },
+            onlyUnfiled = map["onlyUnfiled"]?.let {
+                decodeWorkflowBoolean("onlyUnfiled", it)
+            } ?: false
         )
     }
 }
@@ -245,27 +249,70 @@ object DocumentProcessingPresetCodec {
                 DocumentType.entries.firstOrNull { it.name == raw }
                     ?: throw IllegalArgumentException("Unknown document type in processing preset")
             },
-            needsReview = map["needsReview"]?.let { it == "1" },
-            favorite = map["favorite"]?.let { it == "1" },
-            archive = map["archive"]?.let { it == "1" },
+            needsReview = map["needsReview"]?.let {
+                decodeWorkflowBoolean("needsReview", it)
+            },
+            favorite = map["favorite"]?.let {
+                decodeWorkflowBoolean("favorite", it)
+            },
+            archive = map["archive"]?.let {
+                decodeWorkflowBoolean("archive", it)
+            },
             extractionSchemaId = map["schemaId"],
             complianceSettings = when {
-                map["compliancePresent"] == "1" ->
-                    ComplianceSettingsCodec.decode(map["compliance"])
+                map["compliancePresent"]?.let {
+                    decodeWorkflowBoolean("compliancePresent", it)
+                } == true ->
+                    decodeWorkflowCompliance(map["compliance"].orEmpty())
                 map.containsKey("compliance") ->
-                    ComplianceSettingsCodec.decode(map["compliance"])
+                    decodeWorkflowCompliance(map["compliance"].orEmpty())
                 else -> null
             },
             securitySettings = when {
-                map["securityPresent"] == "1" ->
-                    DocumentSecuritySettingsCodec.decode(map["security"])
+                map["securityPresent"]?.let {
+                    decodeWorkflowBoolean("securityPresent", it)
+                } == true ->
+                    decodeWorkflowSecurity(map["security"].orEmpty())
                 map.containsKey("security") ->
-                    DocumentSecuritySettingsCodec.decode(map["security"])
+                    decodeWorkflowSecurity(map["security"].orEmpty())
                 else -> null
             },
             destinationId = map["destinationId"]
         )
     }
+}
+
+private fun decodeWorkflowBoolean(
+    field: String,
+    value: String
+): Boolean = when (value) {
+    "1" -> true
+    "0" -> false
+    else -> throw IllegalArgumentException(
+        "Invalid boolean value for workflow field " + field
+    )
+}
+
+private fun decodeWorkflowCompliance(
+    encoded: String
+): ComplianceSettings {
+    if (encoded.isBlank()) return ComplianceSettings()
+    val decoded = ComplianceSettingsCodec.decode(encoded)
+    require(ComplianceSettingsCodec.encode(decoded) == encoded) {
+        "Corrupted workflow compliance settings"
+    }
+    return decoded
+}
+
+private fun decodeWorkflowSecurity(
+    encoded: String
+): DocumentSecuritySettings {
+    if (encoded.isBlank()) return DocumentSecuritySettings()
+    val decoded = DocumentSecuritySettingsCodec.decode(encoded)
+    require(DocumentSecuritySettingsCodec.encode(decoded) == encoded) {
+        "Corrupted workflow security settings"
+    }
+    return decoded
 }
 
 object WorkflowAutomationMatcher {
