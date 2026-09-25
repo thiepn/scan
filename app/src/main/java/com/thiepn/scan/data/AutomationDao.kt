@@ -97,6 +97,9 @@ interface AutomationDao {
     @Query("DELETE FROM workflow_destinations WHERE id = :id")
     suspend fun deleteDestination(id: String)
 
+    @Query("DELETE FROM workflow_runs WHERE documentId = :documentId")
+    suspend fun deleteRunsForDocument(documentId: String)
+
     @Query(
         "UPDATE workflow_rules SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id"
     )
