@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Base64
 import java.util.UUID
 
 private sealed interface PendingScanAction {
@@ -79,6 +81,139 @@ private sealed interface PendingScanAction {
         val mode: ScanMode
     ) : PendingScanAction
 }
+
+private object PendingScanActionCodec {
+    private const val VERSION = "1"
+
+    fun encode(action: PendingScanAction): String {
+        val fields = when (action) {
+            is PendingScanAction.NewDocument ->
+                listOf(
+                    "NEW",
+                    action.mode.name,
+                    action.rapid.toString()
+                )
+            is PendingScanAction.RapidExistingStart ->
+                listOf(
+                    "RAPID_START",
+                    action.documentId,
+                    action.mode.name
+                )
+            is PendingScanAction.RapidContinue ->
+                listOf(
+                    "RAPID_CONTINUE",
+                    action.documentId,
+                    action.mode.name,
+                    action.sessionId
+                )
+            is PendingScanAction.IdBack ->
+                listOf(
+                    "ID_BACK",
+                    action.stagedFrontPath
+                )
+            is PendingScanAction.Append ->
+                listOf(
+                    "APPEND",
+                    action.documentId,
+                    action.mode.name
+                )
+            is PendingScanAction.Insert ->
+                listOf(
+                    "INSERT",
+                    action.documentId,
+                    action.index.toString(),
+                    action.mode.name
+                )
+            is PendingScanAction.Retake ->
+                listOf(
+                    "RETAKE",
+                    action.documentId,
+                    action.pageId,
+                    action.mode.name
+                )
+        }
+        return (
+            listOf(VERSION) + fields
+            ).joinToString(".") {
+                Base64.getUrlEncoder()
+                    .withoutPadding()
+                    .encodeToString(
+                        it.toByteArray(Charsets.UTF_8)
+                    )
+            }
+    }
+
+    fun decode(encoded: String): PendingScanAction? =
+        runCatching {
+            val fields = encoded
+                .split('.')
+                .map {
+                    Base64.getUrlDecoder()
+                        .decode(it)
+                        .toString(Charsets.UTF_8)
+                }
+            if (
+                fields.isEmpty() ||
+                fields[0] != VERSION
+            ) {
+                return@runCatching null
+            }
+
+            when (fields.getOrNull(1)) {
+                "NEW" ->
+                    PendingScanAction.NewDocument(
+                        mode = scanMode(fields[2]),
+                        rapid = fields[3].toBooleanStrict()
+                    )
+                "RAPID_START" ->
+                    PendingScanAction.RapidExistingStart(
+                        documentId = fields[2],
+                        mode = scanMode(fields[3])
+                    )
+                "RAPID_CONTINUE" ->
+                    PendingScanAction.RapidContinue(
+                        documentId = fields[2],
+                        mode = scanMode(fields[3]),
+                        sessionId = fields[4]
+                    )
+                "ID_BACK" ->
+                    PendingScanAction.IdBack(
+                        stagedFrontPath = fields[2]
+                    )
+                "APPEND" ->
+                    PendingScanAction.Append(
+                        documentId = fields[2],
+                        mode = scanMode(fields[3])
+                    )
+                "INSERT" ->
+                    PendingScanAction.Insert(
+                        documentId = fields[2],
+                        index = fields[3].toInt(),
+                        mode = scanMode(fields[4])
+                    )
+                "RETAKE" ->
+                    PendingScanAction.Retake(
+                        documentId = fields[2],
+                        pageId = fields[3],
+                        mode = scanMode(fields[4])
+                    )
+                else -> null
+            }
+        }.getOrNull()
+
+    private fun scanMode(value: String): ScanMode =
+        ScanMode.entries.first {
+            it.name == value
+        }
+}
+
+private val PendingScanActionSaver =
+    Saver<PendingScanAction?, String>(
+        save = { action ->
+            action?.let(PendingScanActionCodec::encode)
+        },
+        restore = PendingScanActionCodec::decode
+    )
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -128,7 +263,11 @@ private fun ScanApp(
     var vaultUnlockBusy by remember { mutableStateOf(false) }
     val vaultState by repository.observeVaultState()
         .collectAsStateWithLifecycle()
-    var pendingScanAction by remember { mutableStateOf<PendingScanAction?>(null) }
+    var pendingScanAction by rememberSaveable(
+        stateSaver = PendingScanActionSaver
+    ) {
+        mutableStateOf<PendingScanAction?>(null)
+    }
 
     lateinit var scannerLauncher: ActivityResultLauncher<IntentSenderRequest>
 
