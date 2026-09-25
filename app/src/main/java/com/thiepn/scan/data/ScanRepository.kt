@@ -34,6 +34,7 @@ class ScanRepository(
     private val highSpeedPolicy = HighSpeedProcessingPolicy(context)
     private val processingQueueMutex = Mutex()
     private val automationQueueMutex = Mutex()
+    @Volatile private var automationRetryToken = 0L
 
     fun observeDocuments(filter: LibraryFilter, query: String): Flow<List<DocumentEntity>> {
         val normalized = query.trim()
@@ -295,15 +296,23 @@ class ScanRepository(
         documentIds: List<String>
     ): AutomationBatchResult = withContext(Dispatchers.IO) {
         val ids = editableDocumentIds(documentIds)
-        val queued = ids.sumOf { queueIntakeAutomation(it) }
+        var queued = 0
+        ids.forEach { id ->
+            queued += queueIntakeAutomation(id)
+        }
         drainAutomationQueue()
-        val failures = ids.sumOf { id ->
-            automationDao.getEnabledRules(WorkflowTrigger.INTAKE.name).count { rule ->
-                automationDao.getLatestRuleRun(
+        val rules = automationDao.getEnabledRules(WorkflowTrigger.INTAKE.name)
+        var failures = 0
+        ids.forEach { id ->
+            rules.forEach { rule ->
+                val latest = automationDao.getLatestRuleRun(
                     id,
                     rule.id,
                     WorkflowTrigger.INTAKE.name
-                )?.status == WorkflowRunStatus.FAILED.name
+                )
+                if (latest?.status == WorkflowRunStatus.FAILED.name) {
+                    failures += 1
+                }
             }
         }
         AutomationBatchResult(
@@ -4642,9 +4651,7 @@ class ScanRepository(
 
             val condition = runCatching {
                 AutomationConditionCodec.decode(rule.condition)
-            }.getOrElse {
-                continue
-            }
+            }.getOrNull() ?: continue
             if (!WorkflowAutomationMatcher.matches(condition, snapshot)) continue
 
             automationDao.upsertRun(
@@ -4689,7 +4696,7 @@ class ScanRepository(
             lastError = null
         )
 
-        val result = runCatching {
+        try {
             val presetEntity = automationDao.getPreset(run.presetId)
                 ?: error("Processing preset no longer exists")
             val document = requireEditableDocument(run.documentId)
@@ -4698,14 +4705,11 @@ class ScanRepository(
                 presetEntity.definition
             )
             validateProcessingPreset(preset)
-            applyProcessingPreset(
+            val summary = applyProcessingPreset(
                 documentId = run.documentId,
                 originalTitle = run.documentTitle,
                 preset = preset
             )
-        }
-
-        result.onSuccess { summary ->
             automationDao.updateRunState(
                 id = run.id,
                 status = WorkflowRunStatus.SUCCEEDED.name,
@@ -4715,7 +4719,7 @@ class ScanRepository(
                 summary = summary,
                 lastError = null
             )
-        }.onFailure { error ->
+        } catch (error: Throwable) {
             val rule = run.ruleId?.let { automationDao.getRule(it) }
             val maxAttempts = rule?.maxAttempts ?: 3
             val baseBackoff = rule?.retryBackoffMillis ?: 30_000L
@@ -4904,11 +4908,13 @@ class ScanRepository(
     }
 
     private fun scheduleNextAutomationRetry() {
+        val token = ++automationRetryToken
         appScope.launch(Dispatchers.IO) {
             val run = automationDao.getNextRetryRun() ?: return@launch
             val retryAt = run.nextRetryAt ?: return@launch
             val wait = (retryAt - System.currentTimeMillis()).coerceAtLeast(0L)
             if (wait > 0L) delay(wait)
+            if (token != automationRetryToken) return@launch
             drainAutomationQueue()
         }
     }
