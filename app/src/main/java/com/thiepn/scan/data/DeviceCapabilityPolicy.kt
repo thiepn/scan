@@ -16,6 +16,8 @@ data class DeviceRenderBudget(
     val pagePreviewLongEdge: Int,
     val largeDocumentPreviewLongEdge: Int,
     val enhancementPreviewLongEdge: Int,
+    val semanticProcessingLongEdge: Int,
+    val bookProcessingLongEdge: Int,
     val pdfImportLongEdge: Int,
     val editedExportLongEdge: Int,
     val largeDocumentPageThreshold: Int
@@ -67,6 +69,8 @@ object DeviceRenderBudgetPolicy {
                 pagePreviewLongEdge = 1050,
                 largeDocumentPreviewLongEdge = 760,
                 enhancementPreviewLongEdge = 900,
+                semanticProcessingLongEdge = 2200,
+                bookProcessingLongEdge = 2600,
                 pdfImportLongEdge = 1800,
                 editedExportLongEdge = 3000,
                 largeDocumentPageThreshold = 120
@@ -78,6 +82,8 @@ object DeviceRenderBudgetPolicy {
                 pagePreviewLongEdge = 1400,
                 largeDocumentPreviewLongEdge = 980,
                 enhancementPreviewLongEdge = 1200,
+                semanticProcessingLongEdge = 2600,
+                bookProcessingLongEdge = 3200,
                 pdfImportLongEdge = 2200,
                 editedExportLongEdge = 4000,
                 largeDocumentPageThreshold = 160
@@ -89,6 +95,8 @@ object DeviceRenderBudgetPolicy {
                 pagePreviewLongEdge = 1800,
                 largeDocumentPreviewLongEdge = 1200,
                 enhancementPreviewLongEdge = 1500,
+                semanticProcessingLongEdge = 2800,
+                bookProcessingLongEdge = 3600,
                 pdfImportLongEdge = 2400,
                 editedExportLongEdge = 5000,
                 largeDocumentPageThreshold = 220
