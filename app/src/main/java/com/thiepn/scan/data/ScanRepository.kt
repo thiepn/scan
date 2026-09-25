@@ -343,10 +343,19 @@ class ScanRepository(
     ): AutomationBatchResult = withContext(Dispatchers.IO) {
         val preset = automationDao.getPreset(presetId)
             ?: throw IllegalArgumentException("Processing preset not found")
-        val ids = editableDocumentIds(documentIds)
-        val runIds = ids.map { documentId ->
+        val ids = documentIds.distinct()
+        require(ids.isNotEmpty()) { "Select at least one document" }
+
+        var unavailable = 0
+        val runIds = mutableListOf<String>()
+        ids.forEach { documentId ->
             val document = dao.getDocument(documentId)
-                ?: throw IllegalArgumentException("Document not found")
+            if (document == null) {
+                unavailable += 1
+                return@forEach
+            }
+
+            val now = System.currentTimeMillis()
             val run = WorkflowRunEntity(
                 id = UUID.randomUUID().toString(),
                 documentId = documentId,
@@ -354,19 +363,41 @@ class ScanRepository(
                 ruleId = null,
                 presetId = preset.id,
                 trigger = WorkflowTrigger.MANUAL.name,
-                startedAt = System.currentTimeMillis()
+                startedAt = now
             )
-            automationDao.upsertRun(run)
-            run.id
+            runIds += run.id
+
+            val preflightError = runCatching {
+                val editable = requireEditableDocument(documentId)
+                require(!editable.processing) {
+                    "Document is still processing"
+                }
+            }.exceptionOrNull()
+
+            if (preflightError == null) {
+                automationDao.upsertRun(run)
+            } else {
+                automationDao.upsertRun(
+                    run.copy(
+                        status = WorkflowRunStatus.FAILED.name,
+                        finishedAt = now,
+                        summary = "Not started",
+                        lastError = preflightError.message
+                            ?: "Document is not currently editable"
+                    )
+                )
+            }
         }
+
         drainAutomationQueue()
         val finished = runIds.mapNotNull { automationDao.getRun(it) }
         AutomationBatchResult(
             succeeded = finished.count {
                 it.status == WorkflowRunStatus.SUCCEEDED.name
             },
-            failed = finished.count {
-                it.status == WorkflowRunStatus.FAILED.name
+            failed = unavailable + finished.count {
+                it.status == WorkflowRunStatus.FAILED.name ||
+                    it.status == WorkflowRunStatus.CANCELLED.name
             }
         )
     }
