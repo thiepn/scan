@@ -59,6 +59,14 @@ interface AutomationDao {
     )
     suspend fun getRunnableRuns(now: Long, limit: Int = 50): List<WorkflowRunEntity>
 
+    @Query(
+        "UPDATE workflow_runs SET status = 'FAILED', finishedAt = :now, " +
+            "nextRetryAt = :now, summary = 'Interrupted; retry queued', " +
+            "lastError = 'Workflow was interrupted before completion.' " +
+            "WHERE status = 'RUNNING'"
+    )
+    suspend fun resetInterruptedRuns(now: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPreset(preset: ProcessingPresetEntity)
 
@@ -73,6 +81,9 @@ interface AutomationDao {
 
     @Query("DELETE FROM processing_presets WHERE id = :id")
     suspend fun deletePreset(id: String)
+
+    @Query("DELETE FROM workflow_rules WHERE presetId = :presetId")
+    suspend fun deleteRulesForPreset(presetId: String)
 
     @Query("DELETE FROM workflow_rules WHERE id = :id")
     suspend fun deleteRule(id: String)
