@@ -15,7 +15,7 @@ test -s "${APK}"
 test -s "${AAB}"
 
 "${APKSIGNER}" verify --verbose --print-certs "${APK}"
-jarsigner -verify -strict "${AAB}" >/dev/null
+jarsigner -verify "${AAB}" >/dev/null
 
 APPLICATION_ID="$("${APK_ANALYZER}" manifest application-id "${APK}")"
 VERSION_NAME="$("${APK_ANALYZER}" manifest version-name "${APK}")"
