@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -84,6 +85,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -2643,127 +2649,254 @@ private fun PageCard(
         Modifier
     }
 
+    val selectionModifier = if (selectionMode) {
+        Modifier
+            .selectable(
+                selected = selected,
+                onClick = onToggleSelected,
+                role = Role.Checkbox
+            )
+            .semantics {
+                stateDescription = if (selected) {
+                    "Selected"
+                } else {
+                    "Not selected"
+                }
+            }
+    } else {
+        Modifier
+    }
+
     Card(
         Modifier
             .fillMaxWidth()
-            .then(
-                if (selectionMode) {
-                    Modifier.clickable(onClick = onToggleSelected)
-                } else {
-                    Modifier
-                }
-            )
+            .then(selectionModifier)
     ) {
         Column {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 12.dp,
+                        end = 8.dp,
+                        top = 6.dp,
+                        bottom = 2.dp
+                    ),
+                verticalAlignment =
+                    androidx.compose.ui.Alignment.CenterVertically
             ) {
                 if (selectionMode) {
                     Checkbox(
                         checked = selected,
-                        onCheckedChange = { onToggleSelected() }
+                        onCheckedChange = null,
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .clearAndSetSemantics { }
                     )
                 }
                 Text(
                     displayLabel,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { heading() }
                 )
-                if (!selectionMode) {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState())
+            }
+
+            if (!selectionMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment =
+                        androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.DragHandle,
+                        contentDescription = null,
+                        modifier = dragModifier.padding(12.dp),
+                        tint = if (canDragReorder) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = 0.38f
+                            )
+                        }
+                    )
+                    IconButton(
+                        onClick = onMoveUp,
+                        enabled = canMoveUp
                     ) {
                         Icon(
-                            Icons.Default.DragHandle,
-                            contentDescription = "Drag to reorder page",
-                            modifier = dragModifier.padding(12.dp),
-                            tint = if (canDragReorder) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            }
+                            Icons.Default.ArrowUpward,
+                            contentDescription = "Move page up"
                         )
-                        IconButton(onClick = onMoveUp, enabled = canMoveUp) {
-                            Icon(Icons.Default.ArrowUpward, contentDescription = "Move page up")
-                        }
-                        IconButton(onClick = onMoveDown, enabled = canMoveDown) {
-                            Icon(Icons.Default.ArrowDownward, contentDescription = "Move page down")
-                        }
-                        IconButton(onClick = onRotate, enabled = canRotate) {
-                            Icon(Icons.Default.RotateRight, contentDescription = "Rotate page clockwise")
-                        }
-                        IconButton(onClick = onCrop, enabled = canCrop) {
-                            Icon(Icons.Default.CropFree, contentDescription = "Crop and perspective")
-                        }
-                        IconButton(onClick = onEnhance, enabled = canEnhance) {
-                            Icon(Icons.Default.Tune, contentDescription = "Enhance and filters")
-                        }
-                        IconButton(onClick = onCleanup, enabled = canCleanup) {
-                            Icon(Icons.Default.AutoFixHigh, contentDescription = "Smart cleanup")
-                        }
-                        IconButton(onClick = onEditText, enabled = canEditText) {
-                            Icon(Icons.Default.TextFields, contentDescription = "Edit recognized text")
-                        }
-                        IconButton(onClick = onMarkup, enabled = canMarkup) {
-                            Icon(Icons.Default.Draw, contentDescription = "Markup, redact, or sign")
-                        }
-                        IconButton(onClick = onFillForm, enabled = canFillForm) {
-                            Icon(Icons.Default.CheckBox, contentDescription = "Fill form fields")
-                        }
-                        IconButton(
-                            onClick = onStructuredData,
-                            enabled = canStructuredData
-                        ) {
+                    }
+                    IconButton(
+                        onClick = onMoveDown,
+                        enabled = canMoveDown
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowDownward,
+                            contentDescription = "Move page down"
+                        )
+                    }
+                    IconButton(
+                        onClick = onRotate,
+                        enabled = canRotate
+                    ) {
+                        Icon(
+                            Icons.Default.RotateRight,
+                            contentDescription =
+                                "Rotate page clockwise"
+                        )
+                    }
+                    IconButton(
+                        onClick = onCrop,
+                        enabled = canCrop
+                    ) {
+                        Icon(
+                            Icons.Default.CropFree,
+                            contentDescription =
+                                "Crop and perspective"
+                        )
+                    }
+                    IconButton(
+                        onClick = onEnhance,
+                        enabled = canEnhance
+                    ) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription =
+                                "Enhance and filters"
+                        )
+                    }
+                    IconButton(
+                        onClick = onCleanup,
+                        enabled = canCleanup
+                    ) {
+                        Icon(
+                            Icons.Default.AutoFixHigh,
+                            contentDescription = "Smart cleanup"
+                        )
+                    }
+                    IconButton(
+                        onClick = onEditText,
+                        enabled = canEditText
+                    ) {
+                        Icon(
+                            Icons.Default.TextFields,
+                            contentDescription =
+                                "Edit recognized text"
+                        )
+                    }
+                    IconButton(
+                        onClick = onMarkup,
+                        enabled = canMarkup
+                    ) {
+                        Icon(
+                            Icons.Default.Draw,
+                            contentDescription =
+                                "Markup, redact, or sign"
+                        )
+                    }
+                    IconButton(
+                        onClick = onFillForm,
+                        enabled = canFillForm
+                    ) {
+                        Icon(
+                            Icons.Default.CheckBox,
+                            contentDescription = "Fill form fields"
+                        )
+                    }
+                    IconButton(
+                        onClick = onStructuredData,
+                        enabled = canStructuredData
+                    ) {
+                        Icon(
+                            Icons.Default.TableChart,
+                            contentDescription = "Structured data"
+                        )
+                    }
+                    IconButton(
+                        onClick = onAssemblyMetadata,
+                        enabled = canAssemblyMetadata
+                    ) {
+                        Icon(
+                            Icons.Default.Bookmark,
+                            contentDescription =
+                                "Page label and bookmark"
+                        )
+                    }
+                    IconButton(
+                        onClick = onDuplicate,
+                        enabled = canDuplicate
+                    ) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = "Duplicate page"
+                        )
+                    }
+                    IconButton(
+                        onClick = onReplace,
+                        enabled = canReplace
+                    ) {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription =
+                                "Replace page from image"
+                        )
+                    }
+                    IconButton(
+                        onClick = onRetake,
+                        enabled = canRetake
+                    ) {
+                        Icon(
+                            Icons.Default.CameraAlt,
+                            contentDescription = "Retake page"
+                        )
+                    }
+                    if (canReviewBookSpread) {
+                        IconButton(onClick = onReviewBookSpread) {
                             Icon(
-                                Icons.Default.TableChart,
-                                contentDescription = "Structured data"
+                                Icons.Default.MenuBook,
+                                contentDescription =
+                                    "Review book spread"
                             )
                         }
-                        IconButton(
-                            onClick = onAssemblyMetadata,
-                            enabled = canAssemblyMetadata
-                        ) {
+                    }
+                    if (canRestoreBookSpread) {
+                        IconButton(onClick = onRestoreBookSpread) {
                             Icon(
-                                Icons.Default.Bookmark,
-                                contentDescription = "Page label and bookmark"
+                                Icons.Default.RestorePage,
+                                contentDescription =
+                                    "Restore original book spread"
                             )
                         }
-                        IconButton(onClick = onDuplicate, enabled = canDuplicate) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Duplicate page")
-                        }
-                        IconButton(onClick = onReplace, enabled = canReplace) {
-                            Icon(Icons.Default.Image, contentDescription = "Replace page from image")
-                        }
-                        IconButton(onClick = onRetake, enabled = canRetake) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = "Retake page")
-                        }
-                        if (canReviewBookSpread) {
-                            IconButton(onClick = onReviewBookSpread) {
-                                Icon(
-                                    Icons.Default.MenuBook,
-                                    contentDescription = "Review book spread"
-                                )
-                            }
-                        }
-                        if (canRestoreBookSpread) {
-                            IconButton(onClick = onRestoreBookSpread) {
-                                Icon(
-                                    Icons.Default.RestorePage,
-                                    contentDescription = "Restore original book spread"
-                                )
-                            }
-                        }
-                        IconButton(onClick = onReset, enabled = canReset) {
-                            Icon(Icons.Default.RestartAlt, contentDescription = "Reset page edits")
-                        }
-                        IconButton(onClick = onDelete, enabled = canDelete) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete page")
-                        }
+                    }
+                    IconButton(
+                        onClick = onReset,
+                        enabled = canReset
+                    ) {
+                        Icon(
+                            Icons.Default.RestartAlt,
+                            contentDescription = "Reset page edits"
+                        )
+                    }
+                    IconButton(
+                        onClick = onDelete,
+                        enabled = canDelete
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete page"
+                        )
                     }
                 }
             }
+
             FileImage(
                 path = page.imagePath,
                 modifier = Modifier.fillMaxWidth().height(460.dp),
@@ -2778,14 +2911,16 @@ private fun PageCard(
                 highlightWords = highlightWords,
                 highlightSourceWidth = highlightLayout?.sourceWidth ?: 0,
                 highlightSourceHeight = highlightLayout?.sourceHeight ?: 0,
-                contentDescription = displayLabel
+                contentDescription =
+                    "$displayLabel preview"
             )
             if (page.ocrText.isNotBlank()) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
                         "Recognized text",
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.semantics { heading() }
                     )
                     SelectionContainer {
                         HighlightedOcrText(
