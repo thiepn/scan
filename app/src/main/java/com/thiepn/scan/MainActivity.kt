@@ -381,9 +381,11 @@ private fun ScanApp(
                                 PendingScanAction.IdBack(
                                     documentId = documentId
                                 )
-                            snackbar.showSnackbar(
-                                "Front saved. Now scan the back."
-                            )
+                            launch {
+                                snackbar.showSnackbar(
+                                    "Front saved. Now scan the back."
+                                )
+                            }
                             startModeScanner(
                                 activity = activity,
                                 mode = ScanMode.ID_CARD,
