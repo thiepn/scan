@@ -154,27 +154,41 @@ class ScanRepository(
         }
     }
 
-    private suspend fun resumeDocumentProcessingAfterUnlock(
+    private fun resumeDocumentProcessingAfterUnlock(
         documentId: String
     ) {
-        val document =
-            dao.getDocument(documentId) ?: return
-        if (!document.processing) return
+        appScope.launch(Dispatchers.IO) {
+            val document =
+                dao.getDocument(documentId)
+                    ?: return@launch
+            if (
+                !document.processing ||
+                !vault.isUnlocked(documentId)
+            ) {
+                return@launch
+            }
 
-        val queuedCapture = dao
-            .getCaptureSessionsByStatus(
-                listOf(
-                    CaptureSessionStatus.PROCESSING.name,
-                    CaptureSessionStatus.PAUSED.name,
-                    CaptureSessionStatus.INTERRUPTED.name
+            val queuedCapture = dao
+                .getCaptureSessionsByStatus(
+                    listOf(
+                        CaptureSessionStatus.PROCESSING.name,
+                        CaptureSessionStatus.PAUSED.name,
+                        CaptureSessionStatus.INTERRUPTED.name
+                    )
                 )
-            )
-            .any { it.documentId == documentId }
+                .any {
+                    it.documentId == documentId
+                }
 
-        if (queuedCapture) {
-            kickProcessingQueue()
-        } else {
-            resumeNonCaptureProcessing(document)
+            if (queuedCapture) {
+                kickProcessingQueue()
+            } else {
+                runCatching {
+                    resumeNonCaptureProcessing(
+                        document
+                    )
+                }
+            }
         }
     }
 
