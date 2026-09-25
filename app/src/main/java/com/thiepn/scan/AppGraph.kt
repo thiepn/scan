@@ -23,6 +23,7 @@ class AppGraph(context: Context) {
     val vault = SecurityVaultManager(
         context = appContext,
         dao = database.documentDao(),
+        automationDao = database.automationDao(),
         files = files,
         scope = scope
     )
