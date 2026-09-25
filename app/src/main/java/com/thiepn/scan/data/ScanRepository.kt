@@ -176,6 +176,17 @@ class ScanRepository(
         val cleanName = name.trim()
         require(cleanName.isNotBlank()) { "Rule name cannot be blank" }
         require(cleanName.length <= 80) { "Rule name is too long" }
+        condition.minPages?.let {
+            require(it >= 0) { "Minimum page count cannot be negative" }
+        }
+        condition.maxPages?.let {
+            require(it >= 0) { "Maximum page count cannot be negative" }
+        }
+        if (condition.minPages != null && condition.maxPages != null) {
+            require(condition.minPages <= condition.maxPages) {
+                "Minimum page count cannot exceed maximum page count"
+            }
+        }
         val presetEntity = automationDao.getPreset(presetId)
             ?: throw IllegalArgumentException("Processing preset no longer exists")
         val preset = DocumentProcessingPresetCodec.decode(
