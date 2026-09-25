@@ -159,6 +159,12 @@ class ScanRepository(
 
     suspend fun deleteProcessingPreset(presetId: String) =
         withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            automationDao.cancelRunnableRunsForPreset(
+                presetId = presetId,
+                now = now,
+                summary = "Cancelled because the processing preset was deleted"
+            )
             automationDao.deleteRulesForPreset(presetId)
             automationDao.deletePreset(presetId)
         }
@@ -234,6 +240,11 @@ class ScanRepository(
 
     suspend fun deleteWorkflowRule(ruleId: String) =
         withContext(Dispatchers.IO) {
+            automationDao.cancelRunnableRunsForRule(
+                ruleId = ruleId,
+                now = System.currentTimeMillis(),
+                summary = "Cancelled because the workflow rule was deleted"
+            )
             automationDao.deleteRule(ruleId)
         }
 
