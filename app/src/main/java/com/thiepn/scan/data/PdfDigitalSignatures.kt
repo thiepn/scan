@@ -406,7 +406,7 @@ object PdfSignatureInspector {
                 range[3] >= 0 &&
                 range[2].toLong() +
                     range[3].toLong() ==
-                    pdfBytes.size.toLong()
+                    pdfFile.length()
 
             PdfSignatureValidation(
                 index = index,
