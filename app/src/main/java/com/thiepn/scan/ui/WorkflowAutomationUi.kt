@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -53,6 +54,9 @@ import com.thiepn.scan.data.TagEntity
 import com.thiepn.scan.data.WorkflowExportFormat
 import com.thiepn.scan.data.WorkflowRunStatus
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private enum class AutomationSection(val label: String) {
     PRESETS("Presets"),
@@ -180,6 +184,9 @@ fun WorkflowAutomationDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AutomationSection.entries.forEach { item ->
@@ -828,7 +835,21 @@ fun WorkflowAutomationDialog(
                             val subtitle = if (locked) {
                                 "Vault locked"
                             } else {
+                                val ruleName = run.ruleId?.let { ruleId ->
+                                    rules.firstOrNull { it.id == ruleId }?.name
+                                        ?: "Deleted rule"
+                                } ?: "Manual"
+                                val presetName = presets
+                                    .firstOrNull { it.id == run.presetId }
+                                    ?.name
+                                    ?: "Deleted preset"
                                 buildString {
+                                    append(formatWorkflowTime(run.startedAt))
+                                    append(" · ")
+                                    append(ruleName)
+                                    append(" → ")
+                                    append(presetName)
+                                    append(" · ")
                                     append(run.status)
                                     if (run.attemptCount > 0) {
                                         append(" · attempt ")
@@ -1078,6 +1099,11 @@ private fun <T> ChoiceMenu(
         }
     }
 }
+
+private fun formatWorkflowTime(timestamp: Long): String =
+    DateTimeFormatter.ofPattern("MMM d · HH:mm").format(
+        Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
+    )
 
 private fun summarizePreset(preset: ProcessingPresetEntity): String {
     val decoded = runCatching {
