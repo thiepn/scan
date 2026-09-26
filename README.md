@@ -7,6 +7,7 @@ A local-first Android document scanner built to replace the everyday Adobe Scan 
 The current repository contains a native Android/Jetpack Compose application with:
 
 - Google ML Kit's full document-scanner capture flow for reliable automatic document capture, crop, filters, multipage review, and gallery import.
+- Scanner capture depends on Google Play services: its scanner module can be downloaded or updated before first use, and ML Kit documents a minimum device RAM requirement of 1.7 GB for this API. Scan itself does not request the `INTERNET` permission.
 - Durable app-private page/PDF storage; the scanner copies results into its own local document store instead of depending on transient provider URIs.
 - Bundled on-device ML Kit OCR for Latin-script text.
 - Background OCR after capture so scanning is not coupled to recognition latency.
@@ -74,9 +75,25 @@ The current repository contains a native Android/Jetpack Compose application wit
 - PDF sharing through a narrowly scoped `FileProvider`.
 - Storage Access Framework Save As for searchable/protected/extracted/merged PDFs and OCR text, with no broad storage permission.
 - Plain-text export of recognized pages.
-- No account, no mandatory cloud, no analytics SDK, and no broad storage permission.
+- No account, no app-managed cloud document storage or processing, no app analytics/advertising SDK, no `INTERNET` permission, and no broad storage permission. The ML Kit document-scanner module is supplied by Google Play services and may be downloaded or updated before first use.
 
 The capture implementation intentionally uses the production ML Kit Document Scanner in this first shippable baseline; scanner capture is isolated from the document repository so a custom CameraX/OpenCV engine can replace it without changing storage, OCR, library, or export layers.
+
+## v1.0 production certification
+
+Phase 20 adds release-wide automated certification around the frozen v1 feature set:
+
+- contiguous Room migration registration plus committed schema output
+- unit tests, release lint, minified APK and AAB builds
+- release-signature, package/version, checksum, and forbidden-permission verification
+- API 26 and modern-Android emulator install/replace/launch smoke coverage
+- baseline-to-candidate update-path checks using the same debug signing identity
+- large-font UI smoke coverage and explicit manual TalkBack/device acceptance gates
+- tag-driven production signing and GitHub Release packaging for `v1.0.0`
+
+The app remains local-first: release certification rejects `INTERNET`, broad external-storage, and package-install permissions. Production release signing keys are supplied only through GitHub Actions secrets and are never committed.
+
+See [`docs/V1_CERTIFICATION.md`](docs/V1_CERTIFICATION.md) and [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ## Build
 

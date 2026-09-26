@@ -1,0 +1,146 @@
+name: v1 Production Certification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-certification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SCAN_RELEASE_STORE_FILE: /tmp/scan-certification.jks
+      SCAN_RELEASE_STORE_PASSWORD: certification-only
+      SCAN_RELEASE_KEY_ALIAS: scan-certification
+      SCAN_RELEASE_KEY_PASSWORD: certification-only
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Create ephemeral certification signing key
+        run: |
+          keytool -genkeypair             -keystore "${SCAN_RELEASE_STORE_FILE}"             -storepass "${SCAN_RELEASE_STORE_PASSWORD}"             -keypass "${SCAN_RELEASE_KEY_PASSWORD}"             -alias "${SCAN_RELEASE_KEY_ALIAS}"             -keyalg RSA             -keysize 3072             -validity 2             -dname "CN=Scan v1 Certification, O=THIEPN, C=DE"
+
+      - name: Unit, lint, APK and AAB
+        run: |
+          gradle             :app:clean             :app:testDebugUnitTest             :app:lintRelease             :app:assembleRelease             :app:bundleRelease             --stacktrace
+
+      - name: Verify signed release artifacts and privacy contract
+        run: |
+          bash scripts/verify-release.sh             app/build/outputs/apk/release/app-release.apk             app/build/outputs/bundle/release/app-release.aab             release-checksums.sha256
+
+      - name: Upload candidate binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-v1-release-candidate
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
+            release-checksums.sha256
+
+      - name: Upload exported Room schema
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-room-schema
+          if-no-files-found: error
+          retention-days: 14
+          path: app/schemas/
+
+      - name: Require committed Room schema
+        run: |
+          test -f app/schemas/com.thiepn.scan.data.ScanDatabase/22.json
+          if [ -n "$(git status --porcelain -- app/schemas)" ]; then
+            echo "::error::Room schema output differs from the committed schema."
+            git status --short -- app/schemas
+            exit 1
+          fi
+
+  device-certification:
+    needs: release-candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [26, 35]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Resolve baseline
+        id: baseline
+        shell: bash
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if [ -z "${BASE_SHA}" ]; then
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          echo "sha=${BASE_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build baseline and candidate debug APKs
+        run: |
+          git worktree add --detach "${RUNNER_TEMP}/scan-baseline" "${{ steps.baseline.outputs.sha }}"
+          gradle -p "${RUNNER_TEMP}/scan-baseline" :app:assembleDebug --stacktrace
+          gradle :app:assembleDebug --stacktrace
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: scan-v1-release-candidate
+          path: ${{ runner.temp }}/release-candidate
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |             sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install, update, launch and accessibility smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          disable-animations: true
+          script: bash scripts/device-certification.sh "${{ matrix.api-level }}"
