@@ -143,26 +143,4 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           disable-animations: true
-          script: |
-            adb install "$(find "${RUNNER_TEMP}/scan-baseline/app/build/outputs/apk/debug" -name '*.apk' -print -quit)"
-            adb shell am start -W -n com.thiepn.scan/.MainActivity
-            i=0; until adb shell run-as com.thiepn.scan ls databases/scan.db >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -ge 20 ] && exit 1; sleep 0.5; done
-
-            adb shell am force-stop com.thiepn.scan
-            adb install -r "$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
-            adb shell am start -W -n com.thiepn.scan/.MainActivity
-            i=0; until adb shell run-as com.thiepn.scan ls databases/scan.db >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -ge 20 ] && exit 1; sleep 0.5; done
-
-            gradle :app:connectedDebugAndroidTest --stacktrace
-
-            adb uninstall com.thiepn.scan
-            adb install "$(find "${RUNNER_TEMP}/release-candidate" -name '*.apk' -print -quit)"
-            adb shell am start -W -n com.thiepn.scan/.MainActivity
-            adb shell pidof com.thiepn.scan
-
-            adb shell settings put system font_scale 2.00
-            adb shell am force-stop com.thiepn.scan
-            adb shell am start -W -n com.thiepn.scan/.MainActivity
-            adb shell uiautomator dump /sdcard/scan-window.xml
-            adb pull /sdcard/scan-window.xml "${RUNNER_TEMP}/scan-window-${{ matrix.api-level }}.xml"
-            grep -q 'text="Scan"' "${RUNNER_TEMP}/scan-window-${{ matrix.api-level }}.xml"
+          script: bash scripts/device-certification.sh "${{ matrix.api-level }}"
