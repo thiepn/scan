@@ -107,6 +107,7 @@ fun LibraryScreen(
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val largeText = LocalDensity.current.fontScale >= 1.5f
     val scope = rememberCoroutineScope()
     var pendingMergedSavePath by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreBackupUri by remember {
@@ -253,9 +254,19 @@ fun LibraryScreen(
                 title = {
                     if (selectionMode) {
                         Text("${selectedDocumentIds.size} selected")
+                    } else if (largeText) {
+                        Text(
+                            "Scan",
+                            modifier = Modifier.testTag("library-title"),
+                            fontWeight = FontWeight.SemiBold
+                        )
                     } else {
                         Column {
-                            Text("Scan", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Scan",
+                                modifier = Modifier.testTag("library-title"),
+                                fontWeight = FontWeight.SemiBold
+                            )
                             Text(
                                 "Local-first document scanner",
                                 style = MaterialTheme.typography.labelSmall,
