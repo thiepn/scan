@@ -63,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
@@ -413,6 +414,7 @@ fun LibraryScreen(
         floatingActionButton = {
             if (!selectionMode) {
                 ExtendedFloatingActionButton(
+                    modifier = Modifier.testTag("primary-scan-action"),
                     onClick = { scanModeOpen = true },
                     expanded = true,
                     icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
