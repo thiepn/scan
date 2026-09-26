@@ -144,25 +144,19 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
-            set -eu
-
-            BASE_APK="$(find "${RUNNER_TEMP}/scan-baseline/app/build/outputs/apk/debug" -name '*.apk' | head -n 1)"
-            CANDIDATE_DEBUG="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
-            RELEASE_APK="$(find "${RUNNER_TEMP}/release-candidate" -name '*.apk' | head -n 1)"
-
-            adb install "${BASE_APK}"
+            adb install "$(find "${RUNNER_TEMP}/scan-baseline/app/build/outputs/apk/debug" -name '*.apk' -print -quit)"
             adb shell am start -W -n com.thiepn.scan/.MainActivity
             adb shell run-as com.thiepn.scan sh -c 'test -f databases/scan.db'
 
             adb shell am force-stop com.thiepn.scan
-            adb install -r "${CANDIDATE_DEBUG}"
+            adb install -r "$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
             adb shell am start -W -n com.thiepn.scan/.MainActivity
             adb shell run-as com.thiepn.scan sh -c 'test -f databases/scan.db'
 
             gradle :app:connectedDebugAndroidTest --stacktrace
 
             adb uninstall com.thiepn.scan
-            adb install "${RELEASE_APK}"
+            adb install "$(find "${RUNNER_TEMP}/release-candidate" -name '*.apk' -print -quit)"
             adb shell am start -W -n com.thiepn.scan/.MainActivity
             adb shell pidof com.thiepn.scan
 
