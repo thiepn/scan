@@ -1,0 +1,98 @@
+name: Publish v1 Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCAN_RELEASE_STORE_PASSWORD: ${{ secrets.SCAN_RELEASE_STORE_PASSWORD }}
+      SCAN_RELEASE_KEY_ALIAS: ${{ secrets.SCAN_RELEASE_KEY_ALIAS }}
+      SCAN_RELEASE_KEY_PASSWORD: ${{ secrets.SCAN_RELEASE_KEY_PASSWORD }}
+      SCAN_RELEASE_KEYSTORE_BASE64: ${{ secrets.SCAN_RELEASE_KEYSTORE_BASE64 }}
+      SCAN_RELEASE_STORE_FILE: /tmp/scan-production.jks
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Require exact certified main commit
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME}" = "v1.0.0"
+          git fetch origin main --no-tags
+
+          RELEASE_SHA="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          MAIN_SHA="$(git rev-parse origin/main)"
+
+          if [ "${RELEASE_SHA}" != "${MAIN_SHA}" ]; then
+            echo "::error::v1.0.0 must point to the exact current main commit."
+            echo "release=${RELEASE_SHA}"
+            echo "main=${MAIN_SHA}"
+            exit 1
+          fi
+
+          CERTIFIED_RUNS="$(gh api             -H "Accept: application/vnd.github+json"             "/repos/${GITHUB_REPOSITORY}/actions/workflows/certification.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success&event=push"             --jq '.total_count')"
+
+          if [ "${CERTIFIED_RUNS}" -lt 1 ]; then
+            echo "::error::The release commit has no successful main-branch v1 Production Certification run."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Require production signing secrets
+        shell: bash
+        run: |
+          for name in             SCAN_RELEASE_KEYSTORE_BASE64             SCAN_RELEASE_STORE_PASSWORD             SCAN_RELEASE_KEY_ALIAS             SCAN_RELEASE_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required production secret: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Materialize production keystore
+        run: |
+          printf '%s' "${SCAN_RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${SCAN_RELEASE_STORE_FILE}"
+          keytool -list             -keystore "${SCAN_RELEASE_STORE_FILE}"             -storepass "${SCAN_RELEASE_STORE_PASSWORD}"             -alias "${SCAN_RELEASE_KEY_ALIAS}" >/dev/null
+
+      - name: Build frozen v1.0 release
+        run: |
+          test "${GITHUB_REF_NAME}" = "v1.0.0"
+          gradle             :app:clean             :app:testDebugUnitTest             :app:lintRelease             :app:assembleRelease             :app:bundleRelease             --stacktrace
+
+      - name: Rename release artifacts
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk Scan-v1.0.0.apk
+          cp app/build/outputs/bundle/release/app-release.aab Scan-v1.0.0.aab
+
+      - name: Verify production release
+        run: |
+          bash scripts/verify-release.sh             Scan-v1.0.0.apk             Scan-v1.0.0.aab             release-checksums.sha256
+
+      - name: Publish GitHub Release
+        run: |
+          gh release create "${GITHUB_REF_NAME}"             Scan-v1.0.0.apk             Scan-v1.0.0.aab             release-checksums.sha256             --verify-tag             --title "Scan v1.0.0"             --notes-file docs/RELEASE_NOTES_V1.0.0.md

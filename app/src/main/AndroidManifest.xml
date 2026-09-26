@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Scan is intentionally local-first. Some transitive Google libraries declare
+        INTERNET in their manifests even though Scan itself has no networking code.
+        Remove that transitive permission from the final merged APK so the release
+        privacy contract is enforced by the artifact itself.
+    -->
+    <uses-permission
+        android:name="android.permission.INTERNET"
+        tools:node="remove" />
+
     <application
         android:name=".ScanApplication"
         android:allowBackup="false"
