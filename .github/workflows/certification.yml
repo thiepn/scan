@@ -142,7 +142,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
 
             BASE_APK="$(find "${RUNNER_TEMP}/scan-baseline/app/build/outputs/apk/debug" -name '*.apk' | head -n 1)"
             CANDIDATE_DEBUG="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
