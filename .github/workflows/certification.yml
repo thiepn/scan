@@ -146,12 +146,12 @@ jobs:
           script: |
             adb install "$(find "${RUNNER_TEMP}/scan-baseline/app/build/outputs/apk/debug" -name '*.apk' -print -quit)"
             adb shell am start -W -n com.thiepn.scan/.MainActivity
-            i=0; until adb shell run-as com.thiepn.scan test -f databases/scan.db; do i=$((i + 1)); [ "$i" -ge 20 ] && exit 1; sleep 0.5; done
+            i=0; until adb shell run-as com.thiepn.scan ls databases/scan.db >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -ge 20 ] && exit 1; sleep 0.5; done
 
             adb shell am force-stop com.thiepn.scan
             adb install -r "$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
             adb shell am start -W -n com.thiepn.scan/.MainActivity
-            i=0; until adb shell run-as com.thiepn.scan test -f databases/scan.db; do i=$((i + 1)); [ "$i" -ge 20 ] && exit 1; sleep 0.5; done
+            i=0; until adb shell run-as com.thiepn.scan ls databases/scan.db >/dev/null 2>&1; do i=$((i + 1)); [ "$i" -ge 20 ] && exit 1; sleep 0.5; done
 
             gradle :app:connectedDebugAndroidTest --stacktrace
 
