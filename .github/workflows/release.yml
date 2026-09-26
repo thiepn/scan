@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish:
@@ -24,6 +25,29 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Require exact certified main commit
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME}" = "v1.0.0"
+          git fetch origin main --no-tags
+
+          RELEASE_SHA="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          MAIN_SHA="$(git rev-parse origin/main)"
+
+          if [ "${RELEASE_SHA}" != "${MAIN_SHA}" ]; then
+            echo "::error::v1.0.0 must point to the exact current main commit."
+            echo "release=${RELEASE_SHA}"
+            echo "main=${MAIN_SHA}"
+            exit 1
+          fi
+
+          CERTIFIED_RUNS="$(gh api             -H "Accept: application/vnd.github+json"             "/repos/${GITHUB_REPOSITORY}/actions/workflows/certification.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success&event=push"             --jq '.total_count')"
+
+          if [ "${CERTIFIED_RUNS}" -lt 1 ]; then
+            echo "::error::The release commit has no successful main-branch v1 Production Certification run."
+            exit 1
+          fi
 
       - uses: actions/setup-java@v5
         with:
@@ -60,14 +84,14 @@ jobs:
           test "${GITHUB_REF_NAME}" = "v1.0.0"
           gradle             :app:clean             :app:testDebugUnitTest             :app:lintRelease             :app:assembleRelease             :app:bundleRelease             --stacktrace
 
-      - name: Verify production release
-        run: |
-          bash scripts/verify-release.sh             app/build/outputs/apk/release/app-release.apk             app/build/outputs/bundle/release/app-release.aab             release-checksums.sha256
-
       - name: Rename release artifacts
         run: |
           cp app/build/outputs/apk/release/app-release.apk Scan-v1.0.0.apk
           cp app/build/outputs/bundle/release/app-release.aab Scan-v1.0.0.aab
+
+      - name: Verify production release
+        run: |
+          bash scripts/verify-release.sh             Scan-v1.0.0.apk             Scan-v1.0.0.aab             release-checksums.sha256
 
       - name: Publish GitHub Release
         run: |

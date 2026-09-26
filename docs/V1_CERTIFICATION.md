@@ -12,7 +12,9 @@ Phase 20 is the final release phase. No new product features are accepted here.
 - Database: Room schema v22
 - Data model: local-first; app-private files plus Room metadata
 - Account requirement: none
-- Mandatory cloud: none
+- App-managed cloud document storage/processing: none
+- Network permission: Scan does not request `android.permission.INTERNET`
+- Capture runtime note: Google Play services supplies the ML Kit document-scanner module and may download/update it before first use
 
 ## Automated release gates
 
@@ -61,6 +63,6 @@ These are evidence gates and must not be marked complete from CI alone.
 1. the final commit passes all automated gates,
 2. every manual gate above has recorded evidence,
 3. the production signing secrets are configured,
-4. the `v1.0.0` tag points to that exact certified commit.
+4. the `v1.0.0` tag points to the exact current `main` commit, and that SHA has a successful push-triggered production certification run.
 
 Do not weaken or bypass a failed gate to publish.
