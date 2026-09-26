@@ -34,7 +34,7 @@ The `v1 Production Certification` workflow must pass on the final release commit
 | Fresh install | Release APK installs and launches on API 26 and API 35 emulators |
 | Update path | Baseline debug build is installed, launched to create its local database, then replaced in-place by the candidate and relaunched |
 | Large-document contracts | 1,000-page preview-budget and saturating-storage tests run in the unit suite |
-| Large text | Emulator smoke relaunches the release candidate at 200% font scale and verifies the primary Scan surface remains present |
+| Large text | Emulator relaunches the release APK at 200% font scale; Compose instrumentation then verifies the library identity and clickable Scan action remain displayed at the same system scale |
 | Checksums | SHA-256 generated for APK and AAB |
 
 ## Manual release gates

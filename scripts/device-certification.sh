@@ -72,12 +72,12 @@ adb shell pidof com.thiepn.scan >/dev/null
 adb shell settings put system font_scale 2.00
 adb shell am force-stop com.thiepn.scan
 adb shell am start -W -n com.thiepn.scan/.MainActivity
-adb shell uiautomator dump /sdcard/scan-window.xml
-adb pull /sdcard/scan-window.xml "${RUNNER_TEMP}/scan-window-${API_LEVEL}.xml" >/dev/null
-grep -q 'text="Scan"' "${RUNNER_TEMP}/scan-window-${API_LEVEL}.xml"
+adb shell pidof com.thiepn.scan >/dev/null
 
-# Instrumentation runs last on a clean debug install so the Android test
-# runner owns package installation/removal and cannot invalidate the upgrade
-# or release-install checks above.
+# Instrumentation runs last on a clean debug install. The system font scale
+# remains at 200%, so the Compose accessibility smoke test certifies that the
+# primary library identity and Scan action are actually displayed under large
+# text while the other instrumentation tests certify migration, backup, and
+# large-document behavior.
 uninstall_scan
 gradle :app:connectedDebugAndroidTest --stacktrace
