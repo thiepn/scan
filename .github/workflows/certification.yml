@@ -144,3 +144,14 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: bash scripts/device-certification.sh "${{ matrix.api-level }}"
+
+      - name: Upload device test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-device-test-report-api-${{ matrix.api-level }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/

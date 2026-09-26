@@ -80,4 +80,9 @@ adb shell pidof com.thiepn.scan >/dev/null
 # text while the other instrumentation tests certify migration, backup, and
 # large-document behavior.
 uninstall_scan
-gradle :app:connectedDebugAndroidTest --stacktrace
+if ! gradle :app:connectedDebugAndroidTest --stacktrace; then
+  echo "Instrumentation failed; dumping Android test XML results" >&2
+  find app/build/outputs/androidTest-results \
+    -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+  exit 1
+fi
