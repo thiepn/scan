@@ -15,6 +15,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import com.thiepn.scan.data.ScanMode
+import com.thiepn.scan.data.ScanRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
@@ -108,6 +110,7 @@ class VisualScreenshotInstrumentedTest {
             )
             repository.rename(id, "Travel Expenses — Berlin")
             repository.setScanMode(id, ScanMode.DOCUMENT)
+            awaitDocumentReady(repository, id)
             val folder = repository.createFolder("Work")
             val tag = repository.createTag("Receipts")
             repository.setDocumentFolder(listOf(id), folder)
@@ -125,6 +128,7 @@ class VisualScreenshotInstrumentedTest {
             )
             repository.rename(formId, "Volunteer Registration Form")
             repository.setScanMode(formId, ScanMode.FORM)
+            awaitDocumentReady(repository, formId)
             repository.setDocumentsNeedsReview(listOf(formId), true)
 
             val notesId = repository.ingestScan(
@@ -135,6 +139,7 @@ class VisualScreenshotInstrumentedTest {
             )
             repository.rename(notesId, "Analysis II — Lecture Notes")
             repository.setScanMode(notesId, ScanMode.NOTES)
+            awaitDocumentReady(repository, notesId)
         }
 
         waitForText("Travel Expenses — Berlin")
@@ -187,6 +192,18 @@ class VisualScreenshotInstrumentedTest {
         // Keep the seeded document id referenced so compiler/test reports make the
         // relationship between seeded data and the captured document explicit.
         check(expenseId.isNotBlank())
+    }
+
+    private suspend fun awaitDocumentReady(
+        repository: ScanRepository,
+        documentId: String
+    ) {
+        repeat(80) {
+            val document = repository.document(documentId)
+            if (document != null && !document.processing) return
+            delay(250)
+        }
+        error("Document did not finish processing: $documentId")
     }
 
     private fun waitForText(text: String) {
