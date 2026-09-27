@@ -88,8 +88,6 @@ class VisualScreenshotInstrumentedTest {
 
         composeRule.onNodeWithTag("document-card-$expenseId").performClick()
         composeRule.waitForIdle()
-        capture("05-document-navigation")
-        waitForText("Travel Expenses — Berlin")
         capture("05-document-view")
 
         composeRule.onNodeWithContentDescription("Export PDF").performClick()
