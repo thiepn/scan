@@ -47,7 +47,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: mkdir -p visual-screenshots; gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.VisualScreenshotInstrumentedTest --stacktrace; status=$?; for file in $(adb shell run-as com.thiepn.scan ls files 2>/dev/null | tr -d '\r' | grep '\.png
+          script: bash scripts/visual-capture.sh
 
       - name: Upload screenshots
         if: always()
