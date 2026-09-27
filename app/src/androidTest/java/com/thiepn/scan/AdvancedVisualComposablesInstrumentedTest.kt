@@ -140,6 +140,7 @@ class AdvancedVisualComposablesInstrumentedTest {
     }
 
     private fun capture(directory: File, name: String) {
+        directory.mkdirs()
         composeRule.waitForIdle()
         Thread.sleep(250)
         val bitmap = InstrumentationRegistry
