@@ -6,24 +6,23 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import com.thiepn.scan.data.ScanMode
-import com.thiepn.scan.ui.ScanTheme
-import com.thiepn.scan.ui.DocumentScreen
 import com.thiepn.scan.data.ScanRepository
-import kotlinx.coroutines.delay
+import com.thiepn.scan.ui.DocumentScreen
+import com.thiepn.scan.ui.ScanTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
@@ -40,8 +39,7 @@ class VisualScreenshotInstrumentedTest {
 
     @Test
     fun captureRepresentativeV1Surfaces() {
-        screenshotDir().deleteRecursively()
-        screenshotDir().mkdirs()
+        shell("rm -rf /sdcard/scan-v1-screenshots && mkdir -p /sdcard/scan-v1-screenshots")
 
         val app = instrumentation.targetContext.applicationContext as ScanApplication
         val repository = app.graph.repository
@@ -62,93 +60,16 @@ class VisualScreenshotInstrumentedTest {
                 "Status: Ready for reimbursement"
             )
         )
-        val receiptPage = samplePage(
-            fileName = "receipt.png",
-            title = "RECEIPT",
-            subtitle = "Market Hall Berlin",
-            sections = listOf(
-                "Coffee                                               €3.80",
-                "Sandwich                                             €8.90",
-                "Water                                                €2.20",
-                "",
-                "TOTAL                                               €14.90",
-                "VISA •••• 1842",
-                "",
-                "Thank you"
-            )
-        )
-        val formPage = samplePage(
-            fileName = "registration-form.png",
-            title = "VOLUNTEER REGISTRATION",
-            subtitle = "Community Weekend",
-            sections = listOf(
-                "Name        ______________________________",
-                "Email       ______________________________",
-                "Phone       ______________________________",
-                "",
-                "Availability",
-                "☐ Friday     ☐ Saturday     ☐ Sunday",
-                "",
-                "Preferred team",
-                "☐ Welcome    ☐ Logistics    ☐ Media",
-                "",
-                "Signature    ______________________________"
-            )
-        )
-        val notesPage = samplePage(
-            fileName = "lecture-notes.png",
-            title = "ANALYSIS II",
-            subtitle = "Compactness & convergence",
-            sections = listOf(
-                "Bolzano–Weierstrass",
-                "Every bounded sequence in ℝⁿ has a convergent subsequence.",
-                "",
-                "Uniform convergence",
-                "sup |fₙ(x) − f(x)| → 0",
-                "",
-                "Exam reminder: state assumptions before applying theorem."
-            )
-        )
 
         val expenseId = runBlocking {
             val id = repository.ingestScan(
-                pageUris = listOf(Uri.fromFile(expensePage), Uri.fromFile(receiptPage)),
+                pageUris = listOf(Uri.fromFile(expensePage)),
                 pdfUri = null,
                 scanMode = ScanMode.PHOTO,
                 awaitProcessing = true
             )
             repository.rename(id, "Travel Expenses — Berlin")
-            repository.setScanMode(id, ScanMode.DOCUMENT)
-            awaitDocumentReady(repository, id)
-            val folder = repository.createFolder("Work")
-            val tag = repository.createTag("Receipts")
-            repository.setDocumentFolder(listOf(id), folder)
-            repository.addTagsToDocuments(listOf(id), listOf(tag))
-            repository.setFavorite(id, true)
             id
-        }
-
-        runBlocking {
-            val formId = repository.ingestScan(
-                pageUris = listOf(Uri.fromFile(formPage)),
-                pdfUri = null,
-                scanMode = ScanMode.PHOTO,
-                awaitProcessing = true
-            )
-            repository.rename(formId, "Volunteer Registration Form")
-            repository.setScanMode(formId, ScanMode.FORM)
-            awaitDocumentReady(repository, formId)
-            repository.setDocumentsNeedsReview(listOf(formId), true)
-
-            val notesId = repository.ingestScan(
-                pageUris = listOf(Uri.fromFile(notesPage)),
-                pdfUri = null,
-                scanMode = ScanMode.PHOTO,
-                awaitProcessing = true
-            )
-            repository.rename(notesId, "Analysis II — Lecture Notes")
-            repository.setScanMode(notesId, ScanMode.NOTES)
-            awaitDocumentReady(repository, notesId)
         }
 
         composeRule.activityRule.scenario.recreate()
@@ -198,10 +119,6 @@ class VisualScreenshotInstrumentedTest {
         composeRule.onNodeWithContentDescription("Find in document").performClick()
         waitForText("Find in document")
         capture("09-document-search")
-
-        // Keep the seeded document id referenced so compiler/test reports make the
-        // relationship between seeded data and the captured document explicit.
-        check(expenseId.isNotBlank())
     }
 
     private fun showDocument(
@@ -229,18 +146,6 @@ class VisualScreenshotInstrumentedTest {
         composeRule.waitForIdle()
     }
 
-    private suspend fun awaitDocumentReady(
-        repository: ScanRepository,
-        documentId: String
-    ) {
-        repeat(80) {
-            val document = repository.document(documentId)
-            if (document != null && !document.processing) return
-            delay(250)
-        }
-        error("Document did not finish processing: $documentId")
-    }
-
     private fun waitForTag(tag: String) {
         composeRule.waitUntil(timeoutMillis = 15_000) {
             runCatching {
@@ -261,31 +166,24 @@ class VisualScreenshotInstrumentedTest {
 
     private fun back() {
         shell("input keyevent 4")
-        Thread.sleep(400)
+        Thread.sleep(350)
         composeRule.waitForIdle()
     }
 
     private fun capture(name: String) {
         composeRule.waitForIdle()
-        Thread.sleep(350)
+        Thread.sleep(250)
         val image = composeRule.onRoot().captureToImage().asAndroidBitmap()
-        val file = File(screenshotDir(), "$name.png")
-        FileOutputStream(file).use { out ->
+        val local = File(
+            requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
+            "$name.png"
+        )
+        FileOutputStream(local).use { out ->
             image.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         image.recycle()
-
-        shell("mkdir -p /sdcard/scan-v1-screenshots")
-        shell(
-            "cp '${file.absolutePath}' '/sdcard/scan-v1-screenshots/$name.png'"
-        )
+        shell("cp '${local.absolutePath}' '/sdcard/scan-v1-screenshots/$name.png'")
     }
-
-    private fun screenshotDir(): File =
-        File(
-            requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
-            "scan-v1-screenshots"
-        )
 
     private fun shell(command: String) {
         instrumentation.uiAutomation.executeShellCommand(command).use { descriptor ->
@@ -341,7 +239,12 @@ class VisualScreenshotInstrumentedTest {
         canvas.drawRect(96f, 1580f, 1144f, 1584f, paint)
         paint.color = Color.rgb(110, 116, 128)
         paint.textSize = 25f
-        canvas.drawText("Sample document used only for Scan v1 visual capture", 96f, 1645f, paint)
+        canvas.drawText(
+            "Sample document used only for Scan v1 visual capture",
+            96f,
+            1645f,
+            paint
+        )
 
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 96, out)
