@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.RestorePage
 import androidx.compose.material.icons.filled.Restore
@@ -62,6 +64,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -457,6 +461,7 @@ fun DocumentScreen(
     var documentSearchHits by remember { mutableStateOf<List<DocumentPageSearchHit>>(emptyList()) }
     var documentSearchBusy by remember { mutableStateOf(false) }
     var ocrScriptOpen by remember { mutableStateOf(false) }
+    var topBarOverflowOpen by remember { mutableStateOf(false) }
     var bookReviewPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookReviewAnalysis by remember { mutableStateOf<BookSpreadAnalysis?>(null) }
     var bookReviewBusy by remember { mutableStateOf(false) }
@@ -586,58 +591,106 @@ fun DocumentScreen(
                                 ) {
                                     emptySet()
                                 } else {
-                                    pages.mapTo(linkedSetOf()) {
-                                        it.id
-                                    }
+                                    pages.mapTo(linkedSetOf()) { it.id }
                                 }
                             },
                             enabled = pages.isNotEmpty()
                         ) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "Select all pages")
+                            Icon(
+                                Icons.Default.SelectAll,
+                                contentDescription = "Select all pages"
+                            )
                         }
                     } else if (doc.trashedAt == null) {
-                        IconButton(
-                            onClick = { scanModeOpen = true },
-                            enabled = !doc.processing
-                        ) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = "Scan mode")
-                        }
-                        IconButton(
-                            onClick = { organizeDocumentOpen = true },
-                            enabled = !doc.processing
-                        ) {
-                            Icon(Icons.Default.Label, contentDescription = "Organize document")
-                        }
                         IconButton(
                             onClick = { documentSearchOpen = true },
                             enabled = !doc.processing &&
                                 scanProfile.ocrEnabled &&
                                 pages.isNotEmpty()
                         ) {
-                            Icon(Icons.Default.Search, contentDescription = "Find in document")
-                        }
-                        IconButton(
-                            onClick = { ocrScriptOpen = true },
-                            enabled = !doc.processing && scanProfile.ocrEnabled
-                        ) {
-                            Icon(Icons.Default.Language, contentDescription = "OCR language model")
-                        }
-                        IconButton(onClick = {
-                            scope.launch { repository.setFavorite(doc.id, !doc.favorite) }
-                        }) {
                             Icon(
-                                if (doc.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = if (doc.favorite) "Remove favorite" else "Favorite"
+                                Icons.Default.Search,
+                                contentDescription = "Find in document"
                             )
                         }
-                        IconButton(onClick = { renameOpen = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Rename")
-                        }
-                        IconButton(onClick = { protectOpen = true }) {
-                            Icon(Icons.Default.Lock, contentDescription = "Protect PDF")
-                        }
                         IconButton(onClick = { exportOpen = true }) {
-                            Icon(Icons.Default.Share, contentDescription = "Export PDF")
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "Export PDF"
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { topBarOverflowOpen = true }) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "More document actions"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = topBarOverflowOpen,
+                                onDismissRequest = { topBarOverflowOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Scan mode") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        scanModeOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Organize document") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        organizeDocumentOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                                if (scanProfile.ocrEnabled) {
+                                    DropdownMenuItem(
+                                        text = { Text("OCR language model") },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            ocrScriptOpen = true
+                                        },
+                                        enabled = !doc.processing
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (doc.favorite) {
+                                                "Remove from favorites"
+                                            } else {
+                                                "Add to favorites"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        scope.launch {
+                                            repository.setFavorite(
+                                                doc.id,
+                                                !doc.favorite
+                                            )
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        renameOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Protect PDF") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        protectOpen = true
+                                    }
+                                )
+                            }
                         }
                     }
                 }
