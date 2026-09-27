@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -142,6 +143,8 @@ class AdvancedVisualComposablesInstrumentedTest {
         directory.mkdirs()
         composeRule.waitForIdle()
         Thread.sleep(250)
+        dismissSystemAnrIfPresent()
+        Thread.sleep(250)
         val bitmap = InstrumentationRegistry
             .getInstrumentation()
             .uiAutomation
@@ -150,6 +153,24 @@ class AdvancedVisualComposablesInstrumentedTest {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         bitmap.recycle()
+    }
+
+    private fun dismissSystemAnrIfPresent() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val root = automation.rootInActiveWindow ?: return
+
+        fun findWait(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            node ?: return null
+            if (node.text?.toString() == "Wait" && node.isClickable) {
+                return node
+            }
+            for (index in 0 until node.childCount) {
+                findWait(node.getChild(index))?.let { return it }
+            }
+            return null
+        }
+
+        findWait(root)?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 
     private fun samplePage(file: File): File {
