@@ -39,7 +39,6 @@ class AdvancedVisualComposablesInstrumentedTest {
     fun captureAdvancedProductionSurfaces() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val targetContext = instrumentation.targetContext
-        val testContext = instrumentation.context
         val source = samplePage(File(targetContext.cacheDir, "advanced-visual-source.png"))
 
         val formRecipe = PageFormRecipe(
@@ -119,15 +118,15 @@ class AdvancedVisualComposablesInstrumentedTest {
         }
 
         waitForText("Find in document")
-        capture(testContext.filesDir, "07-document-search")
+        capture(targetContext.filesDir, "07-document-search")
 
         composeRule.runOnIdle { surface.value = Surface.MARKUP }
         waitForText("Markup & redaction")
-        capture(testContext.filesDir, "08-markup-redaction")
+        capture(targetContext.filesDir, "08-markup-redaction")
 
         composeRule.runOnIdle { surface.value = Surface.FORM }
         waitForText("Fill form")
-        capture(testContext.filesDir, "09-form-filling")
+        capture(targetContext.filesDir, "09-form-filling")
     }
 
     private fun waitForText(text: String) {
