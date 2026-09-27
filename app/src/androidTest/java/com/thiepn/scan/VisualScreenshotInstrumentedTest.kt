@@ -86,7 +86,7 @@ class VisualScreenshotInstrumentedTest {
         capture("04-automation-center")
         back()
 
-        composeRule.onNodeWithText("Travel Expenses — Berlin").performClick()
+        composeRule.onNodeWithTag("document-card-$expenseId").performClick()
         waitForText("Travel Expenses — Berlin")
         capture("05-document-view")
 
@@ -145,14 +145,14 @@ class VisualScreenshotInstrumentedTest {
         Thread.sleep(250)
         val image = composeRule.onRoot().captureToImage().asAndroidBitmap()
         val local = File(
-            requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
+            instrumentation.targetContext.filesDir,
             "$name.png"
         )
         FileOutputStream(local).use { out ->
             image.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         image.recycle()
-        // The workflow pulls these files directly from the app's external-files directory.
+        // The workflow retrieves these PNGs with adb run-as, even after test failure.
     }
 
     private fun shell(command: String) {

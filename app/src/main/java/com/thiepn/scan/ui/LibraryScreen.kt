@@ -1160,6 +1160,7 @@ private fun DocumentCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("document-card-${document.id}")
             .then(selectionModifier)
     ) {
         Row(
