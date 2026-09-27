@@ -256,28 +256,20 @@ fun LibraryScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    if (selectionMode) {
-                        Text("${selectedDocumentIds.size} selected")
-                    } else if (largeText) {
-                        Text(
-                            "Scan",
-                            modifier = Modifier.testTag("library-title"),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    } else {
-                        Column {
-                            Text(
-                                "Scan",
-                                modifier = Modifier.testTag("library-title"),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                "Local-first document scanner",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    Text(
+                        if (selectionMode) {
+                            "${selectedDocumentIds.size} selected"
+                        } else {
+                            "Scan"
+                        },
+                        modifier = if (selectionMode) {
+                            Modifier
+                        } else {
+                            Modifier.testTag("library-title")
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
                 },
                 navigationIcon = {
                     if (selectionMode) {
@@ -290,206 +282,19 @@ fun LibraryScreen(
                     }
                 },
                 actions = {
-                    if (largeText) {
-                        Box {
-                            IconButton(onClick = { topBarOverflowOpen = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "More library actions")
-                            }
-                            DropdownMenu(
-                                expanded = topBarOverflowOpen,
-                                onDismissRequest = { topBarOverflowOpen = false }
-                            ) {
-                                if (selectionMode) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (
-                                                    selectedDocumentIds.size == documents.size &&
-                                                    documents.isNotEmpty()
-                                                ) {
-                                                    "Clear selection"
-                                                } else {
-                                                    "Select all documents"
-                                                }
-                                            )
-                                        },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            selectedDocumentIds = if (
-                                                selectedDocumentIds.size == documents.size
-                                            ) {
-                                                emptySet()
-                                            } else {
-                                                documents.map { it.id }.toSet()
-                                            }
-                                        },
-                                        enabled = documents.isNotEmpty()
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Organize selected") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            bulkOrganizeOpen = true
-                                        },
-                                        enabled = selectedDocumentIds.isNotEmpty()
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Run workflow") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            bulkAutomationOpen = true
-                                        },
-                                        enabled = selectedDocumentIds.isNotEmpty()
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (filter == LibraryFilter.FAVORITES) {
-                                                    "Remove from favorites"
-                                                } else {
-                                                    "Add to favorites"
-                                                }
-                                            )
-                                        },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            val ids = selectedDocumentIds.toList()
-                                            val favorite = filter != LibraryFilter.FAVORITES
-                                            scope.launch {
-                                                runCatching {
-                                                    repository.setDocumentsFavorite(ids, favorite)
-                                                }
-                                                    .onSuccess {
-                                                        selectionMode = false
-                                                        selectedDocumentIds = emptySet()
-                                                        onMessage(
-                                                            if (favorite) "Documents favorited"
-                                                            else "Documents removed from favorites"
-                                                        )
-                                                    }
-                                                    .onFailure {
-                                                        onMessage(
-                                                            it.message ?: "Could not update favorites"
-                                                        )
-                                                    }
-                                            }
-                                        },
-                                        enabled = selectedDocumentIds.isNotEmpty()
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (filter == LibraryFilter.ARCHIVED) {
-                                                    "Restore from archive"
-                                                } else {
-                                                    "Archive selected"
-                                                }
-                                            )
-                                        },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            val ids = selectedDocumentIds.toList()
-                                            val archived = filter != LibraryFilter.ARCHIVED
-                                            scope.launch {
-                                                runCatching {
-                                                    repository.setDocumentsArchived(ids, archived)
-                                                }
-                                                    .onSuccess {
-                                                        selectionMode = false
-                                                        selectedDocumentIds = emptySet()
-                                                        onMessage(
-                                                            if (archived) "Documents archived"
-                                                            else "Documents restored from archive"
-                                                        )
-                                                    }
-                                                    .onFailure {
-                                                        onMessage(
-                                                            it.message ?: "Could not update archive"
-                                                        )
-                                                    }
-                                            }
-                                        },
-                                        enabled = selectedDocumentIds.isNotEmpty()
-                                    )
-                                } else {
-                                    DropdownMenuItem(
-                                        text = { Text("Sort and filter") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            organizationFilterOpen = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Manage folders") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            folderManagerOpen = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Manage tags") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            tagManagerOpen = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Automation Center") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            automationCenterOpen = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Select documents") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            selectionMode = true
-                                            selectedDocumentIds = emptySet()
-                                        },
-                                        enabled =
-                                            documents.isNotEmpty() &&
-                                                filter != LibraryFilter.TRASH
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Restore encrypted backup") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            restoreBackupLauncher.launch(
-                                                arrayOf(
-                                                    "application/octet-stream",
-                                                    "application/zip"
-                                                )
-                                            )
-                                        },
-                                        enabled = !busy && !mergeBusy
-                                    )
-                                    if (mergeCandidates.size >= 2) {
-                                        DropdownMenuItem(
-                                            text = { Text("Merge PDFs") },
-                                            onClick = {
-                                                topBarOverflowOpen = false
-                                                mergeOpen = true
-                                            },
-                                            enabled = !busy && !mergeBusy
-                                        )
-                                    }
-                                    DropdownMenuItem(
-                                        text = { Text("Import PDF") },
-                                        onClick = {
-                                            topBarOverflowOpen = false
-                                            onImportPdf()
-                                        },
-                                        enabled = !busy && !mergeBusy
-                                    )
-                                }
-                            }
+                    if (!selectionMode) {
+                        IconButton(onClick = { organizationFilterOpen = true }) {
+                            Icon(
+                                Icons.Default.FilterList,
+                                contentDescription = "Sort and filter"
+                            )
                         }
-                    } else if (selectionMode) {
+                    } else {
                         IconButton(
                             onClick = {
                                 selectedDocumentIds = if (
-                                    selectedDocumentIds.size == documents.size
+                                    selectedDocumentIds.size == documents.size &&
+                                    documents.isNotEmpty()
                                 ) {
                                     emptySet()
                                 } else {
@@ -498,124 +303,176 @@ fun LibraryScreen(
                             },
                             enabled = documents.isNotEmpty()
                         ) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "Select all documents")
-                        }
-                        IconButton(
-                            onClick = { bulkOrganizeOpen = true },
-                            enabled = selectedDocumentIds.isNotEmpty()
-                        ) {
-                            Icon(Icons.Default.Label, contentDescription = "Organize selected documents")
-                        }
-                        IconButton(
-                            onClick = { bulkAutomationOpen = true },
-                            enabled = selectedDocumentIds.isNotEmpty()
-                        ) {
                             Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = "Run workflow on selected documents"
+                                Icons.Default.SelectAll,
+                                contentDescription = "Select all documents"
                             )
                         }
-                        IconButton(
-                            onClick = {
-                                val ids = selectedDocumentIds.toList()
-                                val favorite = filter != LibraryFilter.FAVORITES
-                                scope.launch {
-                                    runCatching {
-                                        repository.setDocumentsFavorite(ids, favorite)
-                                    }
-                                        .onSuccess {
-                                            selectionMode = false
-                                            selectedDocumentIds = emptySet()
-                                            onMessage(
-                                                if (favorite) "Documents favorited"
-                                                else "Documents removed from favorites"
-                                            )
-                                        }
-                                        .onFailure {
-                                            onMessage(it.message ?: "Could not update favorites")
-                                        }
-                                }
-                            },
-                            enabled = selectedDocumentIds.isNotEmpty()
-                        ) {
-                            Icon(Icons.Default.Favorite, contentDescription = "Toggle favorites")
-                        }
-                        IconButton(
-                            onClick = {
-                                val ids = selectedDocumentIds.toList()
-                                val archived = filter != LibraryFilter.ARCHIVED
-                                scope.launch {
-                                    runCatching {
-                                        repository.setDocumentsArchived(ids, archived)
-                                    }
-                                        .onSuccess {
-                                            selectionMode = false
-                                            selectedDocumentIds = emptySet()
-                                            onMessage(
-                                                if (archived) "Documents archived"
-                                                else "Documents restored from archive"
-                                            )
-                                        }
-                                        .onFailure {
-                                            onMessage(it.message ?: "Could not update archive")
-                                        }
-                                }
-                            },
-                            enabled = selectedDocumentIds.isNotEmpty()
-                        ) {
-                            Icon(Icons.Default.Archive, contentDescription = "Toggle archive")
-                        }
-                    } else {
-                        IconButton(onClick = { organizationFilterOpen = true }) {
-                            Icon(Icons.Default.FilterList, contentDescription = "Sort and filter")
-                        }
-                        IconButton(onClick = { folderManagerOpen = true }) {
-                            Icon(Icons.Default.CreateNewFolder, contentDescription = "Manage folders")
-                        }
-                        IconButton(onClick = { tagManagerOpen = true }) {
-                            Icon(Icons.Default.Label, contentDescription = "Manage tags")
-                        }
-                        IconButton(onClick = { automationCenterOpen = true }) {
+                    }
+
+                    Box {
+                        IconButton(onClick = { topBarOverflowOpen = true }) {
                             Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = "Automation Center"
+                                Icons.Default.MoreVert,
+                                contentDescription = "More library actions"
                             )
                         }
-                        IconButton(
-                            onClick = {
-                                selectionMode = true
-                                selectedDocumentIds = emptySet()
-                            },
-                            enabled = documents.isNotEmpty() && filter != LibraryFilter.TRASH
+                        DropdownMenu(
+                            expanded = topBarOverflowOpen,
+                            onDismissRequest = { topBarOverflowOpen = false }
                         ) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "Select documents")
-                        }
-                        IconButton(
-                            onClick = {
-                                restoreBackupLauncher.launch(
-                                    arrayOf(
-                                        "application/octet-stream",
-                                        "application/zip"
-                                    )
+                            if (selectionMode) {
+                                DropdownMenuItem(
+                                    text = { Text("Organize selected") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        bulkOrganizeOpen = true
+                                    },
+                                    enabled = selectedDocumentIds.isNotEmpty()
                                 )
-                            },
-                            enabled = !busy && !mergeBusy
-                        ) {
-                            Icon(
-                                Icons.Default.SettingsBackupRestore,
-                                contentDescription = "Restore encrypted backup"
-                            )
-                        }
-                        if (mergeCandidates.size >= 2) {
-                            IconButton(
-                                onClick = { mergeOpen = true },
-                                enabled = !busy && !mergeBusy
-                            ) {
-                                Icon(Icons.Default.MergeType, contentDescription = "Merge PDFs")
+                                DropdownMenuItem(
+                                    text = { Text("Run workflow") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        bulkAutomationOpen = true
+                                    },
+                                    enabled = selectedDocumentIds.isNotEmpty()
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (filter == LibraryFilter.FAVORITES) {
+                                                "Remove from favorites"
+                                            } else {
+                                                "Add to favorites"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        val ids = selectedDocumentIds.toList()
+                                        val favorite = filter != LibraryFilter.FAVORITES
+                                        scope.launch {
+                                            runCatching {
+                                                repository.setDocumentsFavorite(ids, favorite)
+                                            }
+                                                .onSuccess {
+                                                    selectionMode = false
+                                                    selectedDocumentIds = emptySet()
+                                                    onMessage(
+                                                        if (favorite) "Documents favorited"
+                                                        else "Documents removed from favorites"
+                                                    )
+                                                }
+                                                .onFailure {
+                                                    onMessage(
+                                                        it.message ?: "Could not update favorites"
+                                                    )
+                                                }
+                                        }
+                                    },
+                                    enabled = selectedDocumentIds.isNotEmpty()
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (filter == LibraryFilter.ARCHIVED) {
+                                                "Restore from archive"
+                                            } else {
+                                                "Archive selected"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        val ids = selectedDocumentIds.toList()
+                                        val archived = filter != LibraryFilter.ARCHIVED
+                                        scope.launch {
+                                            runCatching {
+                                                repository.setDocumentsArchived(ids, archived)
+                                            }
+                                                .onSuccess {
+                                                    selectionMode = false
+                                                    selectedDocumentIds = emptySet()
+                                                    onMessage(
+                                                        if (archived) "Documents archived"
+                                                        else "Documents restored from archive"
+                                                    )
+                                                }
+                                                .onFailure {
+                                                    onMessage(
+                                                        it.message ?: "Could not update archive"
+                                                    )
+                                                }
+                                        }
+                                    },
+                                    enabled = selectedDocumentIds.isNotEmpty()
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Manage folders") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        folderManagerOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Manage tags") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        tagManagerOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Automation Center") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        automationCenterOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Select documents") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        selectionMode = true
+                                        selectedDocumentIds = emptySet()
+                                    },
+                                    enabled =
+                                        documents.isNotEmpty() &&
+                                            filter != LibraryFilter.TRASH
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Restore encrypted backup") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        restoreBackupLauncher.launch(
+                                            arrayOf(
+                                                "application/octet-stream",
+                                                "application/zip"
+                                            )
+                                        )
+                                    },
+                                    enabled = !busy && !mergeBusy
+                                )
+                                if (mergeCandidates.size >= 2) {
+                                    DropdownMenuItem(
+                                        text = { Text("Merge PDFs") },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            mergeOpen = true
+                                        },
+                                        enabled = !busy && !mergeBusy
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Import PDF") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        onImportPdf()
+                                    },
+                                    enabled = !busy && !mergeBusy
+                                )
                             }
-                        }
-                        IconButton(onClick = onImportPdf, enabled = !busy && !mergeBusy) {
-                            Icon(Icons.Default.FileOpen, contentDescription = "Import PDF")
                         }
                     }
                 }

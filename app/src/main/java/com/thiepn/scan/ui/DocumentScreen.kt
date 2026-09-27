@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.RestorePage
 import androidx.compose.material.icons.filled.Restore
@@ -62,6 +64,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -457,6 +461,8 @@ fun DocumentScreen(
     var documentSearchHits by remember { mutableStateOf<List<DocumentPageSearchHit>>(emptyList()) }
     var documentSearchBusy by remember { mutableStateOf(false) }
     var ocrScriptOpen by remember { mutableStateOf(false) }
+    var topBarOverflowOpen by remember { mutableStateOf(false) }
+    var documentToolsExpanded by rememberSaveable { mutableStateOf(false) }
     var bookReviewPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookReviewAnalysis by remember { mutableStateOf<BookSpreadAnalysis?>(null) }
     var bookReviewBusy by remember { mutableStateOf(false) }
@@ -586,58 +592,189 @@ fun DocumentScreen(
                                 ) {
                                     emptySet()
                                 } else {
-                                    pages.mapTo(linkedSetOf()) {
-                                        it.id
-                                    }
+                                    pages.mapTo(linkedSetOf()) { it.id }
                                 }
                             },
                             enabled = pages.isNotEmpty()
                         ) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "Select all pages")
+                            Icon(
+                                Icons.Default.SelectAll,
+                                contentDescription = "Select all pages"
+                            )
                         }
                     } else if (doc.trashedAt == null) {
-                        IconButton(
-                            onClick = { scanModeOpen = true },
-                            enabled = !doc.processing
-                        ) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = "Scan mode")
-                        }
-                        IconButton(
-                            onClick = { organizeDocumentOpen = true },
-                            enabled = !doc.processing
-                        ) {
-                            Icon(Icons.Default.Label, contentDescription = "Organize document")
-                        }
                         IconButton(
                             onClick = { documentSearchOpen = true },
                             enabled = !doc.processing &&
                                 scanProfile.ocrEnabled &&
                                 pages.isNotEmpty()
                         ) {
-                            Icon(Icons.Default.Search, contentDescription = "Find in document")
-                        }
-                        IconButton(
-                            onClick = { ocrScriptOpen = true },
-                            enabled = !doc.processing && scanProfile.ocrEnabled
-                        ) {
-                            Icon(Icons.Default.Language, contentDescription = "OCR language model")
-                        }
-                        IconButton(onClick = {
-                            scope.launch { repository.setFavorite(doc.id, !doc.favorite) }
-                        }) {
                             Icon(
-                                if (doc.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = if (doc.favorite) "Remove favorite" else "Favorite"
+                                Icons.Default.Search,
+                                contentDescription = "Find in document"
                             )
                         }
-                        IconButton(onClick = { renameOpen = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Rename")
-                        }
-                        IconButton(onClick = { protectOpen = true }) {
-                            Icon(Icons.Default.Lock, contentDescription = "Protect PDF")
-                        }
                         IconButton(onClick = { exportOpen = true }) {
-                            Icon(Icons.Default.Share, contentDescription = "Export PDF")
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "Export PDF"
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { topBarOverflowOpen = true }) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "More document actions"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = topBarOverflowOpen,
+                                onDismissRequest = { topBarOverflowOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Scan mode") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        scanModeOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Organize document") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        organizeDocumentOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                                if (scanProfile.ocrEnabled) {
+                                    DropdownMenuItem(
+                                        text = { Text("OCR language model") },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            ocrScriptOpen = true
+                                        },
+                                        enabled = !doc.processing
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (doc.favorite) {
+                                                "Remove from favorites"
+                                            } else {
+                                                "Add to favorites"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        scope.launch {
+                                            repository.setFavorite(
+                                                doc.id,
+                                                !doc.favorite
+                                            )
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        renameOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Protect PDF") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        protectOpen = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Export recognized text") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        textExportOpen = true
+                                    },
+                                    enabled =
+                                        scanProfile.ocrEnabled &&
+                                            !doc.processing
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (doc.archived) {
+                                                "Restore from archive"
+                                            } else {
+                                                "Archive document"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        scope.launch {
+                                            repository.setArchived(
+                                                doc.id,
+                                                !doc.archived
+                                            )
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Insert scans") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        insertPagesOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                                if (pages.size > 1) {
+                                    DropdownMenuItem(
+                                        text = { Text("Extract pages") },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            extractOpen = true
+                                        }
+                                    )
+                                }
+                                if (hasAnyPageEdits) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("Reset all page edits")
+                                        },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            resetAllEditsOpen = true
+                                        },
+                                        enabled = !doc.processing
+                                    )
+                                }
+                                if (
+                                    deletedPages.isNotEmpty() &&
+                                    !doc.processing
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "Deleted pages (${deletedPages.size})"
+                                            )
+                                        },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            deletedPagesOpen = true
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Move to Trash") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        deleteOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                            }
                         }
                     }
                 }
@@ -704,6 +841,58 @@ fun DocumentScreen(
                                 modifier = Modifier.padding(14.dp)
                             )
                         }
+                        Spacer(Modifier.height(8.dp))
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        documentToolsExpanded =
+                                            !documentToolsExpanded
+                                    }
+                                    .padding(
+                                        horizontal = 14.dp,
+                                        vertical = 10.dp
+                                    ),
+                                verticalAlignment =
+                                    androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement =
+                                        Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        "Document tools",
+                                        style =
+                                            MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        "OCR data, publishing, standards, security and mode-specific tools",
+                                        style =
+                                            MaterialTheme.typography.bodySmall,
+                                        color =
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        documentToolsExpanded =
+                                            !documentToolsExpanded
+                                    }
+                                ) {
+                                    Text(
+                                        if (documentToolsExpanded) {
+                                            "Hide"
+                                        } else {
+                                            "Show"
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        if (documentToolsExpanded) {
                         if (scanMode == ScanMode.FORM) {
                             Spacer(Modifier.height(8.dp))
                             FormDocumentTools(
@@ -1036,96 +1225,63 @@ fun DocumentScreen(
                                 )
                             }
                         }
+                        }
                         Spacer(Modifier.height(10.dp))
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = { textExportOpen = true },
-                                enabled = scanProfile.ocrEnabled && !doc.processing
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    onAddPages(scanMode)
+                                },
+                                enabled = !doc.processing
                             ) {
-                                Text("Text")
-                            }
-                            OutlinedButton(onClick = {
-                                scope.launch { repository.setArchived(doc.id, !doc.archived) }
-                            }) {
                                 Icon(
-                                    if (doc.archived) Icons.Default.Restore else Icons.Default.Archive,
+                                    Icons.Default.AddAPhoto,
                                     contentDescription = null
                                 )
-                                Text(if (doc.archived) " Restore" else " Archive")
-                            }
-                            OutlinedButton(
-                                onClick = { deleteOpen = true },
-                                enabled = !doc.processing
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = null)
-                                Text(" Trash")
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (scanProfile.supportsHighSpeedCapture) {
-                                OutlinedButton(
-                                    onClick = { onRapidScan(scanMode) },
-                                    enabled = !doc.processing
-                                ) {
-                                    Text("Rapid scan")
-                                }
-                            }
-                            OutlinedButton(
-                                onClick = { onAddPages(scanMode) },
-                                enabled = !doc.processing
-                            ) {
-                                Icon(Icons.Default.AddAPhoto, contentDescription = null)
                                 Text(
-                                    if (scanMode == ScanMode.ID_CARD && pages.size == 1) {
+                                    if (
+                                        scanMode == ScanMode.ID_CARD &&
+                                        pages.size == 1
+                                    ) {
                                         " Scan back"
                                     } else {
                                         " Add pages"
                                     }
                                 )
                             }
-                            OutlinedButton(
-                                onClick = { insertPagesOpen = true },
-                                enabled = !doc.processing
+                            if (
+                                scanProfile.supportsHighSpeedCapture
                             ) {
-                                Text("Insert scans")
+                                OutlinedButton(
+                                    onClick = {
+                                        onRapidScan(scanMode)
+                                    },
+                                    enabled = !doc.processing
+                                ) {
+                                    Text("Rapid scan")
+                                }
                             }
                             OutlinedButton(
                                 onClick = {
                                     selectionMode = true
                                     selectedPageIds = emptySet()
                                 },
-                                enabled = !doc.processing && pages.isNotEmpty()
+                                enabled =
+                                    !doc.processing &&
+                                        pages.isNotEmpty()
                             ) {
-                                Icon(Icons.Default.SelectAll, contentDescription = null)
+                                Icon(
+                                    Icons.Default.SelectAll,
+                                    contentDescription = null
+                                )
                                 Text(" Select pages")
-                            }
-                            if (hasAnyPageEdits) {
-                                OutlinedButton(
-                                    onClick = { resetAllEditsOpen = true },
-                                    enabled = !doc.processing
-                                ) {
-                                    Icon(Icons.Default.RestartAlt, contentDescription = null)
-                                    Text(" Reset all edits")
-                                }
-                            }
-                        }
-                        if (pages.size > 1) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { extractOpen = true }) {
-                                Icon(Icons.Default.ContentCut, contentDescription = null)
-                                Text(" Extract pages")
-                            }
-                        }
-                        if (deletedPages.isNotEmpty() && !doc.processing) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { deletedPagesOpen = true }) {
-                                Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
-                                Text(" Deleted pages (${deletedPages.size})")
                             }
                         }
                     }
@@ -2744,6 +2900,8 @@ private fun PageCard(
         ).dp.coerceIn(260.dp, 460.dp)
     val dragThresholdPx = with(density) { 92.dp.toPx() }
     var dragDistance by remember(page.id) { mutableStateOf(0f) }
+    var pageActionsOpen by rememberSaveable(page.id) { mutableStateOf(false) }
+    var ocrExpanded by rememberSaveable(page.id) { mutableStateOf(false) }
     val highlightLayout = remember(page.ocrLayout) {
         OcrLayoutCodec.decode(page.ocrLayout)
     }
@@ -2839,7 +2997,6 @@ private fun PageCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 4.dp),
                     verticalAlignment =
                         androidx.compose.ui.Alignment.CenterVertically
@@ -2856,24 +3013,6 @@ private fun PageCard(
                             )
                         }
                     )
-                    IconButton(
-                        onClick = onMoveUp,
-                        enabled = canMoveUp
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowUpward,
-                            contentDescription = "Move page up"
-                        )
-                    }
-                    IconButton(
-                        onClick = onMoveDown,
-                        enabled = canMoveDown
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowDownward,
-                            contentDescription = "Move page down"
-                        )
-                    }
                     IconButton(
                         onClick = onRotate,
                         enabled = canRotate
@@ -2904,126 +3043,147 @@ private fun PageCard(
                                 "Enhance and filters"
                         )
                     }
-                    IconButton(
-                        onClick = onCleanup,
-                        enabled = canCleanup
-                    ) {
-                        Icon(
-                            Icons.Default.AutoFixHigh,
-                            contentDescription = "Smart cleanup"
-                        )
-                    }
-                    IconButton(
-                        onClick = onEditText,
-                        enabled = canEditText
-                    ) {
-                        Icon(
-                            Icons.Default.TextFields,
-                            contentDescription =
-                                "Edit recognized text"
-                        )
-                    }
-                    IconButton(
-                        onClick = onMarkup,
-                        enabled = canMarkup
-                    ) {
-                        Icon(
-                            Icons.Default.Draw,
-                            contentDescription =
-                                "Markup, redact, or sign"
-                        )
-                    }
-                    IconButton(
-                        onClick = onFillForm,
-                        enabled = canFillForm
-                    ) {
-                        Icon(
-                            Icons.Default.CheckBox,
-                            contentDescription = "Fill form fields"
-                        )
-                    }
-                    IconButton(
-                        onClick = onStructuredData,
-                        enabled = canStructuredData
-                    ) {
-                        Icon(
-                            Icons.Default.TableChart,
-                            contentDescription = "Structured data"
-                        )
-                    }
-                    IconButton(
-                        onClick = onAssemblyMetadata,
-                        enabled = canAssemblyMetadata
-                    ) {
-                        Icon(
-                            Icons.Default.Bookmark,
-                            contentDescription =
-                                "Page label and bookmark"
-                        )
-                    }
-                    IconButton(
-                        onClick = onDuplicate,
-                        enabled = canDuplicate
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "Duplicate page"
-                        )
-                    }
-                    IconButton(
-                        onClick = onReplace,
-                        enabled = canReplace
-                    ) {
-                        Icon(
-                            Icons.Default.Image,
-                            contentDescription =
-                                "Replace page from image"
-                        )
-                    }
-                    IconButton(
-                        onClick = onRetake,
-                        enabled = canRetake
-                    ) {
-                        Icon(
-                            Icons.Default.CameraAlt,
-                            contentDescription = "Retake page"
-                        )
-                    }
-                    if (canReviewBookSpread) {
-                        IconButton(onClick = onReviewBookSpread) {
+                    Spacer(Modifier.weight(1f))
+                    Box {
+                        IconButton(
+                            onClick = { pageActionsOpen = true }
+                        ) {
                             Icon(
-                                Icons.Default.MenuBook,
-                                contentDescription =
-                                    "Review book spread"
+                                Icons.Default.MoreVert,
+                                contentDescription = "More page actions"
                             )
                         }
-                    }
-                    if (canRestoreBookSpread) {
-                        IconButton(onClick = onRestoreBookSpread) {
-                            Icon(
-                                Icons.Default.RestorePage,
-                                contentDescription =
-                                    "Restore original book spread"
+                        DropdownMenu(
+                            expanded = pageActionsOpen,
+                            onDismissRequest = {
+                                pageActionsOpen = false
+                            }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Move up") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onMoveUp()
+                                },
+                                enabled = canMoveUp
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Move down") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onMoveDown()
+                                },
+                                enabled = canMoveDown
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Smart cleanup") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onCleanup()
+                                },
+                                enabled = canCleanup
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Edit recognized text") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onEditText()
+                                },
+                                enabled = canEditText
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Markup, redact or sign") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onMarkup()
+                                },
+                                enabled = canMarkup
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Fill form fields") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onFillForm()
+                                },
+                                enabled = canFillForm
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Structured data") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onStructuredData()
+                                },
+                                enabled = canStructuredData
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Page label and bookmark") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onAssemblyMetadata()
+                                },
+                                enabled = canAssemblyMetadata
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Duplicate page") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onDuplicate()
+                                },
+                                enabled = canDuplicate
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Replace from image") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onReplace()
+                                },
+                                enabled = canReplace
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Retake page") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onRetake()
+                                },
+                                enabled = canRetake
+                            )
+                            if (canReviewBookSpread) {
+                                DropdownMenuItem(
+                                    text = { Text("Review book spread") },
+                                    onClick = {
+                                        pageActionsOpen = false
+                                        onReviewBookSpread()
+                                    }
+                                )
+                            }
+                            if (canRestoreBookSpread) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("Restore original book spread")
+                                    },
+                                    onClick = {
+                                        pageActionsOpen = false
+                                        onRestoreBookSpread()
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Reset page edits") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onReset()
+                                },
+                                enabled = canReset
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete page") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onDelete()
+                                },
+                                enabled = canDelete
                             )
                         }
-                    }
-                    IconButton(
-                        onClick = onReset,
-                        enabled = canReset
-                    ) {
-                        Icon(
-                            Icons.Default.RestartAlt,
-                            contentDescription = "Reset page edits"
-                        )
-                    }
-                    IconButton(
-                        onClick = onDelete,
-                        enabled = canDelete
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete page"
-                        )
                     }
                 }
             }
@@ -3048,20 +3208,53 @@ private fun PageCard(
                     "$displayLabel preview"
             )
             if (page.ocrText.isNotBlank()) {
+                val searchForcesTextOpen =
+                    !highlightQuery.isNullOrBlank()
+                val showOcrText =
+                    ocrExpanded || searchForcesTextOpen
                 Column(Modifier.padding(14.dp)) {
-                    Text(
-                        "Recognized text",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.semantics { heading() }
-                    )
-                    SelectionContainer {
-                        HighlightedOcrText(
-                            page = page,
-                            query = highlightQuery.orEmpty(),
-                            modifier = Modifier.padding(top = 6.dp),
-                            style = MaterialTheme.typography.bodySmall
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment =
+                            androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Recognized text",
+                            style =
+                                MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { heading() }
                         )
+                        TextButton(
+                            onClick = {
+                                ocrExpanded = !ocrExpanded
+                            },
+                            enabled = !searchForcesTextOpen
+                        ) {
+                            Text(
+                                when {
+                                    searchForcesTextOpen ->
+                                        "Search match"
+                                    showOcrText -> "Hide"
+                                    else -> "Show"
+                                }
+                            )
+                        }
+                    }
+                    if (showOcrText) {
+                        SelectionContainer {
+                            HighlightedOcrText(
+                                page = page,
+                                query =
+                                    highlightQuery.orEmpty(),
+                                modifier =
+                                    Modifier.padding(top = 6.dp),
+                                style =
+                                    MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
             }

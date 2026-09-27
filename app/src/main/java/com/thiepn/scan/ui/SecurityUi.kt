@@ -84,21 +84,31 @@ fun SecurityTools(
                 }
             )
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
+                    modifier = Modifier.weight(1f),
                     onClick = onSettings,
                     enabled = enabled
                 ) { Text("Settings") }
                 OutlinedButton(
+                    modifier = Modifier.weight(1f),
                     onClick = onBackup,
                     enabled = enabled && !locked
                 ) { Text("Encrypted backup") }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(
+                    modifier = Modifier.weight(1f),
                     onClick = onPrivacyExport,
                     enabled = enabled && !locked
                 ) { Text("Privacy export") }
                 OutlinedButton(
+                    modifier = Modifier.weight(1f),
                     onClick = onAudit,
                     enabled = enabled
                 ) { Text("Audit") }
