@@ -54,6 +54,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scan-v1-visual-screenshots
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 7
           path: visual-screenshots/
+
+      - name: Upload Android test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-v1-visual-test-report
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
