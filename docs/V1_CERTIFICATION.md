@@ -37,9 +37,15 @@ The `v1 Production Certification` workflow must pass on the final release commit
 | Large text | Emulator relaunches the release APK at 200% font scale; Compose instrumentation then verifies the library identity and clickable Scan action remain displayed at the same system scale |
 | Checksums | SHA-256 generated for APK and AAB |
 
+## Production-key acceptance gate
+
+Before any manual release gate is accepted, the exact final `main` SHA must pass the **v1 Production Device Acceptance Candidate** workflow.
+
+That run uses the real production keystore, verifies the final production-signed APK/AAB, builds the frozen pre-v1 baseline with the same signing identity, and performs an API 35 production-key update plus fresh-install smoke. Its acceptance kit is the only build that should be used for the physical-device matrix.
+
 ## Manual release gates
 
-These are evidence gates and must not be marked complete from CI alone.
+These are evidence gates and must not be marked complete from CI alone. Execute and record them using `docs/V1_DEVICE_QA.md`.
 
 - [ ] Samsung physical-device pass
 - [ ] Pixel physical-device pass
@@ -60,9 +66,11 @@ These are evidence gates and must not be marked complete from CI alone.
 
 `v1.0.0` is publishable only when:
 
-1. the final commit passes all automated gates,
-2. every manual gate above has recorded evidence,
-3. the production signing secrets are configured,
-4. the `v1.0.0` tag points to the exact current `main` commit, and that SHA has a successful push-triggered production certification run.
+1. the final commit passes Android CI and all automated production-certification gates,
+2. the exact final `main` SHA has a successful production-signed device-acceptance candidate run,
+3. every manual gate above has recorded evidence for that exact candidate,
+4. the production signing secrets are configured and the signing certificate fingerprint is recorded outside the repository,
+5. repository variable `SCAN_V1_MANUAL_ACCEPTANCE_SHA` equals the exact accepted `main` SHA,
+6. the `v1.0.0` tag points to that exact current `main` commit.
 
-Do not weaken or bypass a failed gate to publish.
+Changing the source SHA invalidates the manual attestation until the acceptance workflow and affected manual evidence are repeated. Do not weaken or bypass a failed gate to publish.
