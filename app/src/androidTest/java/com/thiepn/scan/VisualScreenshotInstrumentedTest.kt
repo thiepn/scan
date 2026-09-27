@@ -16,6 +16,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.thiepn.scan.data.ScanMode
 import kotlinx.coroutines.runBlocking
@@ -74,17 +76,17 @@ class VisualScreenshotInstrumentedTest {
         composeRule.onNodeWithTag("primary-scan-action").performClick()
         waitForText("Choose scan mode")
         capture("02-scan-modes")
-        back()
+        composeRule.onNodeWithText("Cancel").performClick()
 
         composeRule.onNodeWithContentDescription("Sort and filter").performClick()
         waitForText("Sort & filter")
         capture("03-sort-filter")
-        back()
+        composeRule.onNodeWithText("Cancel").performClick()
 
         composeRule.onNodeWithContentDescription("Automation Center").performClick()
         waitForText("Automation Center")
         capture("04-automation-center")
-        back()
+        composeRule.onNodeWithText("Done").performClick()
 
         composeRule.onNodeWithTag("document-card-$expenseId").performClick()
         composeRule.waitForIdle()
@@ -93,15 +95,14 @@ class VisualScreenshotInstrumentedTest {
         composeRule.onNodeWithContentDescription("Export PDF").performClick()
         waitForText("Export PDF")
         capture("06-export-pdf")
-        back()
+        composeRule.onNodeWithText("Cancel").performClick()
 
         composeRule.onNodeWithContentDescription("Find in document").performClick()
         waitForText("Find in document")
         capture("07-document-search")
-        back()
+        composeRule.onNodeWithText("Done").performClick()
 
-        composeRule.onNodeWithText("Page 1").performScrollTo()
-        composeRule.waitForIdle()
+        scrollUntilPageOneVisible()
         capture("08-page-editor")
 
         composeRule
@@ -110,15 +111,27 @@ class VisualScreenshotInstrumentedTest {
             .performClick()
         waitForText("Markup & redaction")
         capture("09-markup-redaction")
-        back()
+        composeRule.onNodeWithText("Cancel").performClick()
 
-        composeRule.onNodeWithText("Page 1").performScrollTo()
+        scrollUntilPageOneVisible()
         composeRule
             .onNodeWithContentDescription("Fill form fields")
             .performScrollTo()
             .performClick()
         waitForText("Fill form")
         capture("10-form-filling")
+    }
+
+    private fun scrollUntilPageOneVisible() {
+        repeat(6) {
+            val visible = runCatching {
+                composeRule.onNodeWithText("Page 1").assertIsDisplayed()
+            }.isSuccess
+            if (visible) return
+            composeRule.onRoot().performTouchInput { swipeUp() }
+            composeRule.waitForIdle()
+        }
+        composeRule.onNodeWithText("Page 1").assertIsDisplayed()
     }
 
     private fun waitForTag(tag: String) {
