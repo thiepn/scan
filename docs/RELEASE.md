@@ -11,14 +11,38 @@ Configure these repository secrets before creating the release tag:
 
 The keystore itself must never be committed.
 
+After completing the physical-device acceptance matrix for the exact release SHA, set the non-secret repository Actions variable:
+
+- `SCAN_V1_MANUAL_ACCEPTANCE_SHA` — exact `main` SHA whose manual gates in `docs/V1_DEVICE_QA.md` have all passed
+
+Do not set this variable early. It is the explicit human release attestation checked by the publication workflow.
+
+## Production-signed acceptance candidate
+
+Before tagging, the exact final `main` SHA must have a successful **v1 Production Device Acceptance Candidate** workflow run.
+
+That workflow:
+
+1. requires the real production signing secrets,
+2. builds the exact `main` candidate as a production-signed APK/AAB,
+3. builds the frozen Phase 20 pre-v1 baseline with the same production key,
+4. verifies package/version/privacy/signatures and matching signing certificates,
+5. performs an API 35 production-key update + fresh-install smoke,
+6. uploads a 14-day acceptance kit for the required physical-device tests.
+
+Use that acceptance kit for every manual release gate. See `docs/V1_DEVICE_QA.md`.
+
 ## Pre-tag checklist
 
-1. Merge the Phase 20 certification PR.
+1. Confirm all release-candidate work is merged to `main`.
 2. Confirm the exact final `main` HEAD passes Android CI and the push-triggered v1 Production Certification workflow.
-3. Complete and record every manual gate in `docs/V1_CERTIFICATION.md`.
-4. Confirm `app/build.gradle.kts` still reports `versionCode = 1` and `versionName = "1.0.0"`.
-5. Confirm Room schema v22 is committed and CI reports no schema drift.
-6. Confirm there are zero open P0/P1 release defects.
+3. Confirm the exact final `main` HEAD passes **v1 Production Device Acceptance Candidate** and download its production-signed acceptance kit.
+4. Complete and record every manual gate in `docs/V1_DEVICE_QA.md`.
+5. Record the production signing certificate fingerprint outside the repository.
+6. Set `SCAN_V1_MANUAL_ACCEPTANCE_SHA` to the exact accepted `main` SHA only after all manual gates pass.
+7. Confirm `app/build.gradle.kts` still reports `versionCode = 1` and `versionName = "1.0.0"`.
+8. Confirm Room schema v22 is committed and CI reports no schema drift.
+9. Confirm there are zero open P0/P1 release defects.
 
 ## Publish
 
@@ -31,14 +55,16 @@ v1.0.0
 The tag-driven `Publish v1 Release` workflow then:
 
 1. rejects the tag unless `v1.0.0` resolves to the exact current `main` HEAD and that SHA already has a successful push-triggered v1 Production Certification run,
-2. requires the production signing secrets,
-3. reconstructs the keystore only inside the runner,
-4. runs unit tests and release lint,
-5. builds the minified production APK and Play AAB,
-6. renames the artifacts to their public release names before verification,
-7. verifies APK/AAB signatures, package ID, version, and privacy permissions,
-8. computes SHA-256 checksums whose filenames match the downloadable release assets,
-9. publishes the APK, AAB, and checksum file in the GitHub Release.
+2. requires a successful production-signed acceptance-candidate run for that exact SHA,
+3. requires `SCAN_V1_MANUAL_ACCEPTANCE_SHA` to equal that exact SHA,
+4. requires the production signing secrets,
+5. reconstructs the keystore only inside the runner,
+6. runs unit tests and release lint,
+7. builds the minified production APK and Play AAB,
+8. renames the artifacts to their public release names before verification,
+9. verifies APK/AAB signatures, package ID, version, and privacy permissions,
+10. computes SHA-256 checksums whose filenames match the downloadable release assets,
+11. publishes the APK, AAB, and checksum file in the GitHub Release.
 
 The workflow intentionally rejects any tag other than `v1.0.0` for this frozen v1 release.
 
