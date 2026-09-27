@@ -6,8 +6,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -20,9 +18,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import com.thiepn.scan.data.ScanMode
-import com.thiepn.scan.data.ScanRepository
-import com.thiepn.scan.ui.DocumentScreen
-import com.thiepn.scan.ui.ScanTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
@@ -91,7 +86,7 @@ class VisualScreenshotInstrumentedTest {
         capture("04-automation-center")
         back()
 
-        showDocument(repository, expenseId)
+        composeRule.onNodeWithText("Travel Expenses — Berlin").performClick()
         waitForText("Travel Expenses — Berlin")
         capture("05-document-view")
 
@@ -119,31 +114,6 @@ class VisualScreenshotInstrumentedTest {
         composeRule.onNodeWithContentDescription("Find in document").performClick()
         waitForText("Find in document")
         capture("09-document-search")
-    }
-
-    private fun showDocument(
-        repository: ScanRepository,
-        documentId: String
-    ) {
-        instrumentation.runOnMainSync {
-            composeRule.activity.setContent {
-                ScanTheme {
-                    DocumentScreen(
-                        documentId = documentId,
-                        repository = repository,
-                        contentPadding = PaddingValues(),
-                        onBack = {},
-                        onDeleted = {},
-                        onRapidScan = {},
-                        onAddPages = {},
-                        onInsertPages = { _, _ -> },
-                        onRetakePage = { _, _ -> },
-                        onMessage = {}
-                    )
-                }
-            }
-        }
-        composeRule.waitForIdle()
     }
 
     private fun waitForTag(tag: String) {
@@ -182,7 +152,7 @@ class VisualScreenshotInstrumentedTest {
             image.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         image.recycle()
-        shell("cp '${local.absolutePath}' '/sdcard/scan-v1-screenshots/$name.png'")
+        // The workflow pulls these files directly from the app's external-files directory.
     }
 
     private fun shell(command: String) {
