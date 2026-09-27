@@ -20,6 +20,7 @@ jobs:
       SCAN_RELEASE_KEY_PASSWORD: ${{ secrets.SCAN_RELEASE_KEY_PASSWORD }}
       SCAN_RELEASE_KEYSTORE_BASE64: ${{ secrets.SCAN_RELEASE_KEYSTORE_BASE64 }}
       SCAN_RELEASE_STORE_FILE: /tmp/scan-production.jks
+      SCAN_V1_MANUAL_ACCEPTANCE_SHA: ${{ vars.SCAN_V1_MANUAL_ACCEPTANCE_SHA }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v5
@@ -46,6 +47,28 @@ jobs:
 
           if [ "${CERTIFIED_RUNS}" -lt 1 ]; then
             echo "::error::The release commit has no successful main-branch v1 Production Certification run."
+            exit 1
+          fi
+
+          ACCEPTANCE_RUNS="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/production-acceptance.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success" \
+            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | length')"
+
+          if [ "${ACCEPTANCE_RUNS}" -lt 1 ]; then
+            echo "::error::The release commit has no successful production-signed device acceptance candidate run."
+            exit 1
+          fi
+
+          if [ -z "${SCAN_V1_MANUAL_ACCEPTANCE_SHA:-}" ]; then
+            echo "::error::Repository variable SCAN_V1_MANUAL_ACCEPTANCE_SHA is not set."
+            exit 1
+          fi
+
+          if [ "${SCAN_V1_MANUAL_ACCEPTANCE_SHA}" != "${RELEASE_SHA}" ]; then
+            echo "::error::Manual acceptance attestation does not match the exact release SHA."
+            echo "attested=${SCAN_V1_MANUAL_ACCEPTANCE_SHA}"
+            echo "release=${RELEASE_SHA}"
             exit 1
           fi
 
