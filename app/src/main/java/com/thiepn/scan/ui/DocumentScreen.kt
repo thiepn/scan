@@ -462,6 +462,7 @@ fun DocumentScreen(
     var documentSearchBusy by remember { mutableStateOf(false) }
     var ocrScriptOpen by remember { mutableStateOf(false) }
     var topBarOverflowOpen by remember { mutableStateOf(false) }
+    var documentToolsExpanded by rememberSaveable { mutableStateOf(false) }
     var bookReviewPageId by rememberSaveable { mutableStateOf<String?>(null) }
     var bookReviewAnalysis by remember { mutableStateOf<BookSpreadAnalysis?>(null) }
     var bookReviewBusy by remember { mutableStateOf(false) }
@@ -757,6 +758,58 @@ fun DocumentScreen(
                                 modifier = Modifier.padding(14.dp)
                             )
                         }
+                        Spacer(Modifier.height(8.dp))
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        documentToolsExpanded =
+                                            !documentToolsExpanded
+                                    }
+                                    .padding(
+                                        horizontal = 14.dp,
+                                        vertical = 10.dp
+                                    ),
+                                verticalAlignment =
+                                    androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement =
+                                        Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        "Document tools",
+                                        style =
+                                            MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        "OCR data, publishing, standards, security and mode-specific tools",
+                                        style =
+                                            MaterialTheme.typography.bodySmall,
+                                        color =
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        documentToolsExpanded =
+                                            !documentToolsExpanded
+                                    }
+                                ) {
+                                    Text(
+                                        if (documentToolsExpanded) {
+                                            "Hide"
+                                        } else {
+                                            "Show"
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        if (documentToolsExpanded) {
                         if (scanMode == ScanMode.FORM) {
                             Spacer(Modifier.height(8.dp))
                             FormDocumentTools(
@@ -1088,6 +1141,7 @@ fun DocumentScreen(
                                     modifier = Modifier.padding(14.dp)
                                 )
                             }
+                        }
                         }
                         Spacer(Modifier.height(10.dp))
 
@@ -2797,6 +2851,8 @@ private fun PageCard(
         ).dp.coerceIn(260.dp, 460.dp)
     val dragThresholdPx = with(density) { 92.dp.toPx() }
     var dragDistance by remember(page.id) { mutableStateOf(0f) }
+    var pageActionsOpen by rememberSaveable(page.id) { mutableStateOf(false) }
+    var ocrExpanded by rememberSaveable(page.id) { mutableStateOf(false) }
     val highlightLayout = remember(page.ocrLayout) {
         OcrLayoutCodec.decode(page.ocrLayout)
     }
@@ -2892,7 +2948,6 @@ private fun PageCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 4.dp),
                     verticalAlignment =
                         androidx.compose.ui.Alignment.CenterVertically
@@ -2909,24 +2964,6 @@ private fun PageCard(
                             )
                         }
                     )
-                    IconButton(
-                        onClick = onMoveUp,
-                        enabled = canMoveUp
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowUpward,
-                            contentDescription = "Move page up"
-                        )
-                    }
-                    IconButton(
-                        onClick = onMoveDown,
-                        enabled = canMoveDown
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowDownward,
-                            contentDescription = "Move page down"
-                        )
-                    }
                     IconButton(
                         onClick = onRotate,
                         enabled = canRotate
@@ -2957,126 +2994,147 @@ private fun PageCard(
                                 "Enhance and filters"
                         )
                     }
-                    IconButton(
-                        onClick = onCleanup,
-                        enabled = canCleanup
-                    ) {
-                        Icon(
-                            Icons.Default.AutoFixHigh,
-                            contentDescription = "Smart cleanup"
-                        )
-                    }
-                    IconButton(
-                        onClick = onEditText,
-                        enabled = canEditText
-                    ) {
-                        Icon(
-                            Icons.Default.TextFields,
-                            contentDescription =
-                                "Edit recognized text"
-                        )
-                    }
-                    IconButton(
-                        onClick = onMarkup,
-                        enabled = canMarkup
-                    ) {
-                        Icon(
-                            Icons.Default.Draw,
-                            contentDescription =
-                                "Markup, redact, or sign"
-                        )
-                    }
-                    IconButton(
-                        onClick = onFillForm,
-                        enabled = canFillForm
-                    ) {
-                        Icon(
-                            Icons.Default.CheckBox,
-                            contentDescription = "Fill form fields"
-                        )
-                    }
-                    IconButton(
-                        onClick = onStructuredData,
-                        enabled = canStructuredData
-                    ) {
-                        Icon(
-                            Icons.Default.TableChart,
-                            contentDescription = "Structured data"
-                        )
-                    }
-                    IconButton(
-                        onClick = onAssemblyMetadata,
-                        enabled = canAssemblyMetadata
-                    ) {
-                        Icon(
-                            Icons.Default.Bookmark,
-                            contentDescription =
-                                "Page label and bookmark"
-                        )
-                    }
-                    IconButton(
-                        onClick = onDuplicate,
-                        enabled = canDuplicate
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = "Duplicate page"
-                        )
-                    }
-                    IconButton(
-                        onClick = onReplace,
-                        enabled = canReplace
-                    ) {
-                        Icon(
-                            Icons.Default.Image,
-                            contentDescription =
-                                "Replace page from image"
-                        )
-                    }
-                    IconButton(
-                        onClick = onRetake,
-                        enabled = canRetake
-                    ) {
-                        Icon(
-                            Icons.Default.CameraAlt,
-                            contentDescription = "Retake page"
-                        )
-                    }
-                    if (canReviewBookSpread) {
-                        IconButton(onClick = onReviewBookSpread) {
+                    Spacer(Modifier.weight(1f))
+                    Box {
+                        IconButton(
+                            onClick = { pageActionsOpen = true }
+                        ) {
                             Icon(
-                                Icons.Default.MenuBook,
-                                contentDescription =
-                                    "Review book spread"
+                                Icons.Default.MoreVert,
+                                contentDescription = "More page actions"
                             )
                         }
-                    }
-                    if (canRestoreBookSpread) {
-                        IconButton(onClick = onRestoreBookSpread) {
-                            Icon(
-                                Icons.Default.RestorePage,
-                                contentDescription =
-                                    "Restore original book spread"
+                        DropdownMenu(
+                            expanded = pageActionsOpen,
+                            onDismissRequest = {
+                                pageActionsOpen = false
+                            }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Move up") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onMoveUp()
+                                },
+                                enabled = canMoveUp
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Move down") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onMoveDown()
+                                },
+                                enabled = canMoveDown
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Smart cleanup") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onCleanup()
+                                },
+                                enabled = canCleanup
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Edit recognized text") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onEditText()
+                                },
+                                enabled = canEditText
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Markup, redact or sign") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onMarkup()
+                                },
+                                enabled = canMarkup
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Fill form fields") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onFillForm()
+                                },
+                                enabled = canFillForm
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Structured data") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onStructuredData()
+                                },
+                                enabled = canStructuredData
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Page label and bookmark") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onAssemblyMetadata()
+                                },
+                                enabled = canAssemblyMetadata
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Duplicate page") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onDuplicate()
+                                },
+                                enabled = canDuplicate
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Replace from image") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onReplace()
+                                },
+                                enabled = canReplace
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Retake page") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onRetake()
+                                },
+                                enabled = canRetake
+                            )
+                            if (canReviewBookSpread) {
+                                DropdownMenuItem(
+                                    text = { Text("Review book spread") },
+                                    onClick = {
+                                        pageActionsOpen = false
+                                        onReviewBookSpread()
+                                    }
+                                )
+                            }
+                            if (canRestoreBookSpread) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("Restore original book spread")
+                                    },
+                                    onClick = {
+                                        pageActionsOpen = false
+                                        onRestoreBookSpread()
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Reset page edits") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onReset()
+                                },
+                                enabled = canReset
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete page") },
+                                onClick = {
+                                    pageActionsOpen = false
+                                    onDelete()
+                                },
+                                enabled = canDelete
                             )
                         }
-                    }
-                    IconButton(
-                        onClick = onReset,
-                        enabled = canReset
-                    ) {
-                        Icon(
-                            Icons.Default.RestartAlt,
-                            contentDescription = "Reset page edits"
-                        )
-                    }
-                    IconButton(
-                        onClick = onDelete,
-                        enabled = canDelete
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete page"
-                        )
                     }
                 }
             }
@@ -3101,20 +3159,53 @@ private fun PageCard(
                     "$displayLabel preview"
             )
             if (page.ocrText.isNotBlank()) {
+                val searchForcesTextOpen =
+                    !highlightQuery.isNullOrBlank()
+                val showOcrText =
+                    ocrExpanded || searchForcesTextOpen
                 Column(Modifier.padding(14.dp)) {
-                    Text(
-                        "Recognized text",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.semantics { heading() }
-                    )
-                    SelectionContainer {
-                        HighlightedOcrText(
-                            page = page,
-                            query = highlightQuery.orEmpty(),
-                            modifier = Modifier.padding(top = 6.dp),
-                            style = MaterialTheme.typography.bodySmall
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment =
+                            androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Recognized text",
+                            style =
+                                MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { heading() }
                         )
+                        TextButton(
+                            onClick = {
+                                ocrExpanded = !ocrExpanded
+                            },
+                            enabled = !searchForcesTextOpen
+                        ) {
+                            Text(
+                                when {
+                                    searchForcesTextOpen ->
+                                        "Search match"
+                                    showOcrText -> "Hide"
+                                    else -> "Show"
+                                }
+                            )
+                        }
+                    }
+                    if (showOcrText) {
+                        SelectionContainer {
+                            HighlightedOcrText(
+                                page = page,
+                                query =
+                                    highlightQuery.orEmpty(),
+                                modifier =
+                                    Modifier.padding(top = 6.dp),
+                                style =
+                                    MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
             }
