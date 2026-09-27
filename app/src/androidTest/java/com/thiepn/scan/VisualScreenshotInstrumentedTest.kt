@@ -6,7 +6,10 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,7 +35,8 @@ class VisualScreenshotInstrumentedTest {
 
     @Test
     fun captureRepresentativeV1Surfaces() {
-        shell("rm -rf /sdcard/scan-v1-screenshots && mkdir -p /sdcard/scan-v1-screenshots")
+        screenshotDir().deleteRecursively()
+        screenshotDir().mkdirs()
 
         val app = instrumentation.targetContext.applicationContext as ScanApplication
         val repository = app.graph.repository
@@ -234,10 +238,20 @@ class VisualScreenshotInstrumentedTest {
 
     private fun capture(name: String) {
         composeRule.waitForIdle()
-        Thread.sleep(600)
-        shell("screencap -p /sdcard/scan-v1-screenshots/${name}.png")
-        Thread.sleep(250)
+        Thread.sleep(350)
+        val image = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        val file = File(screenshotDir(), "$name.png")
+        FileOutputStream(file).use { out ->
+            image.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        image.recycle()
     }
+
+    private fun screenshotDir(): File =
+        File(
+            requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
+            "scan-v1-screenshots"
+        )
 
     private fun shell(command: String) {
         instrumentation.uiAutomation.executeShellCommand(command).close()
