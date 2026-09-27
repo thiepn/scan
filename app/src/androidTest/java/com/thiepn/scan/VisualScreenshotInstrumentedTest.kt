@@ -192,7 +192,7 @@ class VisualScreenshotInstrumentedTest {
     private fun waitForText(text: String) {
         composeRule.waitUntil(timeoutMillis = 15_000) {
             runCatching {
-                composeRule.onNodeWithText(text).fetchSemanticsNode()
+                composeRule.onNodeWithText(text).assertExists()
             }.isSuccess
         }
         composeRule.waitForIdle()
