@@ -142,8 +142,10 @@ class VisualScreenshotInstrumentedTest {
             awaitDocumentReady(repository, notesId)
         }
 
-        waitForText("Travel Expenses — Berlin")
+        composeRule.activityRule.scenario.recreate()
+        waitForTag("library-title")
         capture("01-library")
+        waitForText("Travel Expenses — Berlin")
 
         composeRule.onNodeWithTag("primary-scan-action").performClick()
         waitForText("Choose scan mode")
@@ -204,6 +206,15 @@ class VisualScreenshotInstrumentedTest {
             delay(250)
         }
         error("Document did not finish processing: $documentId")
+    }
+
+    private fun waitForTag(tag: String) {
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            runCatching {
+                composeRule.onNodeWithTag(tag).assertIsDisplayed()
+            }.isSuccess
+        }
+        composeRule.waitForIdle()
     }
 
     private fun waitForText(text: String) {
