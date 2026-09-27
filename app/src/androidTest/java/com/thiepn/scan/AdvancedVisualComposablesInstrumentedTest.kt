@@ -6,12 +6,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.test.platform.app.InstrumentationRegistry
 import com.thiepn.scan.data.DocumentPageSearchHit
 import com.thiepn.scan.data.FormField
@@ -145,7 +142,10 @@ class AdvancedVisualComposablesInstrumentedTest {
     private fun capture(directory: File, name: String) {
         composeRule.waitForIdle()
         Thread.sleep(250)
-        val bitmap = composeRule.onRoot().captureToImage().asAndroidBitmap()
+        val bitmap = InstrumentationRegistry
+            .getInstrumentation()
+            .uiAutomation
+            .takeScreenshot()
         FileOutputStream(File(directory, "$name.png")).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
