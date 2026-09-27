@@ -83,7 +83,8 @@ class VisualScreenshotInstrumentedTest {
         capture("03-sort-filter")
         composeRule.onNodeWithText("Cancel").performClick()
 
-        composeRule.onNodeWithContentDescription("Automation Center").performClick()
+        composeRule.onNodeWithContentDescription("More library actions").performClick()
+        composeRule.onNodeWithText("Automation Center").performClick()
         waitForText("Automation Center")
         capture("04-automation-center")
         composeRule.onNodeWithText("Done").performClick()
