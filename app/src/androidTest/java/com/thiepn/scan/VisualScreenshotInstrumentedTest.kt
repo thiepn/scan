@@ -95,25 +95,30 @@ class VisualScreenshotInstrumentedTest {
         capture("06-export-pdf")
         back()
 
+        composeRule.onNodeWithContentDescription("Find in document").performClick()
+        waitForText("Find in document")
+        capture("07-document-search")
+        back()
+
+        composeRule.onNodeWithText("Page 1").performScrollTo()
+        composeRule.waitForIdle()
+        capture("08-page-editor")
+
         composeRule
             .onNodeWithContentDescription("Markup, redact, or sign")
             .performScrollTo()
             .performClick()
         waitForText("Markup & redaction")
-        capture("07-markup-redaction")
+        capture("09-markup-redaction")
         back()
 
+        composeRule.onNodeWithText("Page 1").performScrollTo()
         composeRule
             .onNodeWithContentDescription("Fill form fields")
             .performScrollTo()
             .performClick()
         waitForText("Fill form")
-        capture("08-form-filling")
-        back()
-
-        composeRule.onNodeWithContentDescription("Find in document").performClick()
-        waitForText("Find in document")
-        capture("09-document-search")
+        capture("10-form-filling")
     }
 
     private fun waitForTag(tag: String) {
