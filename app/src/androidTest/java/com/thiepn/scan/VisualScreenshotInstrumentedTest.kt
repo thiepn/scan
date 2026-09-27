@@ -6,7 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -192,7 +192,7 @@ class VisualScreenshotInstrumentedTest {
     private fun waitForText(text: String) {
         composeRule.waitUntil(timeoutMillis = 15_000) {
             runCatching {
-                composeRule.onNodeWithText(text).assertExists()
+                composeRule.onNodeWithText(text).assertIsDisplayed()
             }.isSuccess
         }
         composeRule.waitForIdle()
