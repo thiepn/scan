@@ -62,7 +62,7 @@ class VisualScreenshotInstrumentedTest {
             val id = repository.ingestScan(
                 pageUris = listOf(Uri.fromFile(expensePage)),
                 pdfUri = null,
-                scanMode = ScanMode.PHOTO,
+                scanMode = ScanMode.DOCUMENT,
                 awaitProcessing = true
             )
             repository.rename(id, "Travel Expenses — Berlin")
