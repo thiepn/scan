@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.activity.compose.setContent
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -18,12 +20,15 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import com.thiepn.scan.data.ScanMode
+import com.thiepn.scan.ui.ScanTheme
+import com.thiepn.scan.ui.DocumentScreen
 import com.thiepn.scan.data.ScanRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 
 class VisualScreenshotInstrumentedTest {
@@ -149,7 +154,6 @@ class VisualScreenshotInstrumentedTest {
         composeRule.activityRule.scenario.recreate()
         waitForTag("library-title")
         capture("01-library")
-        waitForText("Travel Expenses — Berlin")
 
         composeRule.onNodeWithTag("primary-scan-action").performClick()
         waitForText("Choose scan mode")
@@ -166,7 +170,7 @@ class VisualScreenshotInstrumentedTest {
         capture("04-automation-center")
         back()
 
-        composeRule.onNodeWithText("Travel Expenses — Berlin").performClick()
+        showDocument(repository, expenseId)
         waitForText("Travel Expenses — Berlin")
         capture("05-document-view")
 
@@ -198,6 +202,31 @@ class VisualScreenshotInstrumentedTest {
         // Keep the seeded document id referenced so compiler/test reports make the
         // relationship between seeded data and the captured document explicit.
         check(expenseId.isNotBlank())
+    }
+
+    private fun showDocument(
+        repository: ScanRepository,
+        documentId: String
+    ) {
+        instrumentation.runOnMainSync {
+            composeRule.activity.setContent {
+                ScanTheme {
+                    DocumentScreen(
+                        documentId = documentId,
+                        repository = repository,
+                        contentPadding = PaddingValues(),
+                        onBack = {},
+                        onDeleted = {},
+                        onRapidScan = {},
+                        onAddPages = {},
+                        onInsertPages = { _, _ -> },
+                        onRetakePage = { _, _ -> },
+                        onMessage = {}
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
     }
 
     private suspend fun awaitDocumentReady(
@@ -245,6 +274,11 @@ class VisualScreenshotInstrumentedTest {
             image.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         image.recycle()
+
+        shell("mkdir -p /sdcard/scan-v1-screenshots")
+        shell(
+            "cp '${file.absolutePath}' '/sdcard/scan-v1-screenshots/$name.png'"
+        )
     }
 
     private fun screenshotDir(): File =
@@ -254,7 +288,11 @@ class VisualScreenshotInstrumentedTest {
         )
 
     private fun shell(command: String) {
-        instrumentation.uiAutomation.executeShellCommand(command).close()
+        instrumentation.uiAutomation.executeShellCommand(command).use { descriptor ->
+            FileInputStream(descriptor.fileDescriptor).use { input ->
+                input.readBytes()
+            }
+        }
     }
 
     private fun samplePage(
