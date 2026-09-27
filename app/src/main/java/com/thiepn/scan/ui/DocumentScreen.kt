@@ -691,6 +691,89 @@ fun DocumentScreen(
                                         protectOpen = true
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Export recognized text") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        textExportOpen = true
+                                    },
+                                    enabled =
+                                        scanProfile.ocrEnabled &&
+                                            !doc.processing
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (doc.archived) {
+                                                "Restore from archive"
+                                            } else {
+                                                "Archive document"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        scope.launch {
+                                            repository.setArchived(
+                                                doc.id,
+                                                !doc.archived
+                                            )
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Insert scans") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        insertPagesOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
+                                if (pages.size > 1) {
+                                    DropdownMenuItem(
+                                        text = { Text("Extract pages") },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            extractOpen = true
+                                        }
+                                    )
+                                }
+                                if (hasAnyPageEdits) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("Reset all page edits")
+                                        },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            resetAllEditsOpen = true
+                                        },
+                                        enabled = !doc.processing
+                                    )
+                                }
+                                if (
+                                    deletedPages.isNotEmpty() &&
+                                    !doc.processing
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "Deleted pages (${deletedPages.size})"
+                                            )
+                                        },
+                                        onClick = {
+                                            topBarOverflowOpen = false
+                                            deletedPagesOpen = true
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Move to Trash") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        deleteOpen = true
+                                    },
+                                    enabled = !doc.processing
+                                )
                             }
                         }
                     }
@@ -1145,94 +1228,60 @@ fun DocumentScreen(
                         }
                         Spacer(Modifier.height(10.dp))
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = { textExportOpen = true },
-                                enabled = scanProfile.ocrEnabled && !doc.processing
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    onAddPages(scanMode)
+                                },
+                                enabled = !doc.processing
                             ) {
-                                Text("Text")
-                            }
-                            OutlinedButton(onClick = {
-                                scope.launch { repository.setArchived(doc.id, !doc.archived) }
-                            }) {
                                 Icon(
-                                    if (doc.archived) Icons.Default.Restore else Icons.Default.Archive,
+                                    Icons.Default.AddAPhoto,
                                     contentDescription = null
                                 )
-                                Text(if (doc.archived) " Restore" else " Archive")
-                            }
-                            OutlinedButton(
-                                onClick = { deleteOpen = true },
-                                enabled = !doc.processing
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = null)
-                                Text(" Trash")
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (scanProfile.supportsHighSpeedCapture) {
-                                OutlinedButton(
-                                    onClick = { onRapidScan(scanMode) },
-                                    enabled = !doc.processing
-                                ) {
-                                    Text("Rapid scan")
-                                }
-                            }
-                            OutlinedButton(
-                                onClick = { onAddPages(scanMode) },
-                                enabled = !doc.processing
-                            ) {
-                                Icon(Icons.Default.AddAPhoto, contentDescription = null)
                                 Text(
-                                    if (scanMode == ScanMode.ID_CARD && pages.size == 1) {
+                                    if (
+                                        scanMode == ScanMode.ID_CARD &&
+                                        pages.size == 1
+                                    ) {
                                         " Scan back"
                                     } else {
                                         " Add pages"
                                     }
                                 )
                             }
-                            OutlinedButton(
-                                onClick = { insertPagesOpen = true },
-                                enabled = !doc.processing
+                            if (
+                                scanProfile.supportsHighSpeedCapture
                             ) {
-                                Text("Insert scans")
+                                OutlinedButton(
+                                    onClick = {
+                                        onRapidScan(scanMode)
+                                    },
+                                    enabled = !doc.processing
+                                ) {
+                                    Text("Rapid scan")
+                                }
                             }
                             OutlinedButton(
                                 onClick = {
                                     selectionMode = true
                                     selectedPageIds = emptySet()
                                 },
-                                enabled = !doc.processing && pages.isNotEmpty()
+                                enabled =
+                                    !doc.processing &&
+                                        pages.isNotEmpty()
                             ) {
-                                Icon(Icons.Default.SelectAll, contentDescription = null)
+                                Icon(
+                                    Icons.Default.SelectAll,
+                                    contentDescription = null
+                                )
                                 Text(" Select pages")
-                            }
-                            if (hasAnyPageEdits) {
-                                OutlinedButton(
-                                    onClick = { resetAllEditsOpen = true },
-                                    enabled = !doc.processing
-                                ) {
-                                    Icon(Icons.Default.RestartAlt, contentDescription = null)
-                                    Text(" Reset all edits")
-                                }
-                            }
-                        }
-                        if (pages.size > 1) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { extractOpen = true }) {
-                                Icon(Icons.Default.ContentCut, contentDescription = null)
-                                Text(" Extract pages")
-                            }
-                        }
-                        if (deletedPages.isNotEmpty() && !doc.processing) {
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { deletedPagesOpen = true }) {
-                                Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
-                                Text(" Deleted pages (${deletedPages.size})")
                             }
                         }
                     }
