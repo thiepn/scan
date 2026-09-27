@@ -1,6 +1,6 @@
 # Scan v1.0.0 Production Certification
 
-Phase 20 is the final release phase. No new product features are accepted here.
+Phase 20 established the frozen production-certification baseline; Phase 22 performs final device acceptance and the v1.0.0 release cut. No new product features are accepted in either release phase.
 
 ## Release identity
 
