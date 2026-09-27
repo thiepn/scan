@@ -3,7 +3,7 @@ name: Capture v1 Screenshots
 on:
   push:
     branches:
-      - visual-capture-v1
+      - visual-capture-phase21
   workflow_dispatch:
 
 permissions:
