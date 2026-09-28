@@ -74,13 +74,18 @@ for path, expected_size in EXPECTED_PNGS.items():
             f"{path.relative_to(ROOT)}: expected {expected_size[0]}x{expected_size[1]}, "
             f"got {width}x{height}"
         )
-    if path.name == "feature-graphic.png" and color_type != 2:
+    if path.name == "feature-graphic.png" or path.parent.name == "phone":
+        if color_type != 2:
+            errors.append(
+                f"{path.relative_to(ROOT)}: Play preview graphics must be 24-bit RGB PNG without alpha "
+                f"(PNG color type 2), got color type {color_type}"
+            )
+    minimum_bytes = 1_000 if path.name == "icon-512.png" else 10_000
+    if path.stat().st_size < minimum_bytes:
         errors.append(
-            f"{path.relative_to(ROOT)}: feature graphic must be 24-bit RGB PNG without alpha "
-            f"(PNG color type 2), got color type {color_type}"
+            f"{path.relative_to(ROOT)}: unexpectedly small/corrupt-looking file "
+            f"(< {minimum_bytes} bytes)"
         )
-    if path.stat().st_size < 10_000:
-        errors.append(f"{path.relative_to(ROOT)}: unexpectedly small/corrupt-looking file")
     print(
         f"{path.relative_to(ROOT)}: {width}x{height}, "
         f"{path.stat().st_size} bytes, color type {color_type}"
