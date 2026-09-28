@@ -28,6 +28,7 @@ The script:
 - prompts for passwords without echoing them,
 - stores the keystore outside the repository by default at `%USERPROFILE%\ScanSigningBackup\scan-production.jks`,
 - records the public certificate/fingerprint information beside that backup,
+- exports `scan-production-certificate.pem` for Play App Signing identity/fingerprint checks,
 - configures all four encrypted GitHub Actions signing secrets,
 - starts the production-acceptance workflow automatically.
 
@@ -108,7 +109,10 @@ The reproducible Play Console listing package lives under `play/`.
 
 Before opening the production track:
 
-1. Run `python3 scripts/validate-play-listing.py`.
+Read `play/SIGNING_STRATEGY.md` first. The permanent Scan production key is the intended app-signing identity for both direct APK distribution and Google Play; do not accept an unrelated Play app-signing identity and assume cross-channel updates remain compatible.
+
+
+1. Run `powershell -ExecutionPolicy Bypass -File .\scripts\check-play-readiness.ps1` (which includes the listing validator).
 2. Confirm the public privacy policy is available at `https://thiepn.dev/scan/privacy/`.
 3. Confirm the app's Library overflow still exposes the Privacy policy link.
 4. Supply the public support email in Play Console; it is intentionally not invented or stored in this repository.
