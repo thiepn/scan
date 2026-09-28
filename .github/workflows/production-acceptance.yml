@@ -1,0 +1,192 @@
+name: v1 Production Device Acceptance Candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/production-acceptance.yml'
+      - '.github/workflows/release.yml'
+      - 'docs/RELEASE.md'
+      - 'docs/V1_CERTIFICATION.md'
+      - 'docs/V1_DEVICE_QA.md'
+      - 'scripts/collect-device-evidence.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-production-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PRE_V1_BASELINE_SHA: b1008e39e67cdbd0529d0716f4d85b521836b25b
+      SCAN_RELEASE_STORE_PASSWORD: ${{ secrets.SCAN_RELEASE_STORE_PASSWORD }}
+      SCAN_RELEASE_KEY_ALIAS: ${{ secrets.SCAN_RELEASE_KEY_ALIAS }}
+      SCAN_RELEASE_KEY_PASSWORD: ${{ secrets.SCAN_RELEASE_KEY_PASSWORD }}
+      SCAN_RELEASE_KEYSTORE_BASE64: ${{ secrets.SCAN_RELEASE_KEYSTORE_BASE64 }}
+      SCAN_RELEASE_STORE_FILE: /tmp/scan-production.jks
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Require main
+        run: |
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Require production signing secrets
+        shell: bash
+        run: |
+          for name in \
+            SCAN_RELEASE_KEYSTORE_BASE64 \
+            SCAN_RELEASE_STORE_PASSWORD \
+            SCAN_RELEASE_KEY_ALIAS \
+            SCAN_RELEASE_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required production secret: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Materialize production keystore
+        run: |
+          printf '%s' "${SCAN_RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${SCAN_RELEASE_STORE_FILE}"
+          keytool -list \
+            -keystore "${SCAN_RELEASE_STORE_FILE}" \
+            -storepass "${SCAN_RELEASE_STORE_PASSWORD}" \
+            -alias "${SCAN_RELEASE_KEY_ALIAS}" >/dev/null
+
+      - name: Build production-signed pre-v1 baseline
+        run: |
+          git cat-file -e "${PRE_V1_BASELINE_SHA}^{commit}"
+          git worktree add --detach "${RUNNER_TEMP}/scan-pre-v1" "${PRE_V1_BASELINE_SHA}"
+          gradle -p "${RUNNER_TEMP}/scan-pre-v1" \
+            :app:clean \
+            :app:assembleRelease \
+            --stacktrace
+          cp \
+            "${RUNNER_TEMP}/scan-pre-v1/app/build/outputs/apk/release/app-release.apk" \
+            Scan-v1.0.0-pre-v1-baseline.apk
+
+      - name: Build exact production acceptance candidate
+        run: |
+          gradle \
+            :app:clean \
+            :app:testDebugUnitTest \
+            :app:lintRelease \
+            :app:assembleRelease \
+            :app:bundleRelease \
+            --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk Scan-v1.0.0-acceptance.apk
+          cp app/build/outputs/bundle/release/app-release.aab Scan-v1.0.0-acceptance.aab
+
+      - name: Verify production candidate
+        shell: bash
+        run: |
+          bash scripts/verify-release.sh \
+            Scan-v1.0.0-acceptance.apk \
+            Scan-v1.0.0-acceptance.aab \
+            acceptance-checksums.sha256
+
+          BUILD_TOOLS_DIR="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+
+          "${APKSIGNER}" verify --print-certs Scan-v1.0.0-pre-v1-baseline.apk > baseline-signing.txt
+          "${APKSIGNER}" verify --print-certs Scan-v1.0.0-acceptance.apk > acceptance-signing.txt
+
+          BASELINE_CERT="$(grep -F 'Signer #1 certificate SHA-256 digest:' baseline-signing.txt | head -n 1)"
+          ACCEPTANCE_CERT="$(grep -F 'Signer #1 certificate SHA-256 digest:' acceptance-signing.txt | head -n 1)"
+          test -n "${BASELINE_CERT}"
+          test "${BASELINE_CERT}" = "${ACCEPTANCE_CERT}"
+
+          {
+            echo "release_sha=${GITHUB_SHA}"
+            echo "pre_v1_baseline_sha=${PRE_V1_BASELINE_SHA}"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "${ACCEPTANCE_CERT}"
+          } > production-acceptance-metadata.txt
+
+          sha256sum Scan-v1.0.0-pre-v1-baseline.apk >> acceptance-checksums.sha256
+          cat acceptance-checksums.sha256
+          cat production-acceptance-metadata.txt
+
+      - name: Upload production acceptance kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-v1-production-acceptance-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            Scan-v1.0.0-acceptance.apk
+            Scan-v1.0.0-acceptance.aab
+            Scan-v1.0.0-pre-v1-baseline.apk
+            acceptance-checksums.sha256
+            acceptance-signing.txt
+            production-acceptance-metadata.txt
+
+  production-key-update-smoke:
+    needs: production-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: scan-v1-production-acceptance-${{ github.sha }}
+          path: ${{ runner.temp }}/acceptance
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Production-key upgrade and fresh-install smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            BASE="${RUNNER_TEMP}/acceptance/Scan-v1.0.0-pre-v1-baseline.apk"
+            FINAL="${RUNNER_TEMP}/acceptance/Scan-v1.0.0-acceptance.apk"
+
+            adb install "${BASE}"
+            adb shell am start -W -n com.thiepn.scan/.MainActivity
+            adb shell pidof com.thiepn.scan >/dev/null
+
+            adb shell am force-stop com.thiepn.scan
+            adb install -r "${FINAL}"
+            adb shell am start -W -n com.thiepn.scan/.MainActivity
+            adb shell pidof com.thiepn.scan >/dev/null
+
+            adb uninstall com.thiepn.scan
+            adb install "${FINAL}"
+            adb shell am start -W -n com.thiepn.scan/.MainActivity
+            adb shell pidof com.thiepn.scan >/dev/null
