@@ -46,6 +46,12 @@ jobs:
           assets = Path('play/store-assets')
           assets.mkdir(parents=True, exist_ok=True)
 
+          # Google Play preview PNGs must not carry an alpha channel.
+          phone_dir = assets / 'phone'
+          for screenshot_path in sorted(phone_dir.glob('*.png')):
+              with Image.open(screenshot_path) as screenshot:
+                  screenshot.convert('RGB').save(screenshot_path, 'PNG', optimize=True)
+
           PURPLE = '#5B5BD6'
           DARK = '#171A2C'
           MUTED = '#555C76'
