@@ -104,4 +104,20 @@ It never substitutes for the physical-device evidence; it only makes the irrever
 
 ## Google Play
 
-Use `Scan-v1.0.0.aab` from the verified GitHub Release for Play Console upload. Confirm Play Console shows package `com.thiepn.scan`, version code `1`, target API 36, and the same signing lineage expected by the configured production keystore / Play App Signing setup.
+The reproducible Play Console listing package lives under `play/`.
+
+Before opening the production track:
+
+1. Run `python3 scripts/validate-play-listing.py`.
+2. Confirm the public privacy policy is available at `https://thiepn.dev/scan/privacy/`.
+3. Confirm the app's Library overflow still exposes the Privacy policy link.
+4. Supply the public support email in Play Console; it is intentionally not invented or stored in this repository.
+5. Review `play/DATA_SAFETY_DRAFT.md` against Google's current Data Safety form and current ML Kit disclosure documentation.
+6. Upload the title, descriptions, icon, feature graphic and six authentic phone screenshots from `play/`.
+7. Complete App access, Ads, Content rating, Target audience, Data Safety and other required Play Console declarations.
+8. Use `Scan-v1.0.0.aab` from the verified GitHub Release for Play Console upload.
+9. Confirm Play Console shows package `com.thiepn.scan`, version code `1`, target API 36, and the expected Play App Signing / production-key lineage.
+10. Keep `thiepn.dev/scan` in the `planned` or `testing` distribution state until the public Play listing is actually available.
+11. Only after public verification, change the website distribution source of truth to `published`; the official Google Play badge then becomes the primary install CTA while the signed GitHub APK stays available as an alternative.
+
+Do not use the AAB as an end-user download. It is a publishing artifact for Google Play.
