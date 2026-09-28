@@ -1,0 +1,26 @@
+name: Google Play Listing Validation
+
+on:
+  pull_request:
+    paths:
+      - 'play/**'
+      - 'scripts/validate-play-listing.py'
+      - '.github/workflows/play-listing.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'play/**'
+      - 'scripts/validate-play-listing.py'
+      - '.github/workflows/play-listing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate Google Play listing package
+        run: python3 scripts/validate-play-listing.py
