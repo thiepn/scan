@@ -11,6 +11,28 @@ Configure these repository secrets before creating the release tag:
 
 The keystore itself must never be committed.
 
+### One-time Windows signing bootstrap
+
+On the trusted Windows machine that will own the permanent Scan signing identity, clone/update the repository, authenticate GitHub CLI, then run:
+
+```powershell
+gh auth login
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap-production-signing.ps1
+```
+
+The script:
+
+- refuses to overwrite an existing production identity,
+- can reuse an existing keystore via `-ExistingKeystorePath`,
+- otherwise requires an explicit `CREATE` confirmation before generating the permanent key,
+- prompts for passwords without echoing them,
+- stores the keystore outside the repository by default at `%USERPROFILE%\ScanSigningBackup\scan-production.jks`,
+- records the public certificate/fingerprint information beside that backup,
+- configures all four encrypted GitHub Actions signing secrets,
+- starts the production-acceptance workflow automatically.
+
+Back up the keystore in at least two secure offline locations and store both passwords in a password manager. Losing this identity can prevent compatible direct-APK updates. Never commit the keystore or passwords.
+
 After completing the physical-device acceptance matrix for the exact release SHA, set the non-secret repository Actions variable:
 
 - `SCAN_V1_MANUAL_ACCEPTANCE_SHA` — exact `main` SHA whose manual gates in `docs/V1_DEVICE_QA.md` have all passed
@@ -67,6 +89,18 @@ The tag-driven `Publish v1 Release` workflow then:
 11. publishes the APK, AAB, and checksum file in the GitHub Release.
 
 The workflow intentionally rejects any tag other than `v1.0.0` for this frozen v1 release.
+
+### Guarded final release command
+
+After **every** manual gate in `docs/V1_DEVICE_QA.md` is complete for the exact current `main` SHA, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\finalize-v1-release.ps1
+```
+
+The finalizer refuses to continue unless the exact current `main` SHA already has successful normal certification and production-key acceptance runs. It then requires you to type that exact SHA as the manual acceptance attestation, sets `SCAN_V1_MANUAL_ACCEPTANCE_SHA`, creates `v1.0.0`, watches the publication workflow to completion, resolves the GitHub Release, and closes release-blocker issue #20 only after publication succeeds.
+
+It never substitutes for the physical-device evidence; it only makes the irreversible release step hard to perform incorrectly.
 
 ## Google Play
 
