@@ -25,6 +25,16 @@ The files under `listing/en-US/` are intentionally kept inside Google Play's cur
 
 Validate them with `scripts/validate-play-listing.py`.
 
+For a whole-repository preflight, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check-play-readiness.ps1
+```
+
+The preflight verifies committed store assets, exact-`main` CI/certification, signing-secret presence, production acceptance, and the public privacy-policy endpoint. It intentionally reports Play Console declarations and physical-device acceptance as manual gates rather than pretending to automate them.
+
+The cross-channel signing decision is documented in `SIGNING_STRATEGY.md`.
+
 ## Store assets
 
 `store-assets/` contains:

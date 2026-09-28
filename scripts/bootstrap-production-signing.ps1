@@ -137,6 +137,19 @@ try {
     )
     & keytool @verboseArgs | Out-File -Encoding utf8 $FingerprintPath
 
+    $CertificatePemPath = Join-Path $BackupDirectory "scan-production-certificate.pem"
+    $exportArgs = @(
+        "-exportcert", "-rfc",
+        "-keystore", $KeystorePath,
+        "-storepass", $StorePassword,
+        "-alias", $Alias,
+        "-file", $CertificatePemPath
+    )
+    & keytool @exportArgs
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $CertificatePemPath)) {
+        throw "Could not export the public production certificate."
+    }
+
     $KeystoreBase64 = [Convert]::ToBase64String(
         [IO.File]::ReadAllBytes($KeystorePath)
     )
@@ -158,6 +171,7 @@ try {
     Write-Host "Production signing secrets configured for $Repo." -ForegroundColor Green
     Write-Host "Permanent keystore backup: $KeystorePath"
     Write-Host "Certificate/fingerprint record: $FingerprintPath"
+    Write-Host "Public certificate (PEM): $CertificatePemPath"
     Write-Host ""
     Write-Host "Store both passwords in a password manager and make at least two secure offline copies of the keystore."
     Write-Host "Do not commit or upload the keystore anywhere except the encrypted GitHub Actions secret."
