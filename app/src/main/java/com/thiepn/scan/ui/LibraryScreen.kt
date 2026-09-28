@@ -1,5 +1,7 @@
 package com.thiepn.scan.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -464,6 +466,26 @@ fun LibraryScreen(
                                         enabled = !busy && !mergeBusy
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text("Privacy policy") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    Uri.parse(
+                                                        "https://thiepn.dev/scan/privacy/"
+                                                    )
+                                                )
+                                            )
+                                        }.onFailure {
+                                            onMessage(
+                                                "Could not open privacy policy"
+                                            )
+                                        }
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Import PDF") },
                                     onClick = {

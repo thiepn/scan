@@ -1,0 +1,1 @@
+Private document scanner with OCR, searchable PDFs and local-first storage.

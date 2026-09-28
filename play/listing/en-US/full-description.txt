@@ -1,0 +1,46 @@
+Scan turns paper, receipts, forms, IDs, notes, books and existing PDFs into a searchable local document library on Android.
+
+CAPTURE DOCUMENTS
+• Scan multiple pages with automatic document detection and review
+• Specialized modes for documents, receipts, IDs, business cards, books, whiteboards, forms, photos, notes and certificates
+• Import existing PDFs and images
+• Rapid capture for supported document workflows
+
+FIND WHAT YOU SCANNED
+• On-device OCR with local full-text search
+• Exact phrase and prefix search
+• Jump directly to pages containing a match
+• Export searchable PDFs with an invisible text layer
+
+FIX PAGES AFTER CAPTURE
+• Reorder, rotate, duplicate or replace pages
+• Perspective crop and document enhancement
+• Smart cleanup for marks, shadows and other distractions
+• Edit recognized text
+• Annotate, highlight, redact and sign
+• Detect and fill form fields
+
+ORGANIZE A REAL DOCUMENT LIBRARY
+• Nested folders and reusable tags
+• Favorites, archive and Trash
+• Smart collections such as Recent, Unfiled and Needs Review
+• Document types, local classification suggestions and bulk actions
+• Reusable automation and processing presets
+
+EXPORT USEFUL RESULTS
+• Searchable PDF export
+• Original, High, Balanced and Small quality presets
+• Merge documents and extract page ranges
+• Plain-text, CSV, JSON and XLSX exports where applicable
+• AES-256 password-protected PDF copies
+• Save through Android document providers without broad storage permission
+
+LOCAL-FIRST BY DESIGN
+Scan does not require an account or subscription. Your document library, OCR results and editing data remain on your device in app-private storage.
+
+The app itself does not request the INTERNET permission. Scanner capture is provided by Google Play services through ML Kit. The document scanner processes scanned image content on-device; Google documents that ML Kit may collect limited device, app, performance and usage diagnostics to maintain and improve its SDKs.
+
+ENCRYPTED RECOVERY
+Create an encrypted portable backup of Scan data for recovery after reinstall or app-data loss. Secure-vault controls, privacy-oriented PDF export and local security auditing are available for sensitive workflows.
+
+Scan is open source and built around a simple goal: paper should become searchable without forcing your documents into an account or cloud workflow.
