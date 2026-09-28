@@ -11,3 +11,6 @@ captures/
 *.jks
 *.keystore
 app/release/
+
+# Local production-signing backup if a user overrides the default path
+ScanSigningBackup/
