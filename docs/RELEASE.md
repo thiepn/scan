@@ -58,15 +58,16 @@ Use that acceptance kit for every manual release gate. See `docs/V1_DEVICE_QA.md
 
 ## Pre-tag checklist
 
-1. Confirm all release-candidate work is merged to `main`.
-2. Confirm the exact final `main` HEAD passes Android CI and the push-triggered v1 Production Certification workflow.
-3. Confirm the exact final `main` HEAD passes **v1 Production Device Acceptance Candidate** and download its production-signed acceptance kit.
-4. Complete and record every manual gate in `docs/V1_DEVICE_QA.md`.
-5. Record the production signing certificate fingerprint outside the repository.
-6. Package and strictly verify the completed device evidence; do not set release-attestation variables manually.
-7. Confirm `app/build.gradle.kts` still reports `versionCode = 1` and `versionName = "1.0.0"`.
-8. Confirm Room schema v22 is committed and CI reports no schema drift.
-9. Confirm there are zero open P0/P1 release defects.
+1. Enable GitHub release immutability at **Repository Settings → General → Releases → Enable release immutability**. This must be enabled before `v1.0.0` is published.
+2. Confirm all release-candidate work is merged to `main`.
+3. Confirm the exact final `main` HEAD passes Android CI and the push-triggered v1 Production Certification workflow.
+4. Confirm the exact final `main` HEAD passes **v1 Production Device Acceptance Candidate** and download its production-signed acceptance kit.
+5. Complete and record every manual gate in `docs/V1_DEVICE_QA.md`.
+6. Record the production signing certificate fingerprint outside the repository.
+7. Package and strictly verify the completed device evidence; do not set release-attestation variables manually.
+8. Confirm `app/build.gradle.kts` still reports `versionCode = 1` and `versionName = "1.0.0"`.
+9. Confirm Room schema v22 is committed and CI reports no schema drift.
+10. Confirm there are zero open P0/P1 release defects.
 
 ## Publish
 
@@ -152,5 +153,29 @@ If draft verification fails, the release remains non-public and the workflow fai
 
 The publication verifier is `scripts/verify-release-publication.sh` and its adversarial CI self-test is `scripts/test-verify-release-publication.sh`.
 
+## Immutable publication lock
+
+Scan v1.0.0 requires GitHub's **immutable releases** setting.
+
+The local finalizer queries GitHub's repository immutability setting and refuses to create the tag unless immutability is enabled. The tag workflow still performs draft-first byte verification. After changing the verified draft to public, it then:
+
+1. requires the release API to report `immutable: true`;
+2. verifies GitHub's automatically generated immutable-release attestation;
+3. re-downloads the now-public assets;
+4. byte-compares them again with the trusted promoted payload;
+5. re-validates checksums and acceptance provenance;
+6. verifies each of the four public release assets against GitHub's release attestation.
+
+Once publication succeeds, GitHub locks both the release assets and the associated tag against modification. GitHub also creates a cryptographically verifiable release attestation for the tag, commit SHA, and assets.
+
+Anyone can verify the finished release with a current GitHub CLI:
+
+```bash
+gh release verify v1.0.0
+gh release verify-asset v1.0.0 Scan-v1.0.0.apk
+gh release verify-asset v1.0.0 Scan-v1.0.0.aab
+```
+
+If the workflow ever publishes a release that GitHub does not report as immutable, it deletes that mutable release and fails rather than accepting it as v1.0.0.
 
 The finalizer requires strict physical-device evidence and byte-binds the local acceptance kit to the original production acceptance artifact from the recorded successful GitHub Actions run before tagging v1.0.0.

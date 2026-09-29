@@ -56,23 +56,23 @@ Write-Host ""
 $failures = New-Object System.Collections.Generic.List[string]
 $warnings = New-Object System.Collections.Generic.List[string]
 
-Write-Host "[1/7] Validating committed Play listing package..."
+Write-Host "[1/8] Validating committed Play listing package..."
 & python3 scripts/validate-play-listing.py
 if ($LASTEXITCODE -ne 0) {
     $failures.Add("Play listing package validation failed.")
 }
 
-Write-Host "[2/7] Checking exact-main Android CI..."
+Write-Host "[2/8] Checking exact-main Android CI..."
 if ((Get-SuccessfulRunCount "android.yml" $mainSha) -lt 1) {
     $failures.Add("Exact current main has no successful Android CI run.")
 }
 
-Write-Host "[3/7] Checking exact-main v1 production certification..."
+Write-Host "[3/8] Checking exact-main v1 production certification..."
 if ((Get-SuccessfulRunCount "certification.yml" $mainSha) -lt 1) {
     $failures.Add("Exact current main has no successful v1 Production Certification run.")
 }
 
-Write-Host "[4/7] Checking production signing secret names..."
+Write-Host "[4/8] Checking production signing secret names..."
 $requiredSecrets = @(
     "SCAN_RELEASE_KEYSTORE_BASE64",
     "SCAN_RELEASE_STORE_PASSWORD",
@@ -85,12 +85,24 @@ foreach ($name in $requiredSecrets) {
     }
 }
 
-Write-Host "[5/7] Checking exact-main production acceptance..."
+Write-Host "[5/8] Checking exact-main production acceptance..."
 if ((Get-SuccessfulRunCount "production-acceptance.yml" $mainSha) -lt 1) {
     $failures.Add("Exact current main has no successful production-signed acceptance run.")
 }
 
-Write-Host "[6/7] Checking public privacy policy..."
+Write-Host "[6/8] Checking GitHub immutable release protection..."
+$immutableResponse = & gh api --method GET -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" "repos/$Repo/immutable-releases" 2>$null
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($immutableResponse -join ""))) {
+    $failures.Add("GitHub immutable releases are not enabled or could not be verified. Enable Settings > General > Releases > Enable release immutability.")
+}
+else {
+    $immutableSettings = ($immutableResponse -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($immutableSettings.enabled -ne $true) {
+        $failures.Add("GitHub immutable releases are not enabled.")
+    }
+}
+
+Write-Host "[7/8] Checking public privacy policy..."
 try {
     $response = Invoke-WebRequest -Uri $WebsitePrivacyUrl -Method Get -MaximumRedirection 5
     if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
@@ -104,12 +116,13 @@ catch {
     $failures.Add("Could not fetch public privacy policy: $($_.Exception.Message)")
 }
 
-Write-Host "[7/7] Checking remaining human Play Console gates..."
+Write-Host "[8/8] Checking remaining human Play Console gates..."
 $warnings.Add("Public Play Console support email must still be supplied.")
 $warnings.Add("Play App Signing must be configured with the intended Scan app-signing identity before any open/public rollout.")
 $warnings.Add("Play app-signing certificate fingerprint must be compared against the production Scan certificate.")
 $warnings.Add("Data Safety, content rating, app access, ads, target audience, and other Play declarations require final human review.")
 $warnings.Add("Physical-device acceptance in docs/V1_DEVICE_QA.md must be complete before v1.0.0 publication.")
+$warnings.Add("Immutable GitHub releases must remain enabled through publication; published assets and the tag will then be locked.")
 
 Write-Host ""
 if ($warnings.Count -gt 0) {

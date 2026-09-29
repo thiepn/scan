@@ -12,6 +12,7 @@ on:
       - 'scripts/verify-v1-evidence.ps1'
       - 'scripts/test-v1-evidence-verifier.ps1'
       - 'scripts/finalize-v1-release.ps1'
+      - '.github/workflows/release.yml'
       - '.github/workflows/play-listing.yml'
   push:
     branches: [main]
@@ -25,6 +26,7 @@ on:
       - 'scripts/verify-v1-evidence.ps1'
       - 'scripts/test-v1-evidence-verifier.ps1'
       - 'scripts/finalize-v1-release.ps1'
+      - '.github/workflows/release.yml'
       - '.github/workflows/play-listing.yml'
   workflow_dispatch:
 
@@ -39,6 +41,13 @@ jobs:
 
       - name: Validate Google Play listing package
         run: python3 scripts/validate-play-listing.py
+
+      - name: Validate immutable release CLI support
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release verify --help >/dev/null
+          gh release verify-asset --help >/dev/null
 
       - name: Validate PowerShell release tooling syntax
         shell: pwsh
