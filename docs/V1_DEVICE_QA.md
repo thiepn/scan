@@ -60,6 +60,7 @@ That produces:
 
 - `EVIDENCE_SUMMARY.md`
 - `evidence-checksums.sha256`
+- a ZIP of the exact session plus a sibling `.zip.sha256` checksum
 - the verified acceptance kit
 - per-device screenshots, UI hierarchy, activity, memory/storage and build metadata
 - a ZIP of the complete evidence session
@@ -344,3 +345,26 @@ SCAN_V1_MANUAL_ACCEPTANCE_SHA=<exact main SHA>
 ```
 
 The tag publication workflow requires that variable to match the exact `v1.0.0` release SHA. The variable is an attestation; it does not replace the retained evidence package.
+
+
+## Strict final evidence verification
+
+The release finalizer does not trust the evidence folder merely because every visible result says `pass`.
+
+Before it can set `SCAN_V1_MANUAL_ACCEPTANCE_SHA` or create `v1.0.0`, `scripts/verify-v1-evidence.ps1` requires:
+
+- the exact canonical set of required v1 manual gates to exist;
+- every gate to be explicitly recorded as `pass` with a recorded timestamp;
+- the session release SHA to equal exact current `main`;
+- the production acceptance run ID and production signer SHA-256 to be present;
+- the required acceptance APK, AAB, pre-v1 baseline, signing report, metadata and acceptance checksum files to exist;
+- every evidence file to be covered by `evidence-checksums.sha256`;
+- every listed checksum to match the current local file;
+- the packaged evidence ZIP SHA-256 to match its sibling checksum file;
+- the ZIP to contain exactly the current session files and byte-identical contents.
+
+The finalizer then resolves the recorded production-acceptance run from GitHub and verifies that it is a successful completed `.github/workflows/production-acceptance.yml` run for the same exact source SHA.
+
+Do not hand-edit `session.json`, `evidence-checksums.sha256`, or the packaged ZIP after `Package`. Re-run the operator and package the evidence again instead.
+
+The verifier itself is exercised in CI by `scripts/test-v1-evidence-verifier.ps1`, which includes valid-package, missing-gate, failed-gate, checksum-omission, tampered-file, stale-SHA, and corrupt-ZIP-checksum cases.
