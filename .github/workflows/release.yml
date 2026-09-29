@@ -129,24 +129,99 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RELEASE_PAYLOAD="${RUNNER_TEMP}/release-payload"
+          rm -rf "${RELEASE_PAYLOAD}"
+          mkdir -p "${RELEASE_PAYLOAD}"
+
           bash scripts/promote-v1-accepted-artifact.sh \
             "${RUNNER_TEMP}/accepted-release" \
             "${GITHUB_SHA}" \
             "${SCAN_V1_ACCEPTANCE_RUN_ID}" \
-            "${GITHUB_WORKSPACE}"
+            "${RELEASE_PAYLOAD}"
 
-          sha256sum -c release-checksums.sha256
-          cat release-provenance.txt
+          (
+            cd "${RELEASE_PAYLOAD}"
+            sha256sum -c release-checksums.sha256
+          )
+          cat "${RELEASE_PAYLOAD}/release-provenance.txt"
 
-      - name: Publish GitHub Release
+      - name: Create draft GitHub Release
         shell: bash
         run: |
           set -euo pipefail
+          RELEASE_PAYLOAD="${RUNNER_TEMP}/release-payload"
+
+          if EXISTING_DRAFT="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [ "${EXISTING_DRAFT}" = "true" ]; then
+              echo "Removing stale draft release from an earlier failed attempt."
+              gh release delete "${GITHUB_REF_NAME}" --yes
+            else
+              echo "::error::A non-draft release already exists for ${GITHUB_REF_NAME}; refusing to overwrite it."
+              exit 1
+            fi
+          fi
+
           gh release create "${GITHUB_REF_NAME}" \
-            Scan-v1.0.0.apk \
-            Scan-v1.0.0.aab \
-            release-checksums.sha256 \
-            release-provenance.txt \
+            "${RELEASE_PAYLOAD}/Scan-v1.0.0.apk" \
+            "${RELEASE_PAYLOAD}/Scan-v1.0.0.aab" \
+            "${RELEASE_PAYLOAD}/release-checksums.sha256" \
+            "${RELEASE_PAYLOAD}/release-provenance.txt" \
+            --draft \
             --verify-tag \
             --title "Scan v1.0.0" \
             --notes-file docs/RELEASE_NOTES_V1.0.0.md
+
+      - name: Verify GitHub-stored draft release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_PAYLOAD="${RUNNER_TEMP}/release-payload"
+          DOWNLOADED_RELEASE="${RUNNER_TEMP}/downloaded-draft-release"
+
+          DRAFT_STATE="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft')"
+          if [ "${DRAFT_STATE}" != "true" ]; then
+            echo "::error::Release must remain a draft until remote asset verification passes."
+            exit 1
+          fi
+
+          mapfile -t REMOTE_ASSETS < <(
+            gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name' | LC_ALL=C sort
+          )
+          EXPECTED_ASSETS=(
+            "Scan-v1.0.0.aab"
+            "Scan-v1.0.0.apk"
+            "release-checksums.sha256"
+            "release-provenance.txt"
+          )
+          mapfile -t EXPECTED_SORTED < <(printf '%s\n' "${EXPECTED_ASSETS[@]}" | LC_ALL=C sort)
+
+          if [ "${#REMOTE_ASSETS[@]}" -ne "${#EXPECTED_SORTED[@]}" ] || \
+             [ "$(printf '%s\n' "${REMOTE_ASSETS[@]}")" != "$(printf '%s\n' "${EXPECTED_SORTED[@]}")" ]; then
+            echo "::error::Draft release asset set is not exact."
+            printf 'remote: %s\n' "${REMOTE_ASSETS[@]}"
+            exit 1
+          fi
+
+          rm -rf "${DOWNLOADED_RELEASE}"
+          mkdir -p "${DOWNLOADED_RELEASE}"
+          gh release download "${GITHUB_REF_NAME}" --dir "${DOWNLOADED_RELEASE}"
+
+          bash scripts/verify-release-publication.sh \
+            "${RELEASE_PAYLOAD}" \
+            "${DOWNLOADED_RELEASE}" \
+            "${GITHUB_SHA}" \
+            "${SCAN_V1_ACCEPTANCE_RUN_ID}"
+
+      - name: Publish verified GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "${GITHUB_REF_NAME}" --draft=false
+
+          DRAFT_STATE="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft')"
+          if [ "${DRAFT_STATE}" != "false" ]; then
+            echo "::error::Verified release did not transition to public state."
+            exit 1
+          fi
+
+          echo "Published ${GITHUB_REF_NAME} only after GitHub-stored asset verification passed."
