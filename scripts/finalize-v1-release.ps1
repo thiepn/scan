@@ -13,6 +13,23 @@ function Require-Command {
     }
 }
 
+function Require-ImmutableReleases {
+    param([string]$Repository)
+
+    $response = & gh api --method GET -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" "repos/$Repository/immutable-releases" 2>$null
+
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($response -join ""))) {
+        throw "GitHub immutable releases are not enabled, or the current gh token cannot read the repository Administration setting. Enable Settings > General > Releases > Enable release immutability, then re-run the finalizer."
+    }
+
+    $settings = ($response -join [Environment]::NewLine) | ConvertFrom-Json
+    if ($settings.enabled -ne $true) {
+        throw "GitHub immutable releases are not enabled. Enable Settings > General > Releases > Enable release immutability before v1.0.0."
+    }
+
+    Write-Host "GitHub immutable releases are enabled." -ForegroundColor Green
+}
+
 function Get-RunCount {
     param(
         [string]$Workflow,
@@ -154,6 +171,8 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($MainSha)) {
 }
 
 Write-Host "Current main SHA: $MainSha"
+
+Require-ImmutableReleases -Repository $Repo
 
 $CertificationRuns = Get-RunCount "certification.yml" $MainSha
 if ($CertificationRuns -lt 1) {
