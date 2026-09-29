@@ -73,7 +73,61 @@ function Resolve-CompletedEvidenceSession {
         throw "Evidence acceptance run has an unexpected trigger event: $($run.event)"
     }
 
-    Write-Host "Physical-device QA evidence is complete, checksum-covered, ZIP-verified, and bound to production acceptance run $($verified.acceptance_run_id)." -ForegroundColor Green
+    $expectedArtifactName = "scan-v1-production-acceptance-$ExpectedSha"
+    if ([string]$verified.artifact_name -ne $expectedArtifactName) {
+        throw "Verified evidence references unexpected acceptance artifact '$($verified.artifact_name)'."
+    }
+
+    $remoteRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("scan-v1-remote-acceptance-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $remoteRoot -Force | Out-Null
+
+    try {
+        & gh run download $verified.acceptance_run_id --repo $Repo --name $expectedArtifactName --dir $remoteRoot
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not download the original production acceptance artifact from run $($verified.acceptance_run_id)."
+        }
+
+        $expectedFiles = @(
+            "Scan-v1.0.0-acceptance.apk",
+            "Scan-v1.0.0-acceptance.aab",
+            "Scan-v1.0.0-pre-v1-baseline.apk",
+            "acceptance-checksums.sha256",
+            "acceptance-signing.txt",
+            "production-acceptance-metadata.txt"
+        )
+
+        $remoteFiles = @(Get-ChildItem -Path $remoteRoot -File | Sort-Object Name)
+        $remoteNames = @($remoteFiles | ForEach-Object { $_.Name })
+
+        $missingRemoteFiles = @($expectedFiles | Where-Object { $remoteNames -notcontains $_ })
+        $unexpectedRemoteFiles = @($remoteNames | Where-Object { $expectedFiles -notcontains $_ })
+        if ($missingRemoteFiles.Count -gt 0) {
+            throw "Downloaded production acceptance artifact is missing files: $($missingRemoteFiles -join ', ')."
+        }
+        if ($unexpectedRemoteFiles.Count -gt 0) {
+            throw "Downloaded production acceptance artifact contains unexpected files: $($unexpectedRemoteFiles -join ', ')."
+        }
+
+        $localAcceptanceDir = Join-Path ([string]$verified.session_path) "acceptance-kit"
+        foreach ($name in $expectedFiles) {
+            $localPath = Join-Path $localAcceptanceDir $name
+            $remotePath = Join-Path $remoteRoot $name
+            if (-not (Test-Path $localPath)) {
+                throw "Local evidence acceptance kit is missing file: $name"
+            }
+
+            $localHash = (Get-FileHash -Algorithm SHA256 $localPath).Hash.ToLowerInvariant()
+            $remoteHash = (Get-FileHash -Algorithm SHA256 $remotePath).Hash.ToLowerInvariant()
+            if ($localHash -ne $remoteHash) {
+                throw "Remote acceptance artifact mismatch for $name."
+            }
+        }
+    }
+    finally {
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $remoteRoot
+    }
+
+    Write-Host "Physical-device QA evidence is complete, internally verified, ZIP-verified, and byte-bound to production acceptance run $($verified.acceptance_run_id)." -ForegroundColor Green
     Write-Host "Evidence session: $($verified.session_path)"
     Write-Host "Evidence package: $($verified.zip_path)"
     Write-Host "Evidence ZIP SHA-256: $($verified.zip_sha256)"
