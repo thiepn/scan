@@ -150,43 +150,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "mode=create" >> "${GITHUB_OUTPUT}"
-            echo "No existing release found; a verified draft will be created."
-            exit 0
-          fi
-
-          DRAFT_STATE="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft')"
-          if [ "${DRAFT_STATE}" = "true" ]; then
-            echo "Removing stale draft release from an earlier failed attempt."
-            gh release delete "${GITHUB_REF_NAME}" --yes
-            echo "mode=create" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          RELEASE_ENDPOINT="/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"
-          IMMUTABLE="false"
-          for attempt in $(seq 1 12); do
-            IMMUTABLE="$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2026-03-10" \
-              "${RELEASE_ENDPOINT}" \
-              --jq '.immutable')"
-            if [ "${IMMUTABLE}" = "true" ]; then
-              break
-            fi
-            echo "Existing public release is not reported immutable yet (attempt ${attempt}/12); retrying..."
-            sleep 5
-          done
-
-          if [ "${IMMUTABLE}" != "true" ]; then
-            echo "::error::A non-draft release exists but is not immutable. Refusing to reuse or overwrite it."
+          MODE="$(bash scripts/resolve-v1-release-state.sh "${GITHUB_REF_NAME}")"
+          if [ "${MODE}" != "create" ] && [ "${MODE}" != "reuse_public" ]; then
+            echo "::error::Unexpected release recovery mode: ${MODE}"
             exit 1
           fi
-
-          echo "Found an existing immutable public release. This is treated as a retry/recovery run."
-          echo "mode=reuse_public" >> "${GITHUB_OUTPUT}"
+          echo "mode=${MODE}" >> "${GITHUB_OUTPUT}"
+          echo "release_mode=${MODE}"
 
       - name: Create draft GitHub Release
         if: steps.release_state.outputs.mode == 'create'
@@ -267,28 +237,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          RELEASE_ENDPOINT="/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"
-          IMMUTABLE="false"
-          for attempt in $(seq 1 12); do
-            IMMUTABLE="$(gh api \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2026-03-10" \
-              "${RELEASE_ENDPOINT}" \
-              --jq '.immutable')"
-            if [ "${IMMUTABLE}" = "true" ]; then
-              break
-            fi
-            echo "Published release is not reported immutable yet (attempt ${attempt}/12); retrying..."
-            sleep 5
-          done
-
-          if [ "${IMMUTABLE}" != "true" ]; then
+          if ! bash scripts/wait-v1-release-immutable.sh "${GITHUB_REF_NAME}"; then
             echo "::error::Published release did not become immutable. Removing it when possible and refusing v1.0.0 publication."
             gh release delete "${GITHUB_REF_NAME}" --yes || true
             exit 1
           fi
-
-          echo "GitHub reports ${GITHUB_REF_NAME} as immutable."
 
           VERIFIED_RELEASE=false
           for attempt in $(seq 1 12); do
