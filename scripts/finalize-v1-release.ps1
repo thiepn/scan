@@ -33,9 +33,13 @@ function Resolve-CompletedEvidenceSession {
     $root = Split-Path -Parent $PSScriptRoot
     $evidenceBase = Join-Path $root "release-evidence\v1"
     $pointer = Join-Path $evidenceBase "current-session.txt"
+    $verifier = Join-Path $PSScriptRoot "verify-v1-evidence.ps1"
 
     if (-not (Test-Path $pointer)) {
         throw "No current physical-device QA session found. Run scripts/run-v1-device-qa.ps1 -Mode Prepare first."
+    }
+    if (-not (Test-Path $verifier)) {
+        throw "Missing strict evidence verifier: $verifier"
     }
 
     $sessionPath = (Get-Content $pointer -Raw).Trim()
@@ -43,83 +47,43 @@ function Resolve-CompletedEvidenceSession {
         throw "The physical-device QA session pointer is missing or stale."
     }
 
-    $sessionJson = Join-Path $sessionPath "session.json"
-    if (-not (Test-Path $sessionJson)) {
-        throw "The physical-device QA session has no session.json."
+    $verificationJson = & $verifier -SessionPath $sessionPath -ExpectedSha $ExpectedSha -Json
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($verificationJson -join ""))) {
+        throw "Strict physical-device evidence verification failed."
     }
 
-    $session = Get-Content $sessionJson -Raw | ConvertFrom-Json
-    if ($session.release_sha -ne $ExpectedSha) {
-        throw "Physical-device QA evidence targets $($session.release_sha), not exact current main $ExpectedSha."
+    $verified = ($verificationJson -join [Environment]::NewLine) | ConvertFrom-Json
+
+    $runJson = & gh api --method GET "repos/$Repo/actions/runs/$($verified.acceptance_run_id)"
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($runJson -join ""))) {
+        throw "Could not resolve evidence production-acceptance run $($verified.acceptance_run_id)."
     }
 
-    $pending = New-Object System.Collections.Generic.List[string]
-    $failed = New-Object System.Collections.Generic.List[string]
-
-    foreach ($property in $session.gates.PSObject.Properties) {
-        $result = [string]$property.Value.result
-        if ($result -eq "pending") {
-            $pending.Add($property.Name)
-        }
-        elseif ($result -ne "pass") {
-            $failed.Add("$($property.Name)=$result")
-        }
+    $run = ($runJson -join [Environment]::NewLine) | ConvertFrom-Json
+    if ([string]$run.head_sha -ne $ExpectedSha) {
+        throw "Evidence acceptance run targets $($run.head_sha), not exact current main $ExpectedSha."
+    }
+    if ([string]$run.status -ne "completed" -or [string]$run.conclusion -ne "success") {
+        throw "Evidence acceptance run is not a successful completed run."
+    }
+    if ([string]$run.path -ne ".github/workflows/production-acceptance.yml") {
+        throw "Evidence acceptance run came from an unexpected workflow: $($run.path)"
+    }
+    if ([string]$run.event -ne "push" -and [string]$run.event -ne "workflow_dispatch") {
+        throw "Evidence acceptance run has an unexpected trigger event: $($run.event)"
     }
 
-    if ($pending.Count -gt 0) {
-        throw "Physical-device QA evidence still has pending gates: $($pending -join ', ')."
-    }
-    if ($failed.Count -gt 0) {
-        throw "Physical-device QA evidence contains non-passing gates: $($failed -join ', ')."
-    }
-
-    $summaryPath = Join-Path $sessionPath "EVIDENCE_SUMMARY.md"
-    $checksumsPath = Join-Path $sessionPath "evidence-checksums.sha256"
-    $zipPath = "$sessionPath.zip"
-
-    if (-not (Test-Path $summaryPath)) {
-        throw "Completed QA evidence is missing EVIDENCE_SUMMARY.md. Run scripts/run-v1-device-qa.ps1 -Mode Package."
-    }
-    if (-not (Test-Path $checksumsPath)) {
-        throw "Completed QA evidence is missing evidence-checksums.sha256. Run scripts/run-v1-device-qa.ps1 -Mode Package."
-    }
-    if (-not (Test-Path $zipPath)) {
-        throw "Completed QA evidence ZIP is missing. Run scripts/run-v1-device-qa.ps1 -Mode Package."
-    }
-
-    foreach ($line in (Get-Content $checksumsPath)) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-
-        if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
-            throw "Malformed evidence checksum line: $line"
-        }
-
-        $expectedHash = $Matches[1].ToLowerInvariant()
-        $relativePath = $Matches[2].Trim()
-        $nativeRelative = $relativePath.Replace([char]47, [char]92)
-        $filePath = Join-Path $sessionPath $nativeRelative
-
-        if (-not (Test-Path $filePath)) {
-            throw "Evidence checksum manifest references a missing file: $relativePath"
-        }
-
-        $actualHash = (Get-FileHash -Algorithm SHA256 $filePath).Hash.ToLowerInvariant()
-        if ($actualHash -ne $expectedHash) {
-            throw "Evidence checksum mismatch: $relativePath"
-        }
-    }
-
-    Write-Host "Physical-device QA evidence is complete and checksum-verified for $ExpectedSha." -ForegroundColor Green
-    Write-Host "Evidence session: $sessionPath"
-    Write-Host "Evidence package: $zipPath"
+    Write-Host "Physical-device QA evidence is complete, checksum-covered, ZIP-verified, and bound to production acceptance run $($verified.acceptance_run_id)." -ForegroundColor Green
+    Write-Host "Evidence session: $($verified.session_path)"
+    Write-Host "Evidence package: $($verified.zip_path)"
+    Write-Host "Evidence ZIP SHA-256: $($verified.zip_sha256)"
 
     return [PSCustomObject]@{
-        Path = $sessionPath
-        ZipPath = $zipPath
-        SignerSha256 = [string]$session.signer_sha256
-        AcceptanceRunId = [string]$session.acceptance_run_id
+        Path = [string]$verified.session_path
+        ZipPath = [string]$verified.zip_path
+        ZipSha256 = [string]$verified.zip_sha256
+        SignerSha256 = [string]$verified.signer_sha256
+        AcceptanceRunId = [string]$verified.acceptance_run_id
     }
 }
 
