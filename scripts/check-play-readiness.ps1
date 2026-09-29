@@ -19,7 +19,7 @@ function Get-SuccessfulRunCount {
         [string]$Sha
     )
     $endpoint = "repos/$Repo/actions/workflows/$Workflow/runs?branch=main&head_sha=$Sha&status=success"
-    $count = & gh api --method GET $endpoint --jq '.workflow_runs | length'
+    $count = & gh api --method GET $endpoint --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | length'
     if ($LASTEXITCODE -ne 0) {
         throw "Could not query workflow '$Workflow'."
     }
