@@ -5,6 +5,9 @@ on:
     paths:
       - 'play/**'
       - 'scripts/validate-play-listing.py'
+      - 'scripts/bootstrap-production-signing.ps1'
+      - 'scripts/check-play-readiness.ps1'
+      - 'scripts/finalize-v1-release.ps1'
       - 'scripts/collect-device-evidence.ps1'
       - 'scripts/run-v1-device-qa.ps1'
       - '.github/workflows/play-listing.yml'
