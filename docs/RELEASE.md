@@ -34,11 +34,12 @@ The script:
 
 Back up the keystore in at least two secure offline locations and store both passwords in a password manager. Losing this identity can prevent compatible direct-APK updates. Never commit the keystore or passwords.
 
-After completing the physical-device acceptance matrix for the exact release SHA, set the non-secret repository Actions variable:
+After completing the physical-device acceptance matrix, use `scripts/finalize-v1-release.ps1`. The finalizer sets two non-secret repository variables only after strict evidence verification and exact-SHA human attestation:
 
-- `SCAN_V1_MANUAL_ACCEPTANCE_SHA` — exact `main` SHA whose manual gates in `docs/V1_DEVICE_QA.md` have all passed
+- `SCAN_V1_MANUAL_ACCEPTANCE_SHA` — exact accepted `main` SHA
+- `SCAN_V1_ACCEPTANCE_RUN_ID` — exact successful production-acceptance run whose artifact was physically tested
 
-Do not set this variable early. It is the explicit human release attestation checked by the publication workflow.
+Do not set either variable manually. The publication workflow requires both and validates the recorded run independently.
 
 ## Production-signed acceptance candidate
 
@@ -51,7 +52,7 @@ That workflow:
 3. builds the frozen Phase 20 pre-v1 baseline with the same production key,
 4. verifies package/version/privacy/signatures and matching signing certificates,
 5. performs an API 35 production-key update + fresh-install smoke,
-6. uploads a 14-day acceptance kit for the required physical-device tests.
+6. uploads a 90-day acceptance kit for the required physical-device tests and exact-release publication.
 
 Use that acceptance kit for every manual release gate. See `docs/V1_DEVICE_QA.md`.
 
@@ -62,7 +63,7 @@ Use that acceptance kit for every manual release gate. See `docs/V1_DEVICE_QA.md
 3. Confirm the exact final `main` HEAD passes **v1 Production Device Acceptance Candidate** and download its production-signed acceptance kit.
 4. Complete and record every manual gate in `docs/V1_DEVICE_QA.md`.
 5. Record the production signing certificate fingerprint outside the repository.
-6. Set `SCAN_V1_MANUAL_ACCEPTANCE_SHA` to the exact accepted `main` SHA only after all manual gates pass.
+6. Package and strictly verify the completed device evidence; do not set release-attestation variables manually.
 7. Confirm `app/build.gradle.kts` still reports `versionCode = 1` and `versionName = "1.0.0"`.
 8. Confirm Room schema v22 is committed and CI reports no schema drift.
 9. Confirm there are zero open P0/P1 release defects.
@@ -78,16 +79,17 @@ v1.0.0
 The tag-driven `Publish v1 Release` workflow then:
 
 1. rejects the tag unless `v1.0.0` resolves to the exact current `main` HEAD and that SHA already has a successful push-triggered v1 Production Certification run,
-2. requires a successful production-signed acceptance-candidate run for that exact SHA,
-3. requires `SCAN_V1_MANUAL_ACCEPTANCE_SHA` to equal that exact SHA,
-4. requires the production signing secrets,
-5. reconstructs the keystore only inside the runner,
-6. runs unit tests and release lint,
-7. builds the minified production APK and Play AAB,
-8. renames the artifacts to their public release names before verification,
-9. verifies APK/AAB signatures, package ID, version, and privacy permissions,
-10. computes SHA-256 checksums whose filenames match the downloadable release assets,
-11. publishes the APK, AAB, and checksum file in the GitHub Release.
+2. requires `SCAN_V1_MANUAL_ACCEPTANCE_SHA` to equal that exact SHA,
+3. requires `SCAN_V1_ACCEPTANCE_RUN_ID` to identify a successful completed `.github/workflows/production-acceptance.yml` run for exact `main`,
+4. requires exactly one non-expired acceptance artifact named `scan-v1-production-acceptance-<sha>` from that run,
+5. downloads that original GitHub Actions artifact instead of rebuilding the app,
+6. verifies its exact six-file acceptance-kit shape, internal SHA-256 manifest, release SHA, workflow run ID, baseline SHA, and signing-certificate digest agreement,
+7. copies the **exact accepted APK/AAB bytes** to `Scan-v1.0.0.apk` and `Scan-v1.0.0.aab`,
+8. computes public SHA-256 checksums for those exact bytes,
+9. writes `release-provenance.txt` with the accepted source SHA, acceptance run ID, artifact name, APK/AAB/baseline hashes, and signer SHA-256,
+10. publishes the exact accepted APK, exact accepted AAB, checksum file, and provenance record in the GitHub Release.
+
+The tag-time publication job no longer rebuilds Scan and no longer needs the private signing key. The binary that was physically tested is the binary that is published.
 
 The workflow intentionally rejects any tag other than `v1.0.0` for this frozen v1 release.
 
@@ -99,7 +101,7 @@ After **every** manual gate in `docs/V1_DEVICE_QA.md` is complete for the exact 
 powershell -ExecutionPolicy Bypass -File .\scripts\finalize-v1-release.ps1
 ```
 
-The finalizer refuses to continue unless the exact current `main` SHA already has successful normal certification and production-key acceptance runs. It then requires you to type that exact SHA as the manual acceptance attestation, sets `SCAN_V1_MANUAL_ACCEPTANCE_SHA`, creates `v1.0.0`, watches the publication workflow to completion, resolves the GitHub Release, and closes release-blocker issue #20 only after publication succeeds.
+The finalizer refuses to continue unless the exact current `main` SHA already has successful normal certification and production-key acceptance runs. It strictly verifies the complete evidence package, re-downloads and byte-matches the original acceptance artifact, requires you to type the exact SHA as the manual acceptance attestation, rechecks that `main` has not moved, records both `SCAN_V1_MANUAL_ACCEPTANCE_SHA` and the evidence-bound `SCAN_V1_ACCEPTANCE_RUN_ID`, creates `v1.0.0`, watches publication to completion, resolves the GitHub Release, and closes release-blocker issue #20 only after publication succeeds.
 
 It never substitutes for the physical-device evidence; it only makes the irreversible release step hard to perform incorrectly.
 

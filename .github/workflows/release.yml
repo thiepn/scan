@@ -13,23 +13,22 @@ jobs:
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     env:
-      SCAN_RELEASE_STORE_PASSWORD: ${{ secrets.SCAN_RELEASE_STORE_PASSWORD }}
-      SCAN_RELEASE_KEY_ALIAS: ${{ secrets.SCAN_RELEASE_KEY_ALIAS }}
-      SCAN_RELEASE_KEY_PASSWORD: ${{ secrets.SCAN_RELEASE_KEY_PASSWORD }}
-      SCAN_RELEASE_KEYSTORE_BASE64: ${{ secrets.SCAN_RELEASE_KEYSTORE_BASE64 }}
-      SCAN_RELEASE_STORE_FILE: /tmp/scan-production.jks
       SCAN_V1_MANUAL_ACCEPTANCE_SHA: ${{ vars.SCAN_V1_MANUAL_ACCEPTANCE_SHA }}
+      SCAN_V1_ACCEPTANCE_RUN_ID: ${{ vars.SCAN_V1_ACCEPTANCE_RUN_ID }}
       GH_TOKEN: ${{ github.token }}
+
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Require exact certified main commit
+      - name: Require exact certified and accepted main commit
         shell: bash
         run: |
+          set -euo pipefail
+
           test "${GITHUB_REF_NAME}" = "v1.0.0"
           git fetch origin main --no-tags
 
@@ -43,20 +42,13 @@ jobs:
             exit 1
           fi
 
-          CERTIFIED_RUNS="$(gh api             -H "Accept: application/vnd.github+json"             "/repos/${GITHUB_REPOSITORY}/actions/workflows/certification.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success&event=push"             --jq '.total_count')"
+          CERTIFIED_RUNS="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/certification.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success&event=push" \
+            --jq '.total_count')"
 
           if [ "${CERTIFIED_RUNS}" -lt 1 ]; then
             echo "::error::The release commit has no successful main-branch v1 Production Certification run."
-            exit 1
-          fi
-
-          ACCEPTANCE_RUNS="$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${GITHUB_REPOSITORY}/actions/workflows/production-acceptance.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success" \
-            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | length')"
-
-          if [ "${ACCEPTANCE_RUNS}" -lt 1 ]; then
-            echo "::error::The release commit has no successful production-signed device acceptance candidate run."
             exit 1
           fi
 
@@ -72,50 +64,89 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
+          if [[ ! "${SCAN_V1_ACCEPTANCE_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Repository variable SCAN_V1_ACCEPTANCE_RUN_ID is missing or invalid."
+            exit 1
+          fi
 
-      - name: Install Android SDK
-        run: |
-          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+          RUN_ENDPOINT="/repos/${GITHUB_REPOSITORY}/actions/runs/${SCAN_V1_ACCEPTANCE_RUN_ID}"
+          RUN_HEAD="$(gh api -H "Accept: application/vnd.github+json" "${RUN_ENDPOINT}" --jq '.head_sha')"
+          RUN_BRANCH="$(gh api -H "Accept: application/vnd.github+json" "${RUN_ENDPOINT}" --jq '.head_branch')"
+          RUN_STATUS="$(gh api -H "Accept: application/vnd.github+json" "${RUN_ENDPOINT}" --jq '.status')"
+          RUN_CONCLUSION="$(gh api -H "Accept: application/vnd.github+json" "${RUN_ENDPOINT}" --jq '.conclusion')"
+          RUN_PATH="$(gh api -H "Accept: application/vnd.github+json" "${RUN_ENDPOINT}" --jq '.path')"
+          RUN_EVENT="$(gh api -H "Accept: application/vnd.github+json" "${RUN_ENDPOINT}" --jq '.event')"
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.6.0'
+          if [ "${RUN_HEAD}" != "${RELEASE_SHA}" ]; then
+            echo "::error::Evidence-bound acceptance run targets a different SHA."
+            exit 1
+          fi
+          if [ "${RUN_BRANCH}" != "main" ]; then
+            echo "::error::Evidence-bound acceptance run did not target main."
+            exit 1
+          fi
+          if [ "${RUN_STATUS}" != "completed" ] || [ "${RUN_CONCLUSION}" != "success" ]; then
+            echo "::error::Evidence-bound acceptance run is not a successful completed run."
+            exit 1
+          fi
+          if [ "${RUN_PATH}" != ".github/workflows/production-acceptance.yml" ]; then
+            echo "::error::Evidence-bound run came from an unexpected workflow: ${RUN_PATH}"
+            exit 1
+          fi
+          if [ "${RUN_EVENT}" != "push" ] && [ "${RUN_EVENT}" != "workflow_dispatch" ]; then
+            echo "::error::Evidence-bound acceptance run has unexpected event: ${RUN_EVENT}"
+            exit 1
+          fi
 
-      - name: Require production signing secrets
+          ARTIFACT_NAME="scan-v1-production-acceptance-${RELEASE_SHA}"
+          ARTIFACT_COUNT="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${SCAN_V1_ACCEPTANCE_RUN_ID}/artifacts" \
+            --jq "[.artifacts[] | select(.name == \"${ARTIFACT_NAME}\" and .expired == false)] | length")"
+
+          if [ "${ARTIFACT_COUNT}" -ne 1 ]; then
+            echo "::error::Expected exactly one non-expired acceptance artifact named ${ARTIFACT_NAME}; found ${ARTIFACT_COUNT}."
+            exit 1
+          fi
+
+          echo "release_sha=${RELEASE_SHA}"
+          echo "acceptance_run_id=${SCAN_V1_ACCEPTANCE_RUN_ID}"
+          echo "acceptance_artifact=${ARTIFACT_NAME}"
+
+      - name: Download exact evidence-bound acceptance artifact
         shell: bash
         run: |
-          for name in             SCAN_RELEASE_KEYSTORE_BASE64             SCAN_RELEASE_STORE_PASSWORD             SCAN_RELEASE_KEY_ALIAS             SCAN_RELEASE_KEY_PASSWORD
-          do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::Missing required production secret: ${name}"
-              exit 1
-            fi
-          done
+          set -euo pipefail
+          ACCEPTANCE_DIR="${RUNNER_TEMP}/accepted-release"
+          mkdir -p "${ACCEPTANCE_DIR}"
 
-      - name: Materialize production keystore
-        run: |
-          printf '%s' "${SCAN_RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${SCAN_RELEASE_STORE_FILE}"
-          keytool -list             -keystore "${SCAN_RELEASE_STORE_FILE}"             -storepass "${SCAN_RELEASE_STORE_PASSWORD}"             -alias "${SCAN_RELEASE_KEY_ALIAS}" >/dev/null
+          gh run download "${SCAN_V1_ACCEPTANCE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "scan-v1-production-acceptance-${GITHUB_SHA}" \
+            --dir "${ACCEPTANCE_DIR}"
 
-      - name: Build frozen v1.0 release
+      - name: Promote exact accepted APK and AAB bytes
+        shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "v1.0.0"
-          gradle             :app:clean             :app:testDebugUnitTest             :app:lintRelease             :app:assembleRelease             :app:bundleRelease             --stacktrace
+          set -euo pipefail
+          bash scripts/promote-v1-accepted-artifact.sh \
+            "${RUNNER_TEMP}/accepted-release" \
+            "${GITHUB_SHA}" \
+            "${SCAN_V1_ACCEPTANCE_RUN_ID}" \
+            "${GITHUB_WORKSPACE}"
 
-      - name: Rename release artifacts
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk Scan-v1.0.0.apk
-          cp app/build/outputs/bundle/release/app-release.aab Scan-v1.0.0.aab
-
-      - name: Verify production release
-        run: |
-          bash scripts/verify-release.sh             Scan-v1.0.0.apk             Scan-v1.0.0.aab             release-checksums.sha256
+          sha256sum -c release-checksums.sha256
+          cat release-provenance.txt
 
       - name: Publish GitHub Release
+        shell: bash
         run: |
-          gh release create "${GITHUB_REF_NAME}"             Scan-v1.0.0.apk             Scan-v1.0.0.aab             release-checksums.sha256             --verify-tag             --title "Scan v1.0.0"             --notes-file docs/RELEASE_NOTES_V1.0.0.md
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            Scan-v1.0.0.apk \
+            Scan-v1.0.0.aab \
+            release-checksums.sha256 \
+            release-provenance.txt \
+            --verify-tag \
+            --title "Scan v1.0.0" \
+            --notes-file docs/RELEASE_NOTES_V1.0.0.md

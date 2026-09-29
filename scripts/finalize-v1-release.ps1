@@ -197,17 +197,43 @@ if ($Attestation.Trim() -ne $MainSha) {
     throw "Manual acceptance was not attested for the exact current main SHA."
 }
 
+
+$MainBeforeAttestation = (& gh api --method GET "repos/$Repo/commits/main" --jq '.sha').Trim()
+if ($LASTEXITCODE -ne 0 -or $MainBeforeAttestation -ne $MainSha) {
+    throw "Current main changed after evidence verification. Do not publish stale evidence; prepare a new acceptance/evidence session."
+}
+
+$AcceptanceRunId = [string]$EvidenceSession.AcceptanceRunId
+if ($AcceptanceRunId -notmatch '^[1-9][0-9]*$') {
+    throw "Verified evidence returned an invalid production acceptance run id."
+}
+
 & gh variable set SCAN_V1_MANUAL_ACCEPTANCE_SHA --repo $Repo --body $MainSha
 if ($LASTEXITCODE -ne 0) {
     throw "Could not set SCAN_V1_MANUAL_ACCEPTANCE_SHA."
 }
 
-$Recorded = (& gh variable get SCAN_V1_MANUAL_ACCEPTANCE_SHA --repo $Repo).Trim()
-if ($LASTEXITCODE -ne 0 -or $Recorded -ne $MainSha) {
-    throw "Manual acceptance variable did not round-trip to the expected SHA."
+& gh variable set SCAN_V1_ACCEPTANCE_RUN_ID --repo $Repo --body $AcceptanceRunId
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not set SCAN_V1_ACCEPTANCE_RUN_ID."
 }
 
-Write-Host "Manual acceptance attestation recorded." -ForegroundColor Green
+$RecordedSha = (& gh variable get SCAN_V1_MANUAL_ACCEPTANCE_SHA --repo $Repo).Trim()
+if ($LASTEXITCODE -ne 0 -or $RecordedSha -ne $MainSha) {
+    throw "Manual acceptance SHA variable did not round-trip to the expected value."
+}
+
+$RecordedRunId = (& gh variable get SCAN_V1_ACCEPTANCE_RUN_ID --repo $Repo).Trim()
+if ($LASTEXITCODE -ne 0 -or $RecordedRunId -ne $AcceptanceRunId) {
+    throw "Acceptance run ID variable did not round-trip to the evidence-bound run."
+}
+
+$MainBeforeTag = (& gh api --method GET "repos/$Repo/commits/main" --jq '.sha').Trim()
+if ($LASTEXITCODE -ne 0 -or $MainBeforeTag -ne $MainSha) {
+    throw "Current main changed before tag creation. The acceptance attestation is stale; do not create v1.0.0."
+}
+
+Write-Host "Manual acceptance attestation recorded for SHA $MainSha and acceptance run $AcceptanceRunId." -ForegroundColor Green
 
 $refPayload = @{
     ref = "refs/tags/v1.0.0"
@@ -254,7 +280,7 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($ReleaseUrl)) {
 }
 
 if ($ReleaseBlockerIssue -gt 0) {
-    & gh issue close $ReleaseBlockerIssue --repo $Repo --comment "v1.0.0 published successfully from exact accepted main SHA $MainSha. Release: $ReleaseUrl"
+    & gh issue close $ReleaseBlockerIssue --repo $Repo --comment "v1.0.0 published successfully from exact accepted main SHA $MainSha using the exact APK/AAB bytes from production acceptance run $AcceptanceRunId. Release: $ReleaseUrl"
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Release succeeded, but release-blocker issue #$ReleaseBlockerIssue could not be closed automatically."
     }

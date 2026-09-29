@@ -342,9 +342,10 @@ Only after those checks and an exact-SHA human attestation does the finalizer se
 
 ```text
 SCAN_V1_MANUAL_ACCEPTANCE_SHA=<exact main SHA>
+SCAN_V1_ACCEPTANCE_RUN_ID=<evidence-bound production acceptance run>
 ```
 
-The tag publication workflow requires that variable to match the exact `v1.0.0` release SHA. The variable is an attestation; it does not replace the retained evidence package.
+The tag publication workflow requires both values, independently validates the recorded acceptance run, downloads its original non-expired artifact, and publishes the exact APK/AAB bytes that were used for physical-device acceptance. The variables are attestations/pointers; they do not replace the retained evidence package.
 
 
 ## Strict final evidence verification
@@ -384,3 +385,19 @@ The final release verifier now checks two integrity layers before `v1.0.0` can b
 2. `scripts/finalize-v1-release.ps1` re-downloads the original GitHub Actions acceptance artifact from the recorded successful run and requires all six acceptance-kit files to match the local evidence copies byte-for-byte by SHA-256.
 
 A locally edited acceptance kit cannot become releasable merely by recomputing the outer evidence hashes.
+
+
+## Exact tested-byte publication
+
+The production acceptance artifact is retained for 90 days to leave enough time for physical-device QA.
+
+After evidence verification, the final release does **not** rebuild Scan. The finalizer records the exact evidence-bound production acceptance run ID, and the tag-driven release workflow:
+
+1. resolves that exact successful production-acceptance run;
+2. requires its non-expired `scan-v1-production-acceptance-<sha>` artifact;
+3. verifies the acceptance kit, internal checksums, metadata, run ID and signer digest;
+4. promotes `Scan-v1.0.0-acceptance.apk` byte-for-byte to `Scan-v1.0.0.apk`;
+5. promotes `Scan-v1.0.0-acceptance.aab` byte-for-byte to `Scan-v1.0.0.aab`;
+6. publishes `release-provenance.txt` documenting the acceptance run and hashes.
+
+Therefore the public GitHub APK and Play AAB are the exact accepted binaries, not a later rebuild from the same source.
