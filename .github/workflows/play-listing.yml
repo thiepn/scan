@@ -12,6 +12,7 @@ on:
       - 'scripts/verify-v1-evidence.ps1'
       - 'scripts/test-v1-evidence-verifier.ps1'
       - 'scripts/finalize-v1-release.ps1'
+      - 'scripts/test-v1-release-gates.sh'
       - '.github/workflows/release.yml'
       - '.github/workflows/play-listing.yml'
   push:
@@ -26,6 +27,7 @@ on:
       - 'scripts/verify-v1-evidence.ps1'
       - 'scripts/test-v1-evidence-verifier.ps1'
       - 'scripts/finalize-v1-release.ps1'
+      - 'scripts/test-v1-release-gates.sh'
       - '.github/workflows/release.yml'
       - '.github/workflows/play-listing.yml'
   workflow_dispatch:
@@ -81,3 +83,7 @@ jobs:
       - name: Run v1 evidence verifier self-test
         shell: pwsh
         run: ./scripts/test-v1-evidence-verifier.ps1
+
+      - name: Run v1 release-gate contract self-test
+        shell: bash
+        run: bash scripts/test-v1-release-gates.sh
