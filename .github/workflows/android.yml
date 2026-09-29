@@ -35,6 +35,11 @@ jobs:
         run: |
           $files = @(
             "scripts/bootstrap-production-signing.ps1",
+            "scripts/check-play-readiness.ps1",
+            "scripts/collect-device-evidence.ps1",
+            "scripts/run-v1-device-qa.ps1",
+            "scripts/verify-v1-evidence.ps1",
+            "scripts/test-v1-evidence-verifier.ps1",
             "scripts/finalize-v1-release.ps1"
           )
           foreach ($file in $files) {
