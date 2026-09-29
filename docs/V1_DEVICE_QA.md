@@ -316,10 +316,31 @@ For the exact candidate SHA, record:
 
 If any source commit changes, this evidence is stale and the acceptance workflow plus affected manual checks must be repeated.
 
-Only after every item above passes, set the repository Actions variable:
+Only after every item above passes, package the guided QA evidence:
+
+```powershell
+.\scripts\run-v1-device-qa.ps1 -Mode Package
+```
+
+Then run the finalizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\finalize-v1-release.ps1
+```
+
+The finalizer now requires the current local QA session to:
+
+- target the exact current `main` SHA
+- have every recorded gate set to `pass`
+- contain `EVIDENCE_SUMMARY.md`
+- contain `evidence-checksums.sha256`
+- contain the packaged evidence ZIP
+- pass independent SHA-256 verification of every file listed in the evidence manifest
+
+Only after those checks and an exact-SHA human attestation does the finalizer set:
 
 ```text
 SCAN_V1_MANUAL_ACCEPTANCE_SHA=<exact main SHA>
 ```
 
-That variable is an explicit release attestation. The tag publication workflow requires it to match the exact `v1.0.0` release SHA; setting it does not replace the underlying evidence.
+The tag publication workflow requires that variable to match the exact `v1.0.0` release SHA. The variable is an attestation; it does not replace the retained evidence package.

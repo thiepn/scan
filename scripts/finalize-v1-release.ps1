@@ -26,6 +26,103 @@ function Get-RunCount {
     return [int]$count
 }
 
+
+function Resolve-CompletedEvidenceSession {
+    param([string]$ExpectedSha)
+
+    $root = Split-Path -Parent $PSScriptRoot
+    $evidenceBase = Join-Path $root "release-evidence\v1"
+    $pointer = Join-Path $evidenceBase "current-session.txt"
+
+    if (-not (Test-Path $pointer)) {
+        throw "No current physical-device QA session found. Run scripts/run-v1-device-qa.ps1 -Mode Prepare first."
+    }
+
+    $sessionPath = (Get-Content $pointer -Raw).Trim()
+    if ([string]::IsNullOrWhiteSpace($sessionPath) -or -not (Test-Path $sessionPath)) {
+        throw "The physical-device QA session pointer is missing or stale."
+    }
+
+    $sessionJson = Join-Path $sessionPath "session.json"
+    if (-not (Test-Path $sessionJson)) {
+        throw "The physical-device QA session has no session.json."
+    }
+
+    $session = Get-Content $sessionJson -Raw | ConvertFrom-Json
+    if ($session.release_sha -ne $ExpectedSha) {
+        throw "Physical-device QA evidence targets $($session.release_sha), not exact current main $ExpectedSha."
+    }
+
+    $pending = New-Object System.Collections.Generic.List[string]
+    $failed = New-Object System.Collections.Generic.List[string]
+
+    foreach ($property in $session.gates.PSObject.Properties) {
+        $result = [string]$property.Value.result
+        if ($result -eq "pending") {
+            $pending.Add($property.Name)
+        }
+        elseif ($result -ne "pass") {
+            $failed.Add("$($property.Name)=$result")
+        }
+    }
+
+    if ($pending.Count -gt 0) {
+        throw "Physical-device QA evidence still has pending gates: $($pending -join ', ')."
+    }
+    if ($failed.Count -gt 0) {
+        throw "Physical-device QA evidence contains non-passing gates: $($failed -join ', ')."
+    }
+
+    $summaryPath = Join-Path $sessionPath "EVIDENCE_SUMMARY.md"
+    $checksumsPath = Join-Path $sessionPath "evidence-checksums.sha256"
+    $zipPath = "$sessionPath.zip"
+
+    if (-not (Test-Path $summaryPath)) {
+        throw "Completed QA evidence is missing EVIDENCE_SUMMARY.md. Run scripts/run-v1-device-qa.ps1 -Mode Package."
+    }
+    if (-not (Test-Path $checksumsPath)) {
+        throw "Completed QA evidence is missing evidence-checksums.sha256. Run scripts/run-v1-device-qa.ps1 -Mode Package."
+    }
+    if (-not (Test-Path $zipPath)) {
+        throw "Completed QA evidence ZIP is missing. Run scripts/run-v1-device-qa.ps1 -Mode Package."
+    }
+
+    foreach ($line in (Get-Content $checksumsPath)) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
+            throw "Malformed evidence checksum line: $line"
+        }
+
+        $expectedHash = $Matches[1].ToLowerInvariant()
+        $relativePath = $Matches[2].Trim()
+        $nativeRelative = $relativePath.Replace([char]47, [char]92)
+        $filePath = Join-Path $sessionPath $nativeRelative
+
+        if (-not (Test-Path $filePath)) {
+            throw "Evidence checksum manifest references a missing file: $relativePath"
+        }
+
+        $actualHash = (Get-FileHash -Algorithm SHA256 $filePath).Hash.ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "Evidence checksum mismatch: $relativePath"
+        }
+    }
+
+    Write-Host "Physical-device QA evidence is complete and checksum-verified for $ExpectedSha." -ForegroundColor Green
+    Write-Host "Evidence session: $sessionPath"
+    Write-Host "Evidence package: $zipPath"
+
+    return [PSCustomObject]@{
+        Path = $sessionPath
+        ZipPath = $zipPath
+        SignerSha256 = [string]$session.signer_sha256
+        AcceptanceRunId = [string]$session.acceptance_run_id
+    }
+}
+
 Require-Command "gh"
 
 & gh auth status *> $null
@@ -58,6 +155,10 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($TagRef)) {
 Write-Host ""
 Write-Host "Automated release gates are green for the exact current main SHA." -ForegroundColor Green
 Write-Host ""
+
+$EvidenceSession = Resolve-CompletedEvidenceSession $MainSha
+
+Write-Host ""
 Write-Host "Before continuing, every manual gate in docs/V1_DEVICE_QA.md must have been completed with evidence:"
 Write-Host "  - Samsung physical-device pass"
 Write-Host "  - Pixel physical-device pass"
@@ -71,7 +172,9 @@ Write-Host "  - production certificate fingerprint recorded outside the reposito
 Write-Host "  - independent APK/AAB verification"
 Write-Host ""
 
-$Attestation = Read-Host "Type the exact main SHA to attest that ALL manual v1.0.0 gates above passed"
+Write-Host "Verified evidence package: $($EvidenceSession.ZipPath)"
+Write-Host ""
+$Attestation = Read-Host "Type the exact main SHA to attest that the verified evidence package represents ALL manual v1.0.0 gates"
 if ($Attestation.Trim() -ne $MainSha) {
     throw "Manual acceptance was not attested for the exact current main SHA."
 }
