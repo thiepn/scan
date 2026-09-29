@@ -184,9 +184,15 @@ if ($AcceptanceRuns -lt 1) {
     throw "The exact main SHA has no successful production-signed acceptance run."
 }
 
+$ExistingTag = $false
 $TagRef = & gh api --method GET "repos/$Repo/git/ref/tags/v1.0.0" --jq '.object.sha' 2>$null
 if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($TagRef)) {
-    throw "Tag v1.0.0 already exists at $($TagRef.Trim())."
+    $ExistingTagSha = $TagRef.Trim()
+    if ($ExistingTagSha -ne $MainSha) {
+        throw "Tag v1.0.0 already exists at $ExistingTagSha, not exact current main $MainSha."
+    }
+    $ExistingTag = $true
+    Write-Host "Tag v1.0.0 already exists at exact current main. Entering verified release-recovery mode." -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -254,43 +260,75 @@ if ($LASTEXITCODE -ne 0 -or $MainBeforeTag -ne $MainSha) {
 
 Write-Host "Manual acceptance attestation recorded for SHA $MainSha and acceptance run $AcceptanceRunId." -ForegroundColor Green
 
-$refPayload = @{
-    ref = "refs/tags/v1.0.0"
-    sha = $MainSha
-} | ConvertTo-Json -Compress
+if (-not $ExistingTag) {
+    $refPayload = @{
+        ref = "refs/tags/v1.0.0"
+        sha = $MainSha
+    } | ConvertTo-Json -Compress
 
-$refPayload | & gh api --method POST "repos/$Repo/git/refs" --input - *> $null
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not create v1.0.0 tag."
+    $refPayload | & gh api --method POST "repos/$Repo/git/refs" --input - *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not create v1.0.0 tag."
+    }
+
+    Write-Host "Created v1.0.0 at $MainSha." -ForegroundColor Green
 }
+else {
+    Write-Host "Reusing existing exact-main v1.0.0 tag after full evidence re-verification." -ForegroundColor Yellow
+}
+Write-Host "Resolving the Publish v1 Release workflow..."
 
-Write-Host "Created v1.0.0 at $MainSha." -ForegroundColor Green
-Write-Host "Waiting for the release workflow to appear..."
-
-$ReleaseRunId = $null
+$ReleaseRun = $null
 for ($i = 0; $i -lt 24; $i++) {
-    Start-Sleep -Seconds 5
-    $runsJson = & gh run list --repo $Repo --workflow release.yml --limit 5 --json databaseId,headSha,status,conclusion,event
+    if (-not $ExistingTag -or $i -gt 0) {
+        Start-Sleep -Seconds 5
+    }
+
+    $runsJson = & gh run list --repo $Repo --workflow release.yml --limit 10 --json databaseId,headSha,status,conclusion,event,createdAt
     if ($LASTEXITCODE -ne 0) {
         continue
     }
 
     $runs = $runsJson | ConvertFrom-Json
-    $match = $runs | Where-Object { $_.headSha -eq $MainSha } | Select-Object -First 1
-    if ($null -ne $match) {
-        $ReleaseRunId = [string]$match.databaseId
+    $ReleaseRun = $runs |
+        Where-Object { $_.headSha -eq $MainSha -and $_.event -eq "push" } |
+        Sort-Object createdAt -Descending |
+        Select-Object -First 1
+
+    if ($null -ne $ReleaseRun) {
         break
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($ReleaseRunId)) {
+if ($null -eq $ReleaseRun) {
+    if ($ExistingTag) {
+        throw "Exact-main v1.0.0 tag exists, but no Publish v1 Release run could be resolved. Do not move the tag; inspect GitHub Actions."
+    }
     throw "v1.0.0 tag was created, but the Publish v1 Release workflow did not appear. Inspect GitHub Actions before retrying anything."
 }
 
-Write-Host "Watching Publish v1 Release run $ReleaseRunId..."
-& gh run watch $ReleaseRunId --repo $Repo --exit-status
-if ($LASTEXITCODE -ne 0) {
-    throw "The v1.0.0 publish workflow failed. Do not recreate or move the tag; inspect the failed run."
+$ReleaseRunId = [string]$ReleaseRun.databaseId
+$ReleaseRunStatus = [string]$ReleaseRun.status
+$ReleaseRunConclusion = [string]$ReleaseRun.conclusion
+
+if ($ReleaseRunStatus -eq "completed" -and $ReleaseRunConclusion -eq "success") {
+    Write-Host "Publish v1 Release run $ReleaseRunId already succeeded; continuing final verification." -ForegroundColor Green
+}
+else {
+    if ($ReleaseRunStatus -eq "completed") {
+        Write-Host "Re-running failed/cancelled Publish v1 Release run $ReleaseRunId in recovery mode..." -ForegroundColor Yellow
+        & gh run rerun $ReleaseRunId --repo $Repo
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not rerun Publish v1 Release run $ReleaseRunId."
+        }
+        Start-Sleep -Seconds 3
+    }
+
+    Write-Host "Watching Publish v1 Release run $ReleaseRunId..."
+    & gh run watch $ReleaseRunId --repo $Repo --exit-status
+    if ($LASTEXITCODE -ne 0) {
+        throw "The v1.0.0 publish workflow failed. Do not recreate or move the tag; re-run the finalizer after correcting the reported release problem."
+    }
 }
 
 $ReleaseUrl = (& gh release view v1.0.0 --repo $Repo --json url --jq '.url').Trim()

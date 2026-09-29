@@ -149,9 +149,21 @@ After the finalizer creates the accepted tag, `.github/workflows/release.yml`:
 8. validates the downloaded checksum manifest and evidence-bound provenance;
 9. only then changes the release from draft to public.
 
-If draft verification fails, the release remains non-public and the workflow fails. A rerun may replace a stale **draft** from the same tag, but it refuses to overwrite an already-public release.
+If draft verification fails, the release remains non-public and the workflow fails. A rerun may replace a stale **draft** from the same tag.
 
-The publication verifier is `scripts/verify-release-publication.sh` and its adversarial CI self-test is `scripts/test-verify-release-publication.sh`.
+If a failure happens **after** the verified draft has already become public—for example while GitHub's immutable-release attestation is still propagating—a rerun enters recovery mode only when the existing public release is reported immutable. It then skips draft recreation and re-runs the immutable-release attestation, public-asset download, byte comparison, checksum/provenance validation, and per-asset attestation verification against the exact accepted payload.
+
+A non-draft release that is not immutable is never reused or overwritten automatically.
+
+The local finalizer is also resumable. If `v1.0.0` already exists at the exact current accepted `main` SHA, the finalizer re-verifies the complete device evidence and original production-acceptance artifact, refreshes the attestation variables, and then resumes or re-runs the existing `Publish v1 Release` workflow instead of moving/recreating the tag.
+
+Release-state recovery is implemented by:
+
+- `scripts/resolve-v1-release-state.sh`
+- `scripts/wait-v1-release-immutable.sh`
+- `scripts/test-v1-release-recovery.sh`
+
+The publication verifier remains `scripts/verify-release-publication.sh` with adversarial self-test `scripts/test-verify-release-publication.sh`.
 
 ## Immutable publication lock
 
@@ -176,6 +188,6 @@ gh release verify-asset v1.0.0 Scan-v1.0.0.apk
 gh release verify-asset v1.0.0 Scan-v1.0.0.aab
 ```
 
-If the workflow ever publishes a release that GitHub does not report as immutable, it deletes that mutable release and fails rather than accepting it as v1.0.0.
+If a newly published release does not become immutable within the bounded retry window, the workflow attempts to delete that still-mutable release and fails rather than accepting it as v1.0.0. If a previous run already produced an immutable public release, a later recovery run reuses it only after exact accepted-byte and attestation verification.
 
 The finalizer requires strict physical-device evidence and byte-binds the local acceptance kit to the original production acceptance artifact from the recorded successful GitHub Actions run before tagging v1.0.0.
