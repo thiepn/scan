@@ -92,7 +92,37 @@ function Resolve-CompletedEvidenceSession {
             continue
         }
 
-        if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)
+        if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
+            throw "Malformed evidence checksum line: $line"
+        }
+
+        $expectedHash = $Matches[1].ToLowerInvariant()
+        $relativePath = $Matches[2].Trim()
+        $nativeRelative = $relativePath.Replace([char]47, [char]92)
+        $filePath = Join-Path $sessionPath $nativeRelative
+
+        if (-not (Test-Path $filePath)) {
+            throw "Evidence checksum manifest references a missing file: $relativePath"
+        }
+
+        $actualHash = (Get-FileHash -Algorithm SHA256 $filePath).Hash.ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "Evidence checksum mismatch: $relativePath"
+        }
+    }
+
+    Write-Host "Physical-device QA evidence is complete and checksum-verified for $ExpectedSha." -ForegroundColor Green
+    Write-Host "Evidence session: $sessionPath"
+    Write-Host "Evidence package: $zipPath"
+
+    return [PSCustomObject]@{
+        Path = $sessionPath
+        ZipPath = $zipPath
+        SignerSha256 = [string]$session.signer_sha256
+        AcceptanceRunId = [string]$session.acceptance_run_id
+    }
+}
+
 Require-Command "gh"
 
 & gh auth status *> $null
