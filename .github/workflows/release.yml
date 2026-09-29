@@ -42,6 +42,16 @@ jobs:
             exit 1
           fi
 
+          PLAY_VALIDATION_RUNS="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/play-listing.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success" \
+            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | length')"
+
+          if [ "${PLAY_VALIDATION_RUNS}" -lt 1 ]; then
+            echo "::error::The release commit has no successful exact-main Google Play Listing Validation run."
+            exit 1
+          fi
+
           CERTIFIED_RUNS="$(gh api \
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/actions/workflows/certification.yml/runs?branch=main&head_sha=${RELEASE_SHA}&status=success&event=push" \
