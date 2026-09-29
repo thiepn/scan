@@ -112,6 +112,8 @@ The reproducible Play Console listing package lives under `play/`.
 
 Before opening the production track:
 
+The exact current SHA must also have a successful **Google Play Listing Validation** run. The finalizer and the tag publication workflow both enforce this. If a source-only commit does not match that workflow's path filters, dispatch the workflow manually on current `main` before finalization.
+
 Read `play/SIGNING_STRATEGY.md` first. The permanent Scan production key is the intended app-signing identity for both direct APK distribution and Google Play; do not accept an unrelated Play app-signing identity and assume cross-channel updates remain compatible.
 
 
