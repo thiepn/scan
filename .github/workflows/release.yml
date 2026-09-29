@@ -145,21 +145,55 @@ jobs:
           )
           cat "${RELEASE_PAYLOAD}/release-provenance.txt"
 
+      - name: Resolve existing release state
+        id: release_state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "mode=create" >> "${GITHUB_OUTPUT}"
+            echo "No existing release found; a verified draft will be created."
+            exit 0
+          fi
+
+          DRAFT_STATE="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft')"
+          if [ "${DRAFT_STATE}" = "true" ]; then
+            echo "Removing stale draft release from an earlier failed attempt."
+            gh release delete "${GITHUB_REF_NAME}" --yes
+            echo "mode=create" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          RELEASE_ENDPOINT="/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"
+          IMMUTABLE="false"
+          for attempt in $(seq 1 12); do
+            IMMUTABLE="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "${RELEASE_ENDPOINT}" \
+              --jq '.immutable')"
+            if [ "${IMMUTABLE}" = "true" ]; then
+              break
+            fi
+            echo "Existing public release is not reported immutable yet (attempt ${attempt}/12); retrying..."
+            sleep 5
+          done
+
+          if [ "${IMMUTABLE}" != "true" ]; then
+            echo "::error::A non-draft release exists but is not immutable. Refusing to reuse or overwrite it."
+            exit 1
+          fi
+
+          echo "Found an existing immutable public release. This is treated as a retry/recovery run."
+          echo "mode=reuse_public" >> "${GITHUB_OUTPUT}"
+
       - name: Create draft GitHub Release
+        if: steps.release_state.outputs.mode == 'create'
         shell: bash
         run: |
           set -euo pipefail
           RELEASE_PAYLOAD="${RUNNER_TEMP}/release-payload"
-
-          if EXISTING_DRAFT="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
-            if [ "${EXISTING_DRAFT}" = "true" ]; then
-              echo "Removing stale draft release from an earlier failed attempt."
-              gh release delete "${GITHUB_REF_NAME}" --yes
-            else
-              echo "::error::A non-draft release already exists for ${GITHUB_REF_NAME}; refusing to overwrite it."
-              exit 1
-            fi
-          fi
 
           gh release create "${GITHUB_REF_NAME}" \
             "${RELEASE_PAYLOAD}/Scan-v1.0.0.apk" \
@@ -172,6 +206,7 @@ jobs:
             --notes-file docs/RELEASE_NOTES_V1.0.0.md
 
       - name: Verify GitHub-stored draft release assets
+        if: steps.release_state.outputs.mode == 'create'
         shell: bash
         run: |
           set -euo pipefail
@@ -213,6 +248,7 @@ jobs:
             "${SCAN_V1_ACCEPTANCE_RUN_ID}"
 
       - name: Publish verified GitHub Release
+        if: steps.release_state.outputs.mode == 'create'
         shell: bash
         run: |
           set -euo pipefail
@@ -232,10 +268,22 @@ jobs:
           set -euo pipefail
 
           RELEASE_ENDPOINT="/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}"
-          IMMUTABLE="$(gh api             -H "Accept: application/vnd.github+json"             -H "X-GitHub-Api-Version: 2026-03-10"             "${RELEASE_ENDPOINT}"             --jq '.immutable')"
+          IMMUTABLE="false"
+          for attempt in $(seq 1 12); do
+            IMMUTABLE="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "${RELEASE_ENDPOINT}" \
+              --jq '.immutable')"
+            if [ "${IMMUTABLE}" = "true" ]; then
+              break
+            fi
+            echo "Published release is not reported immutable yet (attempt ${attempt}/12); retrying..."
+            sleep 5
+          done
 
           if [ "${IMMUTABLE}" != "true" ]; then
-            echo "::error::Published release is not immutable. Removing the mutable release and refusing v1.0.0 publication."
+            echo "::error::Published release did not become immutable. Removing it when possible and refusing v1.0.0 publication."
             gh release delete "${GITHUB_REF_NAME}" --yes || true
             exit 1
           fi
