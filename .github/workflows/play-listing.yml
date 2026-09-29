@@ -5,6 +5,11 @@ on:
     paths:
       - 'play/**'
       - 'scripts/validate-play-listing.py'
+      - 'scripts/test-v1-evidence-verifier.ps1'
+      - 'scripts/verify-v1-evidence.ps1'
+      - 'scripts/finalize-v1-release.ps1'
+      - 'scripts/check-play-readiness.ps1'
+      - 'scripts/bootstrap-production-signing.ps1'
       - 'scripts/bootstrap-production-signing.ps1'
       - 'scripts/check-play-readiness.ps1'
       - 'scripts/finalize-v1-release.ps1'
@@ -16,6 +21,11 @@ on:
     paths:
       - 'play/**'
       - 'scripts/validate-play-listing.py'
+      - 'scripts/test-v1-evidence-verifier.ps1'
+      - 'scripts/verify-v1-evidence.ps1'
+      - 'scripts/finalize-v1-release.ps1'
+      - 'scripts/check-play-readiness.ps1'
+      - 'scripts/bootstrap-production-signing.ps1'
       - 'scripts/collect-device-evidence.ps1'
       - 'scripts/run-v1-device-qa.ps1'
       - '.github/workflows/play-listing.yml'
@@ -58,3 +68,7 @@ jobs:
             }
             Write-Host "$file syntax OK"
           }
+
+      - name: Run v1 evidence verifier self-test
+        shell: pwsh
+        run: ./scripts/test-v1-evidence-verifier.ps1
