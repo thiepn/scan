@@ -165,7 +165,6 @@ try {
 
     $case = Join-Path $tempRoot "stale-sha"
     New-TestPackage $case
-    Assert-Fail $case "stale source SHA" -ErrorAction SilentlyContinue
     try {
         $null = & $Verifier -SessionPath $case -ExpectedSha "3333333333333333333333333333333333333333" -Json
         throw "Expected stale SHA verification to fail."
