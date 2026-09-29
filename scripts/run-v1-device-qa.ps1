@@ -520,7 +520,7 @@ switch ($Mode) {
 
         foreach ($property in $data.gates.PSObject.Properties) {
             $value = $property.Value
-            $notesValue = ([string]$value.notes).Replace("|", "/").Replace([char]13, " ").Replace([char]10, " ")
+            $notesValue = ([string]$value.notes).Replace("|", "/").Replace([char]13, [char]32).Replace([char]10, [char]32)
             $lines.Add("| $($property.Name) | $($value.result) | $notesValue |")
         }
 
@@ -535,7 +535,7 @@ switch ($Mode) {
             Sort-Object FullName
 
         $checksumLines = foreach ($file in $files) {
-            $relative = $file.FullName.Substring($sessionRoot.Length).TrimStart("\", "/").Replace("\", "/")
+            $relative = $file.FullName.Substring($sessionRoot.Length).TrimStart([char]92, [char]47).Replace([char]92, [char]47)
             $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
             "$hash  $relative"
         }
