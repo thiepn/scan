@@ -68,6 +68,12 @@ function Resolve-SafeEvidencePath {
     return $candidate
 }
 
+function Normalize-CertificateDigest {
+    param([string]$Value)
+
+    return (($Value -replace ':', '').Trim()).ToLowerInvariant()
+}
+
 function Get-StreamSha256 {
     param([System.IO.Stream]$Stream)
 
@@ -162,6 +168,114 @@ foreach ($relative in $requiredAcceptanceFiles) {
     if (-not (Test-Path $native)) {
         throw "Completed evidence is missing required acceptance artifact: $relative"
     }
+}
+
+$expectedArtifactName = "scan-v1-production-acceptance-$ExpectedSha"
+$artifactName = [string]$session.artifact_name
+if ($artifactName -ne $expectedArtifactName) {
+    throw "Evidence artifact name '$artifactName' does not match exact current main artifact '$expectedArtifactName'."
+}
+
+$acceptanceDir = Join-Path $resolvedSession "acceptance-kit"
+$acceptanceChecksumsPath = Join-Path $acceptanceDir "acceptance-checksums.sha256"
+$acceptanceSigningPath = Join-Path $acceptanceDir "acceptance-signing.txt"
+$acceptanceMetadataPath = Join-Path $acceptanceDir "production-acceptance-metadata.txt"
+
+$requiredAcceptanceBinaries = @(
+    "Scan-v1.0.0-acceptance.apk",
+    "Scan-v1.0.0-acceptance.aab",
+    "Scan-v1.0.0-pre-v1-baseline.apk"
+)
+
+$acceptanceManifest = @{}
+foreach ($line in (Get-Content $acceptanceChecksumsPath)) {
+    if ([string]::IsNullOrWhiteSpace($line)) {
+        continue
+    }
+    if ($line -notmatch '^([0-9a-fA-F]{64})\s+\*?(.+)$') {
+        throw "Malformed acceptance checksum line: $line"
+    }
+
+    $hash = $Matches[1].ToLowerInvariant()
+    $name = [System.IO.Path]::GetFileName($Matches[2].Trim())
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        throw "Acceptance checksum manifest contains an empty file name."
+    }
+    if ($acceptanceManifest.ContainsKey($name)) {
+        throw "Duplicate acceptance checksum entry: $name"
+    }
+
+    $acceptanceManifest[$name] = $hash
+}
+
+foreach ($name in $requiredAcceptanceBinaries) {
+    if (-not $acceptanceManifest.ContainsKey($name)) {
+        throw "Acceptance kit checksum manifest is missing required file: $name"
+    }
+
+    $binaryPath = Join-Path $acceptanceDir $name
+    $actual = (Get-FileHash -Algorithm SHA256 $binaryPath).Hash.ToLowerInvariant()
+    if ($actual -ne $acceptanceManifest[$name]) {
+        throw "Acceptance kit internal checksum mismatch: $name"
+    }
+}
+
+$metadata = @{}
+$metadataSignerLine = $null
+foreach ($line in (Get-Content $acceptanceMetadataPath)) {
+    if ($line -match '^([^=]+)=(.*)$') {
+        $key = $Matches[1].Trim()
+        $value = $Matches[2].Trim()
+        if ($metadata.ContainsKey($key)) {
+            throw "Duplicate production acceptance metadata key: $key"
+        }
+        $metadata[$key] = $value
+        continue
+    }
+
+    if ($line -match '^Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)\s*$') {
+        $metadataSignerLine = $Matches[1]
+    }
+}
+
+foreach ($requiredKey in @("release_sha", "pre_v1_baseline_sha", "workflow_run_id", "workflow_run_attempt")) {
+    if (-not $metadata.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$metadata[$requiredKey])) {
+        throw "Production acceptance metadata is missing required key: $requiredKey"
+    }
+}
+
+if ([string]$metadata["release_sha"] -ne $ExpectedSha) {
+    throw "Acceptance metadata release SHA '$($metadata["release_sha"])' does not match exact current main '$ExpectedSha'."
+}
+if ([string]$metadata["workflow_run_id"] -ne $acceptanceRunId) {
+    throw "Acceptance metadata workflow run id '$($metadata["workflow_run_id"])' does not match evidence session run id '$acceptanceRunId'."
+}
+if ([string]$metadata["workflow_run_attempt"] -notmatch '^[1-9][0-9]*$') {
+    throw "Acceptance metadata has an invalid workflow_run_attempt."
+}
+if ([string]$metadata["pre_v1_baseline_sha"] -notmatch '^[0-9a-fA-F]{40}$') {
+    throw "Acceptance metadata has an invalid pre_v1_baseline_sha."
+}
+if ($null -eq $metadataSignerLine) {
+    throw "Production acceptance metadata is missing signer SHA-256 digest."
+}
+
+$signingText = Get-Content $acceptanceSigningPath -Raw
+if ($signingText -notmatch '(?im)^Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F:]+)\s*$') {
+    throw "Acceptance signing report is missing signer SHA-256 digest."
+}
+$acceptanceSigner = Normalize-CertificateDigest $Matches[1]
+$metadataSigner = Normalize-CertificateDigest $metadataSignerLine
+$sessionSigner = Normalize-CertificateDigest $signerSha256
+
+if ($acceptanceSigner -notmatch '^[0-9a-f]{64}$') {
+    throw "Acceptance signing report has an invalid signer SHA-256 digest."
+}
+if ($metadataSigner -ne $acceptanceSigner) {
+    throw "Production acceptance metadata signer does not match acceptance signing report."
+}
+if ($sessionSigner -ne $acceptanceSigner) {
+    throw "Evidence session signer does not match acceptance signing report."
 }
 
 $manifest = @{}
@@ -274,6 +388,10 @@ $result = [PSCustomObject]@{
     release_sha = [string]$session.release_sha
     acceptance_run_id = $acceptanceRunId
     signer_sha256 = $signerSha256
+    artifact_name = $artifactName
+    acceptance_apk_sha256 = [string]$acceptanceManifest["Scan-v1.0.0-acceptance.apk"]
+    acceptance_aab_sha256 = [string]$acceptanceManifest["Scan-v1.0.0-acceptance.aab"]
+    baseline_apk_sha256 = [string]$acceptanceManifest["Scan-v1.0.0-pre-v1-baseline.apk"]
     session_path = $resolvedSession
     zip_path = $zipPath
     zip_sha256 = $actualZipHash

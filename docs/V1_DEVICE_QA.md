@@ -368,3 +368,19 @@ The finalizer then resolves the recorded production-acceptance run from GitHub a
 Do not hand-edit `session.json`, `evidence-checksums.sha256`, or the packaged ZIP after `Package`. Re-run the operator and package the evidence again instead.
 
 The verifier itself is exercised in CI by `scripts/test-v1-evidence-verifier.ps1`, which includes valid-package, missing-gate, failed-gate, checksum-omission, tampered-file, stale-SHA, and corrupt-ZIP-checksum cases.
+
+
+## Release evidence binding
+
+The final release verifier now checks two integrity layers before `v1.0.0` can be created:
+
+1. the local evidence package must pass `scripts/verify-v1-evidence.ps1`, including:
+   - every required QA gate recorded as pass,
+   - every evidence file covered by the evidence checksum manifest,
+   - ZIP contents matching the local evidence tree,
+   - the acceptance APK/AAB/baseline matching `acceptance-checksums.sha256`,
+   - acceptance metadata matching the exact release SHA and recorded workflow run,
+   - signer digest agreement between the evidence session, acceptance metadata, and acceptance signing report;
+2. `scripts/finalize-v1-release.ps1` re-downloads the original GitHub Actions acceptance artifact from the recorded successful run and requires all six acceptance-kit files to match the local evidence copies byte-for-byte by SHA-256.
+
+A locally edited acceptance kit cannot become releasable merely by recomputing the outer evidence hashes.

@@ -125,3 +125,6 @@ Read `play/SIGNING_STRATEGY.md` first. The permanent Scan production key is the 
 11. Only after public verification, change the website distribution source of truth to `published`; the official Google Play badge then becomes the primary install CTA while the signed GitHub APK stays available as an alternative.
 
 Do not use the AAB as an end-user download. It is a publishing artifact for Google Play.
+
+
+The finalizer requires strict physical-device evidence and byte-binds the local acceptance kit to the original production acceptance artifact from the recorded successful GitHub Actions run before tagging v1.0.0.
