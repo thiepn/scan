@@ -61,9 +61,13 @@ jobs:
           bash -n scripts/test-promote-v1-accepted-artifact.sh
           bash -n scripts/verify-release-publication.sh
           bash -n scripts/test-verify-release-publication.sh
+          bash -n scripts/wait-v1-release-immutable.sh
+          bash -n scripts/resolve-v1-release-state.sh
+          bash -n scripts/test-v1-release-recovery.sh
 
           bash scripts/test-promote-v1-accepted-artifact.sh
           bash scripts/test-verify-release-publication.sh
+          bash scripts/test-v1-release-recovery.sh
 
       - name: Build and test
         run: gradle :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest --stacktrace
