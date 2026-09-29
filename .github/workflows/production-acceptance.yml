@@ -138,7 +138,7 @@ jobs:
         with:
           name: scan-v1-production-acceptance-${{ github.sha }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
           path: |
             Scan-v1.0.0-acceptance.apk
             Scan-v1.0.0-acceptance.aab
