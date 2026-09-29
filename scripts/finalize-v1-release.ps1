@@ -197,63 +197,14 @@ if ($Attestation.Trim() -ne $MainSha) {
     throw "Manual acceptance was not attested for the exact current main SHA."
 }
 
+
 $MainBeforeAttestation = (& gh api --method GET "repos/$Repo/commits/main" --jq '.sha').Trim()
 if ($LASTEXITCODE -ne 0 -or $MainBeforeAttestation -ne $MainSha) {
     throw "Current main changed after evidence verification. Do not publish stale evidence; prepare a new acceptance/evidence session."
 }
 
 $AcceptanceRunId = [string]$EvidenceSession.AcceptanceRunId
-if ($AcceptanceRunId -notmatch '^[1-9][0-9]*
-$refPayload | & gh api --method POST "repos/$Repo/git/refs" --input - *> $null
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not create v1.0.0 tag."
-}
-
-Write-Host "Created v1.0.0 at $MainSha." -ForegroundColor Green
-Write-Host "Waiting for the release workflow to appear..."
-
-$ReleaseRunId = $null
-for ($i = 0; $i -lt 24; $i++) {
-    Start-Sleep -Seconds 5
-    $runsJson = & gh run list --repo $Repo --workflow release.yml --limit 5 --json databaseId,headSha,status,conclusion,event
-    if ($LASTEXITCODE -ne 0) {
-        continue
-    }
-
-    $runs = $runsJson | ConvertFrom-Json
-    $match = $runs | Where-Object { $_.headSha -eq $MainSha } | Select-Object -First 1
-    if ($null -ne $match) {
-        $ReleaseRunId = [string]$match.databaseId
-        break
-    }
-}
-
-if ([string]::IsNullOrWhiteSpace($ReleaseRunId)) {
-    throw "v1.0.0 tag was created, but the Publish v1 Release workflow did not appear. Inspect GitHub Actions before retrying anything."
-}
-
-Write-Host "Watching Publish v1 Release run $ReleaseRunId..."
-& gh run watch $ReleaseRunId --repo $Repo --exit-status
-if ($LASTEXITCODE -ne 0) {
-    throw "The v1.0.0 publish workflow failed. Do not recreate or move the tag; inspect the failed run."
-}
-
-$ReleaseUrl = (& gh release view v1.0.0 --repo $Repo --json url --jq '.url').Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($ReleaseUrl)) {
-    throw "Publish workflow succeeded but the GitHub Release could not be resolved."
-}
-
-if ($ReleaseBlockerIssue -gt 0) {
-    & gh issue close $ReleaseBlockerIssue --repo $Repo --comment "v1.0.0 published successfully from exact accepted main SHA $MainSha using the exact APK/AAB bytes from production acceptance run $AcceptanceRunId. Release: $ReleaseUrl"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Release succeeded, but release-blocker issue #$ReleaseBlockerIssue could not be closed automatically."
-    }
-}
-
-Write-Host ""
-Write-Host "Scan v1.0.0 is published." -ForegroundColor Green
-Write-Host $ReleaseUrl
-) {
+if ($AcceptanceRunId -notmatch '^[1-9][0-9]*$') {
     throw "Verified evidence returned an invalid production acceptance run id."
 }
 
@@ -329,7 +280,7 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($ReleaseUrl)) {
 }
 
 if ($ReleaseBlockerIssue -gt 0) {
-    & gh issue close $ReleaseBlockerIssue --repo $Repo --comment "v1.0.0 published successfully from exact accepted main SHA $MainSha. Release: $ReleaseUrl"
+    & gh issue close $ReleaseBlockerIssue --repo $Repo --comment "v1.0.0 published successfully from exact accepted main SHA $MainSha using the exact APK/AAB bytes from production acceptance run $AcceptanceRunId. Release: $ReleaseUrl"
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Release succeeded, but release-blocker issue #$ReleaseBlockerIssue could not be closed automatically."
     }
