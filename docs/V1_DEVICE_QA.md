@@ -2,6 +2,78 @@
 
 This runbook completes the manual evidence gates that CI cannot honestly certify.
 
+## Windows guided QA operator
+
+On Windows, use the release operator instead of manually downloading artifacts and building evidence folders.
+
+After **v1 Production Device Acceptance Candidate** is green for exact current `main`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-v1-device-qa.ps1 -Mode Prepare
+```
+
+`Prepare`:
+
+- resolves exact current `main`
+- requires exact-SHA Android CI, Production Certification, and production acceptance
+- downloads the production acceptance artifact from GitHub Actions
+- independently verifies the APK, AAB, and pre-v1 baseline SHA-256 values
+- verifies the acceptance metadata SHA
+- records the production signing certificate SHA-256 digest
+- creates an ignored `release-evidence/v1/<sha>-<timestamp>/` session
+- refuses to continue if the source SHA changes later
+
+Inspect progress at any time:
+
+```powershell
+.\scripts\run-v1-device-qa.ps1 -Mode Status
+```
+
+With an authorized Android device connected through ADB:
+
+```powershell
+.\scripts\run-v1-device-qa.ps1 -Mode Checkpoint -Profile samsung -Label library
+.\scripts\run-v1-device-qa.ps1 -Mode FreshInstall -Profile samsung
+.\scripts\run-v1-device-qa.ps1 -Mode Font200 -Profile samsung
+.\scripts\run-v1-device-qa.ps1 -Mode Upgrade -Profile samsung
+```
+
+When multiple devices are connected, add `-Serial <adb-serial>`.
+
+Record human gate results explicitly:
+
+```powershell
+.\scripts\run-v1-device-qa.ps1 -Mode Record -Gate samsung -Result pass -Notes "Critical-flow smoke completed on Galaxy device"
+.\scripts\run-v1-device-qa.ps1 -Mode Record -Gate talkback -Result pass -Notes "Library, document, editor, export and security paths completed"
+.\scripts\run-v1-device-qa.ps1 -Mode Record -Gate stress-1000 -Result pass -Notes "1,000-page import/search/export acceptance complete"
+```
+
+The operator never auto-passes a human QA gate just because an install or ADB command succeeded.
+
+After every required gate is recorded as `pass`:
+
+```powershell
+.\scripts\run-v1-device-qa.ps1 -Mode Package
+```
+
+That produces:
+
+- `EVIDENCE_SUMMARY.md`
+- `evidence-checksums.sha256`
+- the verified acceptance kit
+- per-device screenshots, UI hierarchy, activity, memory/storage and build metadata
+- a ZIP of the complete evidence session
+
+Use `-AllowIncomplete` only when intentionally creating an interim evidence package.
+
+A standalone PowerShell checkpoint collector is also available:
+
+```powershell
+.\scripts\collect-device-evidence.ps1 -Label samsung-library -Serial <adb-serial>
+```
+
+The existing Bash collector remains available for Linux/macOS/Git Bash.
+
 The release candidate under test must come from the **v1 Production Device Acceptance Candidate** workflow on the exact current `main` SHA. Do not use a locally rebuilt or differently signed APK as release evidence.
 
 ## 1. Freeze the candidate
