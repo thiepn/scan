@@ -2,7 +2,9 @@ param(
     [string]$Repo = "thiepn/scan",
     [string]$BackupDirectory = (Join-Path $HOME "ScanSigningBackup"),
     [string]$ExistingKeystorePath = "",
-    [string]$Alias = "scan-release"
+    [string]$Alias = "scan-release",
+    [switch]$NoWait,
+    [switch]$SkipQaPrepare
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +25,53 @@ function ConvertFrom-SecureValue {
     }
     finally {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+    }
+}
+
+function Set-GitHubSecretFromValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [Parameter(Mandatory = $true)]
+        [string]$Repository
+    )
+
+    $ghPath = (Get-Command "gh").Source
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $ghPath
+    $psi.Arguments = "secret set $Name --repo $Repository"
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+
+    if (-not $process.Start()) {
+        throw "Could not start GitHub CLI while setting $Name."
+    }
+
+    try {
+        $process.StandardInput.Write($Value)
+        $process.StandardInput.Close()
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+
+        if ($process.ExitCode -ne 0) {
+            throw "Could not set GitHub Actions secret $Name. gh exited with $($process.ExitCode). $stderr"
+        }
+    }
+    finally {
+        if (-not $process.HasExited) {
+            $process.Kill()
+            $process.WaitForExit()
+        }
+        $process.Dispose()
     }
 }
 
@@ -53,11 +102,29 @@ function Read-ConfirmedSecret {
 
 Require-Command "keytool"
 Require-Command "gh"
+Require-Command "git"
 
 & gh auth status *> $null
 if ($LASTEXITCODE -ne 0) {
     throw "GitHub CLI is not authenticated. Run 'gh auth login' first."
 }
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$LocalHead = (& git -C $RepoRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($LocalHead)) {
+    throw "Could not resolve the local Git HEAD."
+}
+
+$RemoteMain = (& gh api --method GET "repos/$Repo/commits/main" --jq '.sha').Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($RemoteMain)) {
+    throw "Could not resolve remote main for $Repo."
+}
+
+if ($LocalHead -ne $RemoteMain) {
+    throw "This checkout is not exact current main. local=$LocalHead remote=$RemoteMain. Run 'git switch main' and 'git pull --ff-only', then retry."
+}
+
+Write-Host "Release candidate SHA pinned to exact current main: $RemoteMain" -ForegroundColor Cyan
 
 New-Item -ItemType Directory -Force -Path $BackupDirectory | Out-Null
 $BackupDirectory = (Resolve-Path $BackupDirectory).Path
@@ -154,18 +221,11 @@ try {
         [IO.File]::ReadAllBytes($KeystorePath)
     )
 
-    Write-Host "Uploading encrypted GitHub Actions secrets..."
-    & gh secret set SCAN_RELEASE_KEYSTORE_BASE64 --repo $Repo --body $KeystoreBase64
-    if ($LASTEXITCODE -ne 0) { throw "Could not set SCAN_RELEASE_KEYSTORE_BASE64." }
-
-    & gh secret set SCAN_RELEASE_STORE_PASSWORD --repo $Repo --body $StorePassword
-    if ($LASTEXITCODE -ne 0) { throw "Could not set SCAN_RELEASE_STORE_PASSWORD." }
-
-    & gh secret set SCAN_RELEASE_KEY_ALIAS --repo $Repo --body $Alias
-    if ($LASTEXITCODE -ne 0) { throw "Could not set SCAN_RELEASE_KEY_ALIAS." }
-
-    & gh secret set SCAN_RELEASE_KEY_PASSWORD --repo $Repo --body $KeyPassword
-    if ($LASTEXITCODE -ne 0) { throw "Could not set SCAN_RELEASE_KEY_PASSWORD." }
+    Write-Host "Uploading encrypted GitHub Actions secrets without placing secret values on the process command line..."
+    Set-GitHubSecretFromValue -Name "SCAN_RELEASE_KEYSTORE_BASE64" -Value $KeystoreBase64 -Repository $Repo
+    Set-GitHubSecretFromValue -Name "SCAN_RELEASE_STORE_PASSWORD" -Value $StorePassword -Repository $Repo
+    Set-GitHubSecretFromValue -Name "SCAN_RELEASE_KEY_ALIAS" -Value $Alias -Repository $Repo
+    Set-GitHubSecretFromValue -Name "SCAN_RELEASE_KEY_PASSWORD" -Value $KeyPassword -Repository $Repo
 
     Write-Host ""
     Write-Host "Production signing secrets configured for $Repo." -ForegroundColor Green
@@ -177,15 +237,98 @@ try {
     Write-Host "Do not commit or upload the keystore anywhere except the encrypted GitHub Actions secret."
     Write-Host ""
 
-    Write-Host "Starting the production acceptance workflow..."
+    Write-Host "Starting the production acceptance workflow for exact main $RemoteMain..."
+
+    $existingRunsJson = & gh run list --repo $Repo --workflow production-acceptance.yml --branch main --limit 30 --json databaseId
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not snapshot existing production-acceptance runs before dispatch."
+    }
+    $existingRunIds = @{}
+    foreach ($run in ($existingRunsJson | ConvertFrom-Json)) {
+        $existingRunIds[[string]$run.databaseId] = $true
+    }
+
     & gh workflow run production-acceptance.yml --repo $Repo --ref main
     if ($LASTEXITCODE -ne 0) {
         throw "Signing is configured, but the production acceptance workflow could not be started."
     }
 
-    Write-Host ""
-    Write-Host "Latest production acceptance run:"
-    & gh run list --repo $Repo --workflow production-acceptance.yml --limit 1
+    if ($NoWait) {
+        Write-Host ""
+        Write-Host "Production acceptance was dispatched. -NoWait was supplied, so the bootstrap is stopping here." -ForegroundColor Yellow
+        Write-Host "After the exact-main acceptance run passes, prepare QA with:"
+        Write-Host "  powershell -ExecutionPolicy Bypass -File .\scripts\run-v1-device-qa.ps1 -Mode Prepare"
+    }
+    else {
+        Write-Host "Resolving the newly dispatched exact-main acceptance run..." -ForegroundColor Cyan
+        $acceptanceRun = $null
+
+        for ($attempt = 1; $attempt -le 60; $attempt++) {
+            $runsJson = & gh run list --repo $Repo --workflow production-acceptance.yml --branch main --limit 30 --json databaseId,headSha,event,status,conclusion,createdAt
+            if ($LASTEXITCODE -ne 0) {
+                throw "Could not query production-acceptance runs after dispatch."
+            }
+
+            $candidates = @($runsJson | ConvertFrom-Json) | Where-Object {
+                $_.headSha -eq $RemoteMain -and
+                $_.event -eq "workflow_dispatch" -and
+                -not $existingRunIds.ContainsKey([string]$_.databaseId)
+            } | Sort-Object createdAt -Descending
+
+            if ($candidates.Count -gt 0) {
+                $acceptanceRun = $candidates[0]
+                break
+            }
+
+            Start-Sleep -Seconds 2
+        }
+
+        if ($null -eq $acceptanceRun) {
+            throw "The production acceptance workflow was dispatched, but the new exact-main workflow_dispatch run could not be resolved."
+        }
+
+        Write-Host "Watching production acceptance run $($acceptanceRun.databaseId)..." -ForegroundColor Cyan
+        & gh run watch $acceptanceRun.databaseId --repo $Repo --exit-status
+        if ($LASTEXITCODE -ne 0) {
+            throw "Production acceptance run $($acceptanceRun.databaseId) did not pass. Inspect the workflow before continuing physical-device QA."
+        }
+
+        $runJson = & gh run view $acceptanceRun.databaseId --repo $Repo --json headSha,status,conclusion,event
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not re-read the completed production acceptance run."
+        }
+        $completedRun = $runJson | ConvertFrom-Json
+        if ($completedRun.headSha -ne $RemoteMain -or $completedRun.status -ne "completed" -or $completedRun.conclusion -ne "success") {
+            throw "Completed acceptance run does not certify the pinned main SHA."
+        }
+
+        Write-Host ""
+        Write-Host "Exact-main production acceptance passed." -ForegroundColor Green
+        Write-Host "Run ID: $($acceptanceRun.databaseId)"
+
+        if ($SkipQaPrepare) {
+            Write-Host "-SkipQaPrepare was supplied. Prepare the physical-device QA session later with:" -ForegroundColor Yellow
+            Write-Host "  powershell -ExecutionPolicy Bypass -File .\scripts\run-v1-device-qa.ps1 -Mode Prepare"
+        }
+        else {
+            $QaOperator = Join-Path $PSScriptRoot "run-v1-device-qa.ps1"
+            if (-not (Test-Path $QaOperator)) {
+                throw "Production acceptance passed, but the device-QA operator was not found at $QaOperator."
+            }
+
+            Write-Host ""
+            Write-Host "Preparing the SHA-pinned physical-device QA session..." -ForegroundColor Cyan
+            & powershell -ExecutionPolicy Bypass -File $QaOperator -Mode Prepare -Repo $Repo
+            if ($LASTEXITCODE -ne 0) {
+                throw "Production acceptance passed, but automatic physical-device QA preparation failed."
+            }
+
+            Write-Host ""
+            Write-Host "Signing bootstrap and acceptance handoff complete." -ForegroundColor Green
+            Write-Host "Connect the first physical device and inspect progress with:"
+            Write-Host "  .\scripts\run-v1-device-qa.ps1 -Mode Status"
+        }
+    }
 }
 finally {
     $KeystoreBase64 = $null
