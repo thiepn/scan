@@ -174,6 +174,11 @@ Write-Host "Current main SHA: $MainSha"
 
 Require-ImmutableReleases -Repository $Repo
 
+$PlayValidationRuns = Get-RunCount "play-listing.yml" $MainSha
+if ($PlayValidationRuns -lt 1) {
+    throw "The exact main SHA has no successful Google Play Listing Validation run. If a source-only change did not trigger it automatically, dispatch that workflow on current main and rerun the finalizer."
+}
+
 $CertificationRuns = Get-RunCount "certification.yml" $MainSha
 if ($CertificationRuns -lt 1) {
     throw "The exact main SHA has no successful v1 Production Certification run."
@@ -196,7 +201,7 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($TagRef)) {
 }
 
 Write-Host ""
-Write-Host "Automated release gates are green for the exact current main SHA." -ForegroundColor Green
+Write-Host "Automated release gates are green for the exact current main SHA (Play validation, production certification, and production acceptance)." -ForegroundColor Green
 Write-Host ""
 
 $EvidenceSession = Resolve-CompletedEvidenceSession $MainSha

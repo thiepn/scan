@@ -19,7 +19,7 @@ function Get-SuccessfulRunCount {
         [string]$Sha
     )
     $endpoint = "repos/$Repo/actions/workflows/$Workflow/runs?branch=main&head_sha=$Sha&status=success"
-    $count = & gh api --method GET $endpoint --jq '.workflow_runs | length'
+    $count = & gh api --method GET $endpoint --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | length'
     if ($LASTEXITCODE -ne 0) {
         throw "Could not query workflow '$Workflow'."
     }
@@ -56,23 +56,28 @@ Write-Host ""
 $failures = New-Object System.Collections.Generic.List[string]
 $warnings = New-Object System.Collections.Generic.List[string]
 
-Write-Host "[1/8] Validating committed Play listing package..."
+Write-Host "[1/9] Validating committed Play listing package..."
 & python3 scripts/validate-play-listing.py
 if ($LASTEXITCODE -ne 0) {
     $failures.Add("Play listing package validation failed.")
 }
 
-Write-Host "[2/8] Checking exact-main Android CI..."
+Write-Host "[2/9] Checking exact-main Google Play Listing Validation..."
+if ((Get-SuccessfulRunCount "play-listing.yml" $mainSha) -lt 1) {
+    $failures.Add("Exact current main has no successful Google Play Listing Validation run. Dispatch that workflow on current main if it was not triggered automatically.")
+}
+
+Write-Host "[3/9] Checking exact-main Android CI..."
 if ((Get-SuccessfulRunCount "android.yml" $mainSha) -lt 1) {
     $failures.Add("Exact current main has no successful Android CI run.")
 }
 
-Write-Host "[3/8] Checking exact-main v1 production certification..."
+Write-Host "[4/9] Checking exact-main v1 production certification..."
 if ((Get-SuccessfulRunCount "certification.yml" $mainSha) -lt 1) {
     $failures.Add("Exact current main has no successful v1 Production Certification run.")
 }
 
-Write-Host "[4/8] Checking production signing secret names..."
+Write-Host "[5/9] Checking production signing secret names..."
 $requiredSecrets = @(
     "SCAN_RELEASE_KEYSTORE_BASE64",
     "SCAN_RELEASE_STORE_PASSWORD",
@@ -85,12 +90,12 @@ foreach ($name in $requiredSecrets) {
     }
 }
 
-Write-Host "[5/8] Checking exact-main production acceptance..."
+Write-Host "[6/9] Checking exact-main production acceptance..."
 if ((Get-SuccessfulRunCount "production-acceptance.yml" $mainSha) -lt 1) {
     $failures.Add("Exact current main has no successful production-signed acceptance run.")
 }
 
-Write-Host "[6/8] Checking GitHub immutable release protection..."
+Write-Host "[7/9] Checking GitHub immutable release protection..."
 $immutableResponse = & gh api --method GET -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" "repos/$Repo/immutable-releases" 2>$null
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($immutableResponse -join ""))) {
     $failures.Add("GitHub immutable releases are not enabled or could not be verified. Enable Settings > General > Releases > Enable release immutability.")
@@ -102,7 +107,7 @@ else {
     }
 }
 
-Write-Host "[7/8] Checking public privacy policy..."
+Write-Host "[8/9] Checking public privacy policy..."
 try {
     $response = Invoke-WebRequest -Uri $WebsitePrivacyUrl -Method Get -MaximumRedirection 5
     if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
@@ -116,7 +121,7 @@ catch {
     $failures.Add("Could not fetch public privacy policy: $($_.Exception.Message)")
 }
 
-Write-Host "[8/8] Checking remaining human Play Console gates..."
+Write-Host "[9/9] Checking remaining human Play Console gates..."
 $warnings.Add("Public Play Console support email must still be supplied.")
 $warnings.Add("Play App Signing must be configured with the intended Scan app-signing identity before any open/public rollout.")
 $warnings.Add("Play app-signing certificate fingerprint must be compared against the production Scan certificate.")
