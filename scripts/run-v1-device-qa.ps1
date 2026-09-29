@@ -547,7 +547,12 @@ switch ($Mode) {
         }
         Compress-Archive -Path (Join-Path $sessionPath "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
+        $zipHashPath = "$zipPath.sha256"
+        $zipHash = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant()
+        "$zipHash  $([System.IO.Path]::GetFileName($zipPath))" | Set-Content -Path $zipHashPath -Encoding ASCII
+
         Write-Host "Evidence package: $zipPath" -ForegroundColor Green
+        Write-Host "Evidence package checksum: $zipHashPath" -ForegroundColor Green
         if ($pending.Count -gt 0 -or $failed.Count -gt 0) {
             Write-Warning "This package is intentionally incomplete."
         }
