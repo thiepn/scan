@@ -55,5 +55,11 @@ jobs:
               exit 1
             }
           }
+      - name: Run accepted-artifact promotion self-test
+        run: |
+          bash -n scripts/promote-v1-accepted-artifact.sh
+          bash -n scripts/test-promote-v1-accepted-artifact.sh
+          bash scripts/test-promote-v1-accepted-artifact.sh
+
       - name: Build and test
         run: gradle :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest --stacktrace
