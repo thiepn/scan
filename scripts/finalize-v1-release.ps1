@@ -87,7 +87,7 @@ function Resolve-CompletedEvidenceSession {
         throw "Completed QA evidence ZIP is missing. Run scripts/run-v1-device-qa.ps1 -Mode Package."
     }
 
-    foreach ($line in Get-Content $checksumsPath) {
+    foreach ($line in (Get-Content $checksumsPath)) {
         if ([string]::IsNullOrWhiteSpace($line)) {
             continue
         }
