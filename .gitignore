@@ -14,3 +14,7 @@ app/release/
 
 # Local production-signing backup if a user overrides the default path
 ScanSigningBackup/
+
+# Local release/device evidence
+device-evidence/
+release-evidence/
