@@ -5,29 +5,26 @@ on:
     paths:
       - 'play/**'
       - 'scripts/validate-play-listing.py'
-      - 'scripts/test-v1-evidence-verifier.ps1'
-      - 'scripts/verify-v1-evidence.ps1'
-      - 'scripts/finalize-v1-release.ps1'
-      - 'scripts/check-play-readiness.ps1'
-      - 'scripts/bootstrap-production-signing.ps1'
       - 'scripts/bootstrap-production-signing.ps1'
       - 'scripts/check-play-readiness.ps1'
-      - 'scripts/finalize-v1-release.ps1'
       - 'scripts/collect-device-evidence.ps1'
       - 'scripts/run-v1-device-qa.ps1'
+      - 'scripts/verify-v1-evidence.ps1'
+      - 'scripts/test-v1-evidence-verifier.ps1'
+      - 'scripts/finalize-v1-release.ps1'
       - '.github/workflows/play-listing.yml'
   push:
     branches: [main]
     paths:
       - 'play/**'
       - 'scripts/validate-play-listing.py'
-      - 'scripts/test-v1-evidence-verifier.ps1'
-      - 'scripts/verify-v1-evidence.ps1'
-      - 'scripts/finalize-v1-release.ps1'
-      - 'scripts/check-play-readiness.ps1'
       - 'scripts/bootstrap-production-signing.ps1'
+      - 'scripts/check-play-readiness.ps1'
       - 'scripts/collect-device-evidence.ps1'
       - 'scripts/run-v1-device-qa.ps1'
+      - 'scripts/verify-v1-evidence.ps1'
+      - 'scripts/test-v1-evidence-verifier.ps1'
+      - 'scripts/finalize-v1-release.ps1'
       - '.github/workflows/play-listing.yml'
   workflow_dispatch:
 
@@ -39,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
       - name: Validate Google Play listing package
         run: python3 scripts/validate-play-listing.py
 
@@ -50,6 +48,8 @@ jobs:
             'scripts/check-play-readiness.ps1',
             'scripts/collect-device-evidence.ps1',
             'scripts/run-v1-device-qa.ps1',
+            'scripts/verify-v1-evidence.ps1',
+            'scripts/test-v1-evidence-verifier.ps1',
             'scripts/finalize-v1-release.ps1'
           )
           foreach ($file in $files) {
