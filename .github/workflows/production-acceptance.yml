@@ -11,6 +11,12 @@ on:
       - 'docs/V1_CERTIFICATION.md'
       - 'docs/V1_DEVICE_QA.md'
       - 'scripts/collect-device-evidence.sh'
+      - 'scripts/finalize-v1-release.ps1'
+      - 'scripts/verify-v1-evidence.ps1'
+      - 'scripts/promote-v1-accepted-artifact.sh'
+      - 'scripts/verify-release-publication.sh'
+      - 'scripts/wait-v1-release-immutable.sh'
+      - 'scripts/resolve-v1-release-state.sh'
 
 permissions:
   contents: read
