@@ -128,5 +128,29 @@ Read `play/SIGNING_STRATEGY.md` first. The permanent Scan production key is the 
 
 Do not use the AAB as an end-user download. It is a publishing artifact for Google Play.
 
+## Draft-first GitHub publication
+
+The `v1.0.0` tag workflow does **not** make the GitHub Release public immediately.
+
+After the finalizer creates the accepted tag, `.github/workflows/release.yml`:
+
+1. resolves the evidence-bound successful production-acceptance run;
+2. downloads the original acceptance artifact from that exact run;
+3. promotes the exact accepted APK/AAB bytes into an isolated release payload;
+4. creates a **draft** GitHub Release containing exactly:
+   - `Scan-v1.0.0.apk`
+   - `Scan-v1.0.0.aab`
+   - `release-checksums.sha256`
+   - `release-provenance.txt`
+5. re-downloads GitHub's stored draft assets into a clean directory;
+6. requires the remote asset set to be exact;
+7. compares every downloaded byte with the trusted local promoted payload;
+8. validates the downloaded checksum manifest and evidence-bound provenance;
+9. only then changes the release from draft to public.
+
+If draft verification fails, the release remains non-public and the workflow fails. A rerun may replace a stale **draft** from the same tag, but it refuses to overwrite an already-public release.
+
+The publication verifier is `scripts/verify-release-publication.sh` and its adversarial CI self-test is `scripts/test-verify-release-publication.sh`.
+
 
 The finalizer requires strict physical-device evidence and byte-binds the local acceptance kit to the original production acceptance artifact from the recorded successful GitHub Actions run before tagging v1.0.0.
