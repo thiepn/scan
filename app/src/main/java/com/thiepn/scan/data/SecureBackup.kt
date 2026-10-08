@@ -84,7 +84,8 @@ class SecureDocumentBackup(
             .filter {
                 it.isFile &&
                     !it.name.endsWith(".vaulttmp") &&
-                    !it.name.endsWith(".vaultbak")
+                    !it.name.endsWith(".vaultbak") &&
+                    !it.name.endsWith(".stage")
             }
             .sortedBy {
                 it.relativeTo(directory).invariantSeparatorsPath
