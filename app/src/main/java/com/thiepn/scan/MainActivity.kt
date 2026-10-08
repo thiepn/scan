@@ -16,6 +16,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,12 +27,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.thiepn.scan.data.DocumentSecuritySettingsCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.capture.PendingScanAction
 import com.thiepn.scan.capture.PendingScanActionCodec
+import com.thiepn.scan.capture.ScanImportViewModel
+import com.thiepn.scan.capture.ScanImportResult
 import com.thiepn.scan.capture.startModeScanner
 import com.thiepn.scan.navigation.rememberScanNavigationState
 import com.thiepn.scan.security.requestVaultAuthentication
@@ -97,6 +101,19 @@ private fun ScanApp(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val navigation = rememberScanNavigationState()
+    val importModel: ScanImportViewModel = viewModel(
+        factory = remember(repository) { ScanImportViewModel.factory(repository) }
+    )
+    LaunchedEffect(importModel) {
+        importModel.results.collect { result ->
+            when (result) {
+                is ScanImportResult.Success ->
+                    navigation.openDocument(result.documentId)
+                is ScanImportResult.Failure ->
+                    snackbar.showSnackbar(result.message)
+            }
+        }
+    }
     var busy by remember { mutableStateOf(false) }
     var vaultUnlockBusy by remember { mutableStateOf(false) }
     val vaultState by repository.observeVaultState()
@@ -512,20 +529,7 @@ private fun ScanApp(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            scope.launch {
-                busy = true
-                try {
-                    runCatching {
-                        repository.importPdf(uri, displayName(context, uri))
-                    }
-                        .onSuccess { navigation.openDocument(it) }
-                        .onFailure {
-                            snackbar.showSnackbar(it.message ?: "Could not import PDF")
-                        }
-                } finally {
-                    busy = false
-                }
-            }
+            importModel.importPdf(uri, displayName(context, uri))
         }
     }
 
@@ -543,7 +547,7 @@ private fun ScanApp(
             LibraryScreen(
                 repository = repository,
                 contentPadding = padding,
-                busy = busy,
+                busy = busy || importModel.isImporting,
                 onOpenDocument = { navigation.openDocument(it) },
                 onScan = { mode, rapid ->
                     pendingScanAction = PendingScanAction.NewDocument(
@@ -567,7 +571,9 @@ private fun ScanApp(
                     )
                 },
                 onImportPdf = {
-                    pdfLauncher.launch(arrayOf("application/pdf"))
+                    if (!busy && !importModel.isImporting) {
+                        pdfLauncher.launch(arrayOf("application/pdf"))
+                    }
                 },
                 onMessage = { message ->
                     scope.launch { snackbar.showSnackbar(message) }
