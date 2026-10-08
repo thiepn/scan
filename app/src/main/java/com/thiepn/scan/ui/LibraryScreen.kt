@@ -94,11 +94,20 @@ import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.data.SmartCollection
 import com.thiepn.scan.data.TagEntity
 import com.thiepn.scan.util.shareFile
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+private data class LibrarySearchSnapshot(
+    val query: String,
+    val filter: LibraryFilter,
+    val documents: List<DocumentEntity>,
+    val failed: Boolean = false
+)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -144,12 +153,13 @@ fun LibraryScreen(
             }
         }
     }
-    var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(LibraryFilter.ACTIVE) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf(LibraryFilter.ACTIVE) }
     var mergeOpen by remember { mutableStateOf(false) }
     var mergeBusy by remember { mutableStateOf(false) }
-    var searchBusy by remember { mutableStateOf(false) }
-    var searchResults by remember { mutableStateOf<List<DocumentEntity>>(emptyList()) }
+    var searchSnapshot by remember { mutableStateOf<LibrarySearchSnapshot?>(null) }
+    var searchRefreshing by remember { mutableStateOf(false) }
+    var searchRetry by remember { mutableStateOf(0) }
     var organizationFilter by remember {
         mutableStateOf(OrganizationFilterState())
     }
@@ -173,16 +183,49 @@ fun LibraryScreen(
     val vaultState by repository.observeVaultState()
         .collectAsStateWithLifecycle()
 
-    LaunchedEffect(query, filter, liveDocuments.map { it.updatedAt }) {
-        if (query.isBlank()) {
-            searchBusy = false
-            searchResults = emptyList()
+    val normalizedQuery = query.trim()
+    // A result is only eligible for display when it belongs to the current query
+    // and tab. Slow, cancelled searches must not overwrite another search.
+    val currentSearch = searchSnapshot?.takeIf {
+        it.query == normalizedQuery && it.filter == filter
+    }
+    val searchBusy = normalizedQuery.isNotEmpty() &&
+        (currentSearch == null || searchRefreshing)
+    val searchFailed = normalizedQuery.isNotEmpty() && currentSearch?.failed == true
+
+    LaunchedEffect(
+        normalizedQuery,
+        filter,
+        liveDocuments,
+        vaultState.lockedDocumentIds,
+        searchRetry
+    ) {
+        if (normalizedQuery.isBlank()) {
+            searchSnapshot = null
+            searchRefreshing = false
         } else {
-            searchBusy = true
-            searchResults = runCatching {
-                repository.searchDocuments(filter, query)
-            }.getOrDefault(emptyList())
-            searchBusy = false
+            searchRefreshing = true
+            try {
+                // Skip intermediate keystrokes, but keep search responsive.
+                delay(220)
+                searchSnapshot = LibrarySearchSnapshot(
+                    query = normalizedQuery,
+                    filter = filter,
+                    documents = repository.searchDocuments(filter, normalizedQuery)
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Database failures are not the same thing as no matches.
+                searchSnapshot = LibrarySearchSnapshot(
+                    query = normalizedQuery,
+                    filter = filter,
+                    documents = emptyList(),
+                    failed = true
+                )
+            } finally {
+                searchRefreshing = false
+            }
         }
     }
 
@@ -211,7 +254,11 @@ fun LibraryScreen(
         }
     }
 
-    val sourceDocuments = if (query.isBlank()) liveDocuments else searchResults
+    val sourceDocuments = if (normalizedQuery.isEmpty()) {
+        liveDocuments
+    } else {
+        currentSearch?.documents.orEmpty()
+    }
     val tagIdsByDocument = documentTags.groupBy { it.documentId }
         .mapValues { (_, links) -> links.map { it.tagId }.toSet() }
     val selectedFolderIds = organizationFilter.folderId?.let {
@@ -520,6 +567,18 @@ fun LibraryScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchBusy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
                     placeholder = { Text("Search OCR, phrases, or prefixes*") },
                     supportingText = {
                         if (query.isNotBlank()) {
@@ -581,7 +640,24 @@ fun LibraryScreen(
 
                 Spacer(Modifier.height(8.dp))
 
-                if (documents.isEmpty()) {
+                if (searchFailed && !searchBusy) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Search could not be completed")
+                        TextButton(onClick = { searchRetry += 1 }) {
+                            Text("Retry search")
+                        }
+                    }
+                } else if (searchBusy && documents.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Searching documents…")
+                    }
+                } else if (documents.isEmpty()) {
                     EmptyLibrary(query = query, filter = filter)
                 } else {
                     LazyColumn(
@@ -645,7 +721,7 @@ fun LibraryScreen(
                 }
             }
 
-            if (busy || mergeBusy || searchBusy) {
+            if (busy || mergeBusy) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         }
