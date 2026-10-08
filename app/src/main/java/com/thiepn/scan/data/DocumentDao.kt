@@ -162,6 +162,9 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE id = :id LIMIT 1")
     suspend fun getDocument(id: String): DocumentEntity?
 
+    @Query("SELECT * FROM documents WHERE id IN (:documentIds)")
+    suspend fun getDocumentsByIds(documentIds: List<String>): List<DocumentEntity>
+
     @Query("SELECT * FROM pages WHERE documentId = :documentId AND deleted = 0 ORDER BY sortKey, position")
     fun observePages(documentId: String): Flow<List<PageEntity>>
 
