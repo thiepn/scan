@@ -69,5 +69,11 @@ jobs:
           bash scripts/test-verify-release-publication.sh
           bash scripts/test-v1-release-recovery.sh
 
+      - name: Validate Scan v2 PDF regression fixtures
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_v2_fixtures.py' -v
+          python3 scripts/generate_v2_fixtures.py \
+            --output-dir "${RUNNER_TEMP}/scan-v2-fixtures" --stress-pages 1000
+
       - name: Build and test
         run: gradle :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest --stacktrace
