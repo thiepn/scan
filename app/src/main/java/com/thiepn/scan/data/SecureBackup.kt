@@ -160,6 +160,8 @@ class SecureDocumentBackup(
         val staging = files.temporaryDirectory(
             "scan-restore"
         )
+        var copiedDocumentId: String? = null
+        var databaseCommitted = false
         try {
             decryptArchive(source, staging, password)
             val manifestFile = File(staging, "manifest.json")
@@ -174,6 +176,7 @@ class SecureDocumentBackup(
             }
 
             val newId = UUID.randomUUID().toString()
+            copiedDocumentId = newId
             val newDir = files.documentDir(newId)
             val stagedFiles = File(staging, "files")
             if (stagedFiles.exists()) {
@@ -275,22 +278,37 @@ class SecureDocumentBackup(
                 }
                 .orEmpty()
 
+            // The DAO method is a Room transaction. From this point the
+            // files belong to a durable database record and must not be
+            // deleted by a later indexing failure.
             dao.restoreSecurityBackup(
                 document,
                 pages,
                 fields
             )
+            databaseCommitted = true
             pages.filter { !it.deleted }
                 .forEach { page ->
                     if (page.ocrText.isNotBlank()) {
-                        searchIndex.upsertPage(
-                            newId,
-                            page.id,
-                            page.ocrText
-                        )
+                        // Search is rebuildable derived data. Failure here
+                        // must not report restoration failure after commit.
+                        runCatching {
+                            searchIndex.upsertPage(
+                                newId,
+                                page.id,
+                                page.ocrText
+                            )
+                        }
                     }
                 }
             return newId
+        } catch (error: Throwable) {
+            // Copy/decrypt/validation/transaction failed: no metadata
+            // references these files, so discard only the new restore copy.
+            if (!databaseCommitted) {
+                copiedDocumentId?.let(files::deleteDocument)
+            }
+            throw error
         } finally {
             password.fill('\u0000')
             staging.deleteRecursively()
