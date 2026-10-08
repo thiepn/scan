@@ -20,6 +20,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -570,30 +571,44 @@ fun LibraryScreen(
         },
         floatingActionButton = {
             if (!selectionMode && filter != LibraryFilter.TRASH) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilledTonalIconButton(
-                        onClick = { scanModeOpen = true },
-                        modifier = Modifier.testTag("scan-mode-action")
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        "Mode · ${quickScanMode.label}",
+                        modifier = Modifier
+                            .widthIn(max = 220.dp)
+                            .padding(end = 4.dp, bottom = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.Tune,
-                            contentDescription = "Choose scan mode. Current: ${quickScanMode.label}"
+                        FilledTonalIconButton(
+                            onClick = { scanModeOpen = true },
+                            modifier = Modifier.testTag("scan-mode-action")
+                        ) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = "Choose scan mode. Current: ${quickScanMode.label}"
+                            )
+                        }
+                        ExtendedFloatingActionButton(
+                            modifier = Modifier.testTag("primary-scan-action"),
+                            onClick = {
+                                if (!busy && !mergeBusy) {
+                                    onScan(quickScanMode, false)
+                                }
+                            },
+                            expanded = true,
+                            icon = {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                            },
+                            text = { Text("Scan") }
                         )
                     }
-                    ExtendedFloatingActionButton(
-                        modifier = Modifier.testTag("primary-scan-action"),
-                        onClick = {
-                            if (!busy && !mergeBusy) {
-                                onScan(quickScanMode, false)
-                            }
-                        },
-                        expanded = true,
-                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
-                        text = { Text("Scan ${quickScanMode.label}") }
-                    )
                 }
             }
         }
