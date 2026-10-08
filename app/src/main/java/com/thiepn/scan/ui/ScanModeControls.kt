@@ -144,15 +144,7 @@ fun ScanModeChooserDialog(
         }
     }
 }
-      }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
+ 
 @Composable
 fun ChangeScanModeDialog(
     current: ScanMode,
