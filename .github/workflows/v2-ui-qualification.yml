@@ -7,6 +7,10 @@ on:
     paths:
       - 'app/src/main/java/com/thiepn/scan/ui/**'
       - 'app/src/main/java/com/thiepn/scan/MainActivity.kt'
+      - 'app/src/main/java/com/thiepn/scan/capture/**'
+      - 'app/src/main/java/com/thiepn/scan/navigation/**'
+      - 'app/src/main/java/com/thiepn/scan/security/**'
+      - 'scripts/run_v2_ui_qualification.sh'
       - 'app/src/androidTest/**'
       - 'app/build.gradle.kts'
       - '.github/workflows/v2-ui-qualification.yml'
