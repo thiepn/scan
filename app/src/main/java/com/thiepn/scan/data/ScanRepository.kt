@@ -3399,9 +3399,13 @@ class ScanRepository(
         filter: LibraryFilter,
         query: String
     ): List<DocumentEntity> = withContext(Dispatchers.IO) {
-        searchIndex.searchDocumentIds(filter, query)
+        val rankedIds = searchIndex.searchDocumentIds(filter, query)
             .filter { vault.isUnlocked(it) }
-            .mapNotNull { dao.getDocument(it) }
+        RankedDocumentLoader.load(
+            rankedIds = rankedIds,
+            fetchBatch = dao::getDocumentsByIds,
+            getId = DocumentEntity::id
+        )
     }
 
     suspend fun searchDocumentPages(
