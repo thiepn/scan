@@ -76,4 +76,4 @@ jobs:
             --output-dir "${RUNNER_TEMP}/scan-v2-fixtures" --stress-pages 1000
 
       - name: Build and test
-        run: gradle :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest --stacktrace
+        run: gradle :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :app:testDebugUnitTest --stacktrace
