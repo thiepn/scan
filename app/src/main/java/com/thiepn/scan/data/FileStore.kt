@@ -3,6 +3,9 @@ package com.thiepn.scan.data
 import android.content.Context
 import android.net.Uri
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 class FileStore(private val context: Context) {
     private val root = File(context.filesDir, "documents").apply { mkdirs() }
@@ -25,14 +28,12 @@ class FileStore(private val context: Context) {
             estimatedWorkingBytes = source.length(),
             operation = "copy this page"
         )
-        val temporary = File(
-            destination.parentFile,
-            destination.name + ".tmp"
-        )
+        val temporary = newStagingFile(destination)
         try {
             source.inputStream().use { input ->
-                temporary.outputStream().use { output ->
+                FileOutputStream(temporary).use { output ->
                     input.copyTo(output)
+                    output.fd.sync()
                 }
             }
             commitTemporary(temporary, destination)
@@ -58,10 +59,7 @@ class FileStore(private val context: Context) {
             )
         }
 
-        val temporary = File(
-            destination.parentFile,
-            destination.name + ".tmp"
-        )
+        val temporary = newStagingFile(destination)
         try {
             context.contentResolver
                 .openInputStream(uri)
@@ -69,8 +67,9 @@ class FileStore(private val context: Context) {
                     requireNotNull(input) {
                         "Unable to open input"
                     }
-                    temporary.outputStream().use { output ->
+                    FileOutputStream(temporary).use { output ->
                         input.copyTo(output)
+                        output.fd.sync()
                     }
                 }
             commitTemporary(temporary, destination)
@@ -130,8 +129,26 @@ class FileStore(private val context: Context) {
         ).apply { mkdirs() }
     }
 
+    /**
+     * Every writer gets its own sibling staging file. Sharing a fixed ".tmp"
+     * filename can corrupt an in-flight export when two operations overlap.
+     */
     fun temporaryExport(destination: File): File =
-        File(destination.parentFile, destination.name + ".tmp").also { it.delete() }
+        newStagingFile(destination)
+
+    private fun newStagingFile(destination: File): File {
+        val directory = requireNotNull(destination.absoluteFile.parentFile) {
+            "Storage destination has no parent directory"
+        }
+        require(directory.isDirectory || directory.mkdirs()) {
+            "Storage directory is unavailable"
+        }
+        return File.createTempFile(
+            destination.name.take(32).padEnd(3, '_') + "-",
+            ".stage",
+            directory
+        )
+    }
 
     fun copyToExport(source: File, destination: File): File {
         require(source.isFile) { "PDF source is unavailable" }
@@ -247,14 +264,29 @@ class FileStore(private val context: Context) {
     private fun safeName(title: String): String =
         title.replace(Regex("[\\/:*?\"<>|]"), "_").trim().take(80).ifBlank { "Scan" }
 
+    /**
+     * Same-filesystem atomic replace. Never delete the previous good file
+     * before the replacement is committed. If ATOMIC_MOVE is unsupported,
+     * fail closed rather than performing a destructive delete-and-rename.
+     */
     private fun commitTemporary(temporary: File, destination: File) {
-        if (destination.exists() && !destination.delete()) {
-            temporary.delete()
-            error("Unable to replace ${destination.name}")
+        require(temporary.isFile) { "Staged file is unavailable" }
+        require(temporary.canonicalPath != destination.canonicalPath) {
+            "Source and destination must differ"
         }
-        if (!temporary.renameTo(destination)) {
+        try {
+            // Renderers also write through temporaryExport(). Flush those
+            // bytes before publishing the finished file name.
+            FileOutputStream(temporary, true).use { it.fd.sync() }
+            Files.move(
+                temporary.toPath(),
+                destination.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (error: Throwable) {
             temporary.delete()
-            error("Unable to commit ${destination.name}")
+            throw error
         }
     }
 }
