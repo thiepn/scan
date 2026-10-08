@@ -1,6 +1,8 @@
 package com.thiepn.scan
 
 import com.thiepn.scan.data.ScanMode
+import com.thiepn.scan.capture.PendingScanAction
+import com.thiepn.scan.capture.PendingScanActionCodec
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.util.Base64
