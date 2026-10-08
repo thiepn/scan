@@ -1,5 +1,6 @@
 package com.thiepn.scan.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,19 +41,23 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -81,6 +86,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thiepn.scan.data.DocumentEntity
 import com.thiepn.scan.data.DocumentSecuritySettingsCodec
@@ -121,6 +127,14 @@ fun LibraryScreen(
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val preferences = remember(context) {
+        context.getSharedPreferences("scan_ui_preferences", Context.MODE_PRIVATE)
+    }
+    var quickScanMode by rememberSaveable {
+        mutableStateOf(
+            ScanMode.fromStored(preferences.getString("last_scan_mode", null))
+        )
+    }
     val largeText = LocalDensity.current.fontScale >= 1.5f
     val scope = rememberCoroutineScope()
     var pendingMergedSavePath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -309,7 +323,7 @@ fun LibraryScreen(
                         if (selectionMode) {
                             "${selectedDocumentIds.size} selected"
                         } else {
-                            "Scan"
+                            "Library"
                         },
                         modifier = if (selectionMode) {
                             Modifier
@@ -332,6 +346,13 @@ fun LibraryScreen(
                 },
                 actions = {
                     if (!selectionMode) {
+                        IconButton(
+                            onClick = onImportPdf,
+                            enabled = !busy && !mergeBusy,
+                            modifier = Modifier.testTag("import-pdf-action")
+                        ) {
+                            Icon(Icons.Default.FileOpen, contentDescription = "Import PDF")
+                        }
                         IconButton(onClick = { organizationFilterOpen = true }) {
                             Icon(
                                 Icons.Default.FilterList,
@@ -548,14 +569,32 @@ fun LibraryScreen(
             )
         },
         floatingActionButton = {
-            if (!selectionMode) {
-                ExtendedFloatingActionButton(
-                    modifier = Modifier.testTag("primary-scan-action"),
-                    onClick = { scanModeOpen = true },
-                    expanded = true,
-                    icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
-                    text = { Text("Scan") }
-                )
+            if (!selectionMode && filter != LibraryFilter.TRASH) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilledTonalIconButton(
+                        onClick = { scanModeOpen = true },
+                        modifier = Modifier.testTag("scan-mode-action")
+                    ) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = "Choose scan mode. Current: ${quickScanMode.label}"
+                        )
+                    }
+                    ExtendedFloatingActionButton(
+                        modifier = Modifier.testTag("primary-scan-action"),
+                        onClick = {
+                            if (!busy && !mergeBusy) {
+                                onScan(quickScanMode, false)
+                            }
+                        },
+                        expanded = true,
+                        icon = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
+                        text = { Text("Scan ${quickScanMode.label}") }
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -658,7 +697,12 @@ fun LibraryScreen(
                         Text("Searching documents…")
                     }
                 } else if (documents.isEmpty()) {
-                    EmptyLibrary(query = query, filter = filter)
+                    EmptyLibrary(
+                        query = query,
+                        filter = filter,
+                        onScan = { onScan(quickScanMode, false) },
+                        onImportPdf = onImportPdf
+                    )
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 104.dp),
@@ -715,6 +759,9 @@ fun LibraryScreen(
                                         onOpenDocument(document.id)
                                     }
                                 }
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant
                             )
                         }
                     }
@@ -773,6 +820,8 @@ fun LibraryScreen(
             onDismiss = { scanModeOpen = false },
             onChoose = { mode, rapid ->
                 scanModeOpen = false
+                preferences.edit().putString("last_scan_mode", mode.name).apply()
+                quickScanMode = mode
                 onScan(mode, rapid)
             }
         )
@@ -1026,29 +1075,62 @@ private fun MergeDocumentsDialog(
 }
 
 @Composable
-private fun EmptyLibrary(query: String, filter: LibraryFilter) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun EmptyLibrary(
+    query: String,
+    filter: LibraryFilter,
+    onScan: () -> Unit,
+    onImportPdf: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Icon(
                 Icons.Default.Description,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                if (query.isNotBlank()) "No matches"
-                else if (filter == LibraryFilter.TRASH) "Trash is empty"
-                else "No documents yet",
-                style = MaterialTheme.typography.titleMedium
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(42.dp)
             )
             Text(
-                if (query.isNotBlank()) "Try a different search term."
-                else if (filter == LibraryFilter.TRASH) "Documents you move to Trash can be restored from here."
-                else "Tap Scan to create your first searchable document.",
+                when {
+                    query.isNotBlank() -> "No matching documents"
+                    filter == LibraryFilter.TRASH -> "Trash is empty"
+                    else -> "Your documents will appear here"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                when {
+                    query.isNotBlank() -> "Try another title or phrase."
+                    filter == LibraryFilter.TRASH -> "Deleted documents can be restored from this section."
+                    else -> "Scan a page or import an existing PDF to get started."
+                },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (query.isBlank() && filter == LibraryFilter.ACTIVE) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        modifier = Modifier.testTag("empty-library-scan"),
+                        onClick = onScan
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Scan")
+                    }
+                    TextButton(onClick = onImportPdf) {
+                        Text("Import PDF")
+                    }
+                }
+            }
         }
     }
 }
@@ -1112,10 +1194,11 @@ private fun DocumentCard(
         Modifier.clickable(onClick = onClick)
     }
 
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .then(selectionModifier)
+            .then(selectionModifier),
+        color = Color.Transparent
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
