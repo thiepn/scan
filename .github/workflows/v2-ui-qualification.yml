@@ -1,0 +1,93 @@
+name: Scan v2 UI Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v2/development]
+    paths:
+      - 'app/src/main/java/com/thiepn/scan/ui/**'
+      - 'app/src/main/java/com/thiepn/scan/MainActivity.kt'
+      - 'app/src/androidTest/**'
+      - 'app/build.gradle.kts'
+      - '.github/workflows/v2-ui-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-v2-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Build UI test APKs
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise library and capture visual baselines
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            mkdir -p v2-ui-evidence
+            gradle :app:connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.ScanV2LibraryInstrumentedTest,com.thiepn.scan.LargeTextAccessibilityInstrumentedTest \
+              --stacktrace
+
+            adb shell pm clear com.thiepn.scan
+            adb shell settings put system font_scale 1.0
+            adb shell cmd uimode night no
+            adb shell am start -W -n com.thiepn.scan/.MainActivity
+            sleep 5
+            adb exec-out screencap -p > v2-ui-evidence/library-light.png
+
+            adb shell cmd uimode night yes
+            adb shell am force-stop com.thiepn.scan
+            adb shell am start -W -n com.thiepn.scan/.MainActivity
+            sleep 5
+            adb exec-out screencap -p > v2-ui-evidence/library-dark.png
+
+            adb shell cmd uimode night no
+            adb shell settings put system font_scale 2.0
+            adb shell am force-stop com.thiepn.scan
+            adb shell am start -W -n com.thiepn.scan/.MainActivity
+            sleep 5
+            adb exec-out screencap -p > v2-ui-evidence/library-font200.png
+
+            for image in v2-ui-evidence/*.png; do
+              test -s "$image"
+              file "$image" | grep -q 'PNG image data'
+            done
+            sha256sum v2-ui-evidence/*.png > v2-ui-evidence/checksums.sha256
+      - name: Upload screenshots and instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-v2-ui-evidence-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            v2-ui-evidence/
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
