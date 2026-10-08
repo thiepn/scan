@@ -32,15 +32,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.thiepn.scan.data.DocumentSecuritySettingsCodec
 import com.thiepn.scan.data.ScanMode
-import com.thiepn.scan.data.ScanModeProfiles
 import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.capture.PendingScanAction
 import com.thiepn.scan.capture.PendingScanActionCodec
+import com.thiepn.scan.capture.startModeScanner
 import com.thiepn.scan.ui.DocumentScreen
 import com.thiepn.scan.ui.LibraryScreen
 import com.thiepn.scan.ui.ScanTheme
@@ -819,47 +817,4 @@ private fun requestVaultAuthentication(
     }
 
     prompt.authenticate(builder.build())
-}
-
-private fun startModeScanner(
-    activity: Activity,
-    mode: ScanMode,
-    forceSinglePage: Boolean,
-    rapidCapture: Boolean = false,
-    launcher: ActivityResultLauncher<IntentSenderRequest>,
-    onFailure: (Throwable) -> Unit
-) {
-    val profile = ScanModeProfiles.forMode(mode)
-    val builder = GmsDocumentScannerOptions.Builder()
-        .setGalleryImportAllowed(true)
-        .setScannerMode(
-            if (mode == ScanMode.PHOTO) {
-                GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER
-            } else {
-                GmsDocumentScannerOptions.SCANNER_MODE_FULL
-            }
-        )
-
-    if (rapidCapture) {
-        builder.setResultFormats(
-            GmsDocumentScannerOptions.RESULT_FORMAT_JPEG
-        )
-    } else {
-        builder.setResultFormats(
-            GmsDocumentScannerOptions.RESULT_FORMAT_JPEG,
-            GmsDocumentScannerOptions.RESULT_FORMAT_PDF
-        )
-    }
-
-    val pageLimit = if (forceSinglePage) 1 else profile.pageLimit
-    if (pageLimit != null) {
-        builder.setPageLimit(pageLimit)
-    }
-
-    GmsDocumentScanning.getClient(builder.build())
-        .getStartScanIntent(activity)
-        .addOnSuccessListener { sender ->
-            launcher.launch(IntentSenderRequest.Builder(sender).build())
-        }
-        .addOnFailureListener(onFailure)
 }
