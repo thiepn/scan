@@ -89,6 +89,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -614,12 +615,6 @@ fun DocumentScreen(
                                 contentDescription = "Find in document"
                             )
                         }
-                        IconButton(onClick = { exportOpen = true }) {
-                            Icon(
-                                Icons.Default.Share,
-                                contentDescription = "Export PDF"
-                            )
-                        }
                         Box {
                             IconButton(onClick = { topBarOverflowOpen = true }) {
                                 Icon(
@@ -813,6 +808,46 @@ fun DocumentScreen(
                             }
                         }
                     } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Button(
+                                modifier = Modifier.testTag("document-share-action"),
+                                onClick = { exportOpen = true },
+                                enabled = !doc.processing && pages.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null)
+                                Text(" Share PDF")
+                            }
+                            OutlinedButton(
+                                modifier = Modifier.testTag("document-add-pages-action"),
+                                onClick = { onAddPages(scanMode) },
+                                enabled = !doc.processing
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null)
+                                Text(" Add pages")
+                            }
+                            if (scanProfile.ocrEnabled && pages.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = { documentSearchOpen = true },
+                                    enabled = !doc.processing
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = null)
+                                    Text(" Find text")
+                                }
+                            }
+                        }
+                        Text(
+                            "${pages.size} page${if (pages.size == 1) "" else "s"} · ${scanMode.label}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
                         if (doc.processing) {
                             Row(
                                 horizontalArrangement =
@@ -833,12 +868,12 @@ fun DocumentScreen(
                             Spacer(Modifier.height(12.dp))
                         }
 
-                        Card(Modifier.fillMaxWidth()) {
+                        if (scanMode != ScanMode.DOCUMENT || documentFields.isNotEmpty()) {
                             SpecializedModeSummary(
                                 mode = scanMode,
                                 pageCount = pages.size,
                                 fields = documentFields,
-                                modifier = Modifier.padding(14.dp)
+                                modifier = Modifier.padding(vertical = 8.dp)
                             )
                         }
                         Spacer(Modifier.height(8.dp))
