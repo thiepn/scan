@@ -13,6 +13,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,111 +24,127 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import com.thiepn.scan.data.DocumentFieldEntity
-import com.thiepn.scan.data.ScanMode
-import com.thiepn.scan.data.ScanModeProfiles
-
+import andro@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanModeChooserDialog(
     onDismiss: () -> Unit,
     onChoose: (ScanMode, Boolean) -> Unit
 ) {
     var rapidCapture by remember { mutableStateOf(false) }
-    AlertDialog(
+    val frequent = listOf(
+        ScanMode.DOCUMENT,
+        ScanMode.RECEIPT,
+        ScanMode.BOOK,
+        ScanMode.ID_CARD,
+        ScanMode.NOTES
+    )
+    val modes = frequent + ScanMode.entries.filterNot { it in frequent }
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("Choose scan mode") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+        modifier = Modifier.testTag("scan-mode-sheet")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 620.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Scan type",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Document is the best choice for most pages.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            modes.forEach { mode ->
+                val profile = ScanModeProfiles.forMode(mode)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { rapidCapture = !rapidCapture }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .testTag("scan-mode-${mode.name.lowercase()}")
+                        .clickable {
+                            onChoose(
+                                mode,
+                                rapidCapture && profile.supportsHighSpeedCapture
+                            )
+                        }
+                        .padding(vertical = 11.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Checkbox(
-                        checked = rapidCapture,
-                        onCheckedChange = { rapidCapture = it }
-                    )
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Rapid continuous capture",
-                            fontWeight = FontWeight.SemiBold
+                            mode.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
-                            "Capture first; OCR and heavy processing run after you exit the scan loop. The scanner reopens after each saved batch; cancel the next scan to finish. Available for Document, Book, Form, and Notes.",
+                            profile.description,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                }
-                HorizontalDivider()
-
-                ScanMode.entries.forEachIndexed { index, mode ->
-                    val profile = ScanModeProfiles.forMode(mode)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onChoose(
-                                    mode,
-                                    rapidCapture && profile.supportsHighSpeedCapture
-                                )
-                            }
-                            .padding(vertical = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                mode.label,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (profile.requiresTwoSidedCapture) {
-                                Text(
-                                    "Front + back",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                profile.pageLimit?.let { limit ->
-                                    Text(
-                                        if (limit == 1) "1 page" else "Up to $limit pages",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+                    if (profile.requiresTwoSidedCapture) {
                         Text(
-                            profile.description,
-                            style = MaterialTheme.typography.bodyMedium
+                            "2 sides",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                    } else if (profile.pageLimit == 1) {
                         Text(
-                            profile.captureHint,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp)
+                            "1 page",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (index != ScanMode.entries.lastIndex) {
-                        HorizontalDivider()
-                    }
                 }
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { rapidCapture = !rapidCapture }
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Continuous capture",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        "For documents, books, forms, and notes. Save each batch before opening the scanner again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Checkbox(
+                    checked = rapidCapture,
+                    onCheckedChange = null
+                )
+            }
+            TextButton(
+                modifier = Modifier.align(Alignment.End),
+                onClick = onDismiss
+            ) {
+                Text("Cancel")
+            }
+        }
+    }
+}
+      }
         },
         confirmButton = {},
         dismissButton = {
