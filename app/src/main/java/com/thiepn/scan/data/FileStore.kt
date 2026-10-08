@@ -136,6 +136,33 @@ class FileStore(private val context: Context) {
     fun temporaryExport(destination: File): File =
         newStagingFile(destination)
 
+    /**
+     * Recover from process death during a staged write. Only old files with
+     * our private ".stage" suffix are eligible; never remove document PDFs,
+     * images, active exports, or recent in-flight temporary files.
+     *
+     * Call off the main thread, at most once during cold start.
+     */
+    fun pruneAbandonedStages(
+        olderThanMillis: Long = 24L * 60 * 60 * 1000,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Int {
+        require(olderThanMillis >= 0L)
+        var deleted = 0
+        for (base in listOf(root, exports)) {
+            if (!base.isDirectory) continue
+            for (candidate in base.walkTopDown().maxDepth(3)) {
+                if (!candidate.isFile || !candidate.name.endsWith(".stage")) continue
+                val modified = candidate.lastModified()
+                if (modified <= 0L || modified > nowMillis) continue
+                if (nowMillis - modified < olderThanMillis) continue
+                if (candidate.delete()) deleted++
+                if (deleted >= 128) return deleted
+            }
+        }
+        return deleted
+    }
+
     private fun newStagingFile(destination: File): File {
         val directory = requireNotNull(destination.absoluteFile.parentFile) {
             "Storage destination has no parent directory"
