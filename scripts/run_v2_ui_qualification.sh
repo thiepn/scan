@@ -9,7 +9,7 @@ mkdir -p v2-ui-evidence
 # Verify P22 Compose actions plus P24 on-device file/storage, v22 reopen,
 # interrupted capture, backup restore, and legacy schema migration.
 gradle :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.ScanV2LibraryInstrumentedTest,com.thiepn.scan.LargeTextAccessibilityInstrumentedTest,com.thiepn.scan.data.FileStoreDurabilityInstrumentedTest,com.thiepn.scan.data.V22DurabilityInstrumentedTest,com.thiepn.scan.data.InterruptedCaptureRecoveryInstrumentedTest,com.thiepn.scan.data.SecureBackupInstrumentedTest,com.thiepn.scan.data.LegacyV1MigrationInstrumentedTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.ScanV2LibraryInstrumentedTest,com.thiepn.scan.LargeTextAccessibilityInstrumentedTest,com.thiepn.scan.data.FileStoreDurabilityInstrumentedTest,com.thiepn.scan.data.V22DurabilityInstrumentedTest,com.thiepn.scan.data.InterruptedCaptureRecoveryInstrumentedTest,com.thiepn.scan.data.SecureBackupInstrumentedTest,com.thiepn.scan.data.SecureBackupProvenanceInstrumentedTest,com.thiepn.scan.data.LegacyV1MigrationInstrumentedTest \
   --stacktrace
 
 # connectedAndroidTest can uninstall app packages after running instrumentation.
