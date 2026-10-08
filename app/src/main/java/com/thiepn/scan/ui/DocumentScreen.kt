@@ -410,6 +410,7 @@ fun DocumentScreen(
     var protectOpen by remember { mutableStateOf(false) }
     var extractOpen by remember { mutableStateOf(false) }
     var exportOpen by remember { mutableStateOf(false) }
+    var quickShareBusy by remember { mutableStateOf(false) }
     var textExportOpen by remember { mutableStateOf(false) }
     var deletedPagesOpen by remember { mutableStateOf(false) }
     var pageDeleteCandidate by remember { mutableStateOf<PageEntity?>(null) }
@@ -680,6 +681,14 @@ fun DocumentScreen(
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Export PDF options") },
+                                    onClick = {
+                                        topBarOverflowOpen = false
+                                        exportOpen = true
+                                    },
+                                    enabled = !doc.processing && pages.isNotEmpty()
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Protect PDF") },
                                     onClick = {
                                         topBarOverflowOpen = false
@@ -818,11 +827,36 @@ fun DocumentScreen(
                         ) {
                             Button(
                                 modifier = Modifier.testTag("document-share-action"),
-                                onClick = { exportOpen = true },
-                                enabled = !doc.processing && pages.isNotEmpty()
+                                onClick = {
+                                    if (!quickShareBusy) {
+                                        quickShareBusy = true
+                                        scope.launch {
+                                            try {
+                                                val file = repository.createPdfExport(
+                                                    doc.id,
+                                                    quality = scanProfile.defaultPdfQuality
+                                                )
+                                                if (file == null) {
+                                                    onMessage("PDF is not available yet")
+                                                } else {
+                                                    shareFile(context, file, "application/pdf")
+                                                }
+                                            } catch (error: Exception) {
+                                                onMessage(
+                                                    error.message ?: "Could not share PDF"
+                                                )
+                                            } finally {
+                                                quickShareBusy = false
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !doc.processing &&
+                                    pages.isNotEmpty() &&
+                                    !quickShareBusy
                             ) {
                                 Icon(Icons.Default.Share, contentDescription = null)
-                                Text(" Share PDF")
+                                Text(if (quickShareBusy) " Preparing…" else " Share PDF")
                             }
                             OutlinedButton(
                                 modifier = Modifier.testTag("document-add-pages-action"),
