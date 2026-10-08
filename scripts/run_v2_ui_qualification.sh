@@ -6,12 +6,15 @@ set -euo pipefail
 
 mkdir -p v2-ui-evidence
 
-# The Compose tests check the primary scan action, import affordance, mode
-# chooser, and large-text accessibility without invoking external ML Kit UI.
+# Verify P22 Compose actions plus P24 on-device file/storage, v22 reopen,
+# interrupted capture, backup restore, and legacy schema migration.
 gradle :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.ScanV2LibraryInstrumentedTest,com.thiepn.scan.LargeTextAccessibilityInstrumentedTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.ScanV2LibraryInstrumentedTest,com.thiepn.scan.LargeTextAccessibilityInstrumentedTest,com.thiepn.scan.data.FileStoreDurabilityInstrumentedTest,com.thiepn.scan.data.V22DurabilityInstrumentedTest,com.thiepn.scan.data.InterruptedCaptureRecoveryInstrumentedTest,com.thiepn.scan.data.SecureBackupInstrumentedTest,com.thiepn.scan.data.LegacyV1MigrationInstrumentedTest \
   --stacktrace
 
+# connectedAndroidTest can uninstall app packages after running instrumentation.
+# Install the prebuilt APK explicitly before visual evidence capture.
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell pm clear com.thiepn.scan
 adb shell settings put system font_scale 1.0
 adb shell cmd uimode night no
