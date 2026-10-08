@@ -1,10 +1,7 @@
 package com.thiepn.scan
 
 import android.app.Activity
-import android.app.KeyguardManager
-import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,9 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.SnackbarHost
@@ -40,6 +34,7 @@ import com.thiepn.scan.capture.PendingScanAction
 import com.thiepn.scan.capture.PendingScanActionCodec
 import com.thiepn.scan.capture.startModeScanner
 import com.thiepn.scan.navigation.rememberScanNavigationState
+import com.thiepn.scan.security.requestVaultAuthentication
 import com.thiepn.scan.ui.DocumentScreen
 import com.thiepn.scan.ui.LibraryScreen
 import com.thiepn.scan.ui.ScanTheme
@@ -760,65 +755,4 @@ private fun ScanApp(
             }
         }
     }
-}
-
-
-private fun requestVaultAuthentication(
-    activity: FragmentActivity,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit
-) {
-    val biometric = BiometricManager.from(activity)
-    val keyguard = activity.getSystemService(
-        Context.KEYGUARD_SERVICE
-    ) as KeyguardManager
-    val executor = ContextCompat.getMainExecutor(activity)
-
-    val canUseBiometric = biometric.canAuthenticate(
-        BiometricManager.Authenticators.BIOMETRIC_WEAK
-    ) == BiometricManager.BIOMETRIC_SUCCESS
-    val canUseCredential = keyguard.isDeviceSecure
-    if (!canUseBiometric && !canUseCredential) {
-        onError(
-            "Set up biometrics or a device screen lock before using the secure vault."
-        )
-        return
-    }
-
-    val prompt = BiometricPrompt(
-        activity,
-        executor,
-        object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationSucceeded(
-                result: BiometricPrompt.AuthenticationResult
-            ) {
-                onSuccess()
-            }
-
-            override fun onAuthenticationError(
-                errorCode: Int,
-                errString: CharSequence
-            ) {
-                onError(errString.toString())
-            }
-        }
-    )
-
-    val builder = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("Unlock secure document")
-        .setSubtitle(
-            "Authenticate to decrypt this document."
-        )
-
-    if (Build.VERSION.SDK_INT >= 30) {
-        builder.setAllowedAuthenticators(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        )
-    } else {
-        @Suppress("DEPRECATION")
-        builder.setDeviceCredentialAllowed(true)
-    }
-
-    prompt.authenticate(builder.build())
 }
