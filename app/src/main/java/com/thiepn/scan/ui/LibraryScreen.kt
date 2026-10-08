@@ -700,8 +700,12 @@ fun LibraryScreen(
                     EmptyLibrary(
                         query = query,
                         filter = filter,
-                        onScan = { onScan(quickScanMode, false) },
-                        onImportPdf = onImportPdf
+                        onScan = {
+                            if (!busy && !mergeBusy) onScan(quickScanMode, false)
+                        },
+                        onImportPdf = {
+                            if (!busy && !mergeBusy) onImportPdf()
+                        }
                     )
                 } else {
                     LazyColumn(
@@ -721,6 +725,7 @@ fun LibraryScreen(
                                 folders = folders,
                                 tags = documentTagList,
                                 selectionMode = selectionMode,
+                                showOcrSnippet = normalizedQuery.isNotEmpty(),
                                 selected = document.id in selectedDocumentIds,
                                 onToggleSelected = {
                                     selectedDocumentIds = if (
@@ -1143,6 +1148,7 @@ private fun DocumentCard(
     folders: List<FolderEntity>,
     tags: List<TagEntity>,
     selectionMode: Boolean,
+    showOcrSnippet: Boolean,
     selected: Boolean,
     onToggleSelected: () -> Unit,
     onAcceptSuggestion: () -> Unit,
@@ -1393,7 +1399,7 @@ private fun DocumentCard(
                     }
                 }
 
-                if (document.ocrText.isNotBlank()) {
+                if (showOcrSnippet && document.ocrText.isNotBlank()) {
                     Text(
                         remember(
                             document.id,
