@@ -13,12 +13,20 @@ import com.thiepn.scan.data.SecurityVaultManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class AppGraph(context: Context) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val database = ScanDatabase.create(appContext)
     private val files = FileStore(appContext)
+    init {
+        // Files left by a killed write are never published. Reclaim only
+        // stale private staging files in the background, never real scans.
+        scope.launch(Dispatchers.IO) {
+            files.pruneAbandonedStages()
+        }
+    }
     private val deviceCapabilities = DeviceCapabilityPolicy(appContext)
     private val ocr = OcrEngine(appContext)
     private val searchIndex = OcrSearchIndex(database)
