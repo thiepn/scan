@@ -31,11 +31,9 @@ class ScanNavigationStateTest {
         )
         unexpected.forEach {
             val route = ScanRouteCodec.decode(it)
-            // The codec may decode syntactically valid IDs; unknown, missing
-            // and malformed routing tokens must never open an arbitrary screen.
-            if (it != "scan-route:v1:document:IA==") {
-                assertEquals(ScanRoute.Library, route)
-            }
+            // Unknown, empty, blank, and invalid route values must restore
+            // the library rather than a document view.
+            assertEquals(ScanRoute.Library, route)
         }
     }
 
