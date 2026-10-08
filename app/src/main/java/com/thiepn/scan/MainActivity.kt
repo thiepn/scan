@@ -39,6 +39,7 @@ import com.thiepn.scan.data.ScanRepository
 import com.thiepn.scan.capture.PendingScanAction
 import com.thiepn.scan.capture.PendingScanActionCodec
 import com.thiepn.scan.capture.startModeScanner
+import com.thiepn.scan.navigation.rememberScanNavigationState
 import com.thiepn.scan.ui.DocumentScreen
 import com.thiepn.scan.ui.LibraryScreen
 import com.thiepn.scan.ui.ScanTheme
@@ -100,7 +101,7 @@ private fun ScanApp(
     val activity = context as Activity
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    var selectedDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
+    val navigation = rememberScanNavigationState()
     var busy by remember { mutableStateOf(false) }
     var vaultUnlockBusy by remember { mutableStateOf(false) }
     val vaultState by repository.observeVaultState()
@@ -135,7 +136,7 @@ private fun ScanApp(
                     runCatching {
                         repository.finishHighSpeedCaptureSession(sessionId)
                     }
-                    selectedDocumentId = documentId
+                    navigation.openDocument(documentId)
                     snackbar.showSnackbar(
                         error.message
                             ?: "Continuous scanner stopped; captured pages were preserved."
@@ -158,7 +159,7 @@ private fun ScanApp(
         if (result.resultCode != Activity.RESULT_OK) {
             when (action) {
                 is PendingScanAction.IdBack -> {
-                    selectedDocumentId = action.documentId
+                    navigation.openDocument(action.documentId)
                     scope.launch {
                         snackbar.showSnackbar(
                             "Front saved. The back can be added later."
@@ -176,7 +177,7 @@ private fun ScanApp(
                                     it.message ?: "Could not finish rapid capture"
                                 )
                             }
-                        selectedDocumentId = action.documentId
+                        navigation.openDocument(action.documentId)
                     }
                 }
 
@@ -218,7 +219,7 @@ private fun ScanApp(
                                 return@launch
                             }
                             busy = false
-                            selectedDocumentId = documentId
+                            navigation.openDocument(documentId)
                             pendingScanAction =
                                 PendingScanAction.IdBack(
                                     documentId = documentId
@@ -235,7 +236,7 @@ private fun ScanApp(
                                 launcher = scannerLauncher,
                                 onFailure = { error ->
                                     pendingScanAction = null
-                                    selectedDocumentId = documentId
+                                    navigation.openDocument(documentId)
                                     scope.launch {
                                         snackbar.showSnackbar(
                                             error.message
@@ -285,7 +286,7 @@ private fun ScanApp(
                                             scanMode = action.mode
                                         )
                                     }
-                                        .onSuccess { selectedDocumentId = it }
+                                        .onSuccess { navigation.openDocument(it) }
                                         .onFailure {
                                             snackbar.showSnackbar(
                                                 it.message ?: "Could not save scan"
@@ -342,7 +343,7 @@ private fun ScanApp(
                             repository.finishHighSpeedCaptureSession(
                                 action.sessionId
                             )
-                            selectedDocumentId = action.documentId
+                            navigation.openDocument(action.documentId)
                         } else {
                             runCatching {
                                 repository.appendHighSpeedCapture(
@@ -363,7 +364,7 @@ private fun ScanApp(
                                             action.sessionId
                                         )
                                     }
-                                    selectedDocumentId = action.documentId
+                                    navigation.openDocument(action.documentId)
                                     snackbar.showSnackbar(
                                         error.message
                                             ?: "Rapid capture stopped; saved pages are processing."
@@ -382,8 +383,7 @@ private fun ScanApp(
                     busy = true
                     try {
                         if (back == null) {
-                            selectedDocumentId =
-                                action.documentId
+                            navigation.openDocument(action.documentId)
                             snackbar.showSnackbar(
                                 "Front saved. The back can be added later."
                             )
@@ -395,15 +395,13 @@ private fun ScanApp(
                                 )
                             }
                                 .onSuccess {
-                                    selectedDocumentId =
-                                        action.documentId
+                                    navigation.openDocument(action.documentId)
                                     snackbar.showSnackbar(
                                         "ID card front and back saved"
                                     )
                                 }
                                 .onFailure { error ->
-                                    selectedDocumentId =
-                                        action.documentId
+                                    navigation.openDocument(action.documentId)
                                     snackbar.showSnackbar(
                                         error.message
                                             ?: "Front is saved, but the back could not be added."
@@ -429,7 +427,7 @@ private fun ScanApp(
                                 repository.appendScan(action.documentId, pages)
                             }
                                 .onSuccess { count ->
-                                    selectedDocumentId = action.documentId
+                                    navigation.openDocument(action.documentId)
                                     snackbar.showSnackbar(
                                         "$count page${if (count == 1) "" else "s"} added"
                                     )
@@ -463,7 +461,7 @@ private fun ScanApp(
                                 )
                             }
                                 .onSuccess { count ->
-                                    selectedDocumentId = action.documentId
+                                    navigation.openDocument(action.documentId)
                                     snackbar.showSnackbar(
                                         "$count page${if (count == 1) "" else "s"} inserted"
                                     )
@@ -498,7 +496,7 @@ private fun ScanApp(
                                 )
                             }
                                 .onSuccess {
-                                    selectedDocumentId = action.documentId
+                                    navigation.openDocument(action.documentId)
                                     snackbar.showSnackbar("Page retaken")
                                 }
                                 .onFailure {
@@ -525,7 +523,7 @@ private fun ScanApp(
                     runCatching {
                         repository.importPdf(uri, displayName(context, uri))
                     }
-                        .onSuccess { selectedDocumentId = it }
+                        .onSuccess { navigation.openDocument(it) }
                         .onFailure {
                             snackbar.showSnackbar(it.message ?: "Could not import PDF")
                         }
@@ -536,16 +534,22 @@ private fun ScanApp(
         }
     }
 
+    androidx.activity.compose.BackHandler(
+        enabled = navigation.documentId != null
+    ) {
+        navigation.navigateBack()
+    }
+
     androidx.compose.material3.Scaffold(
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
-        val id = selectedDocumentId
+        val id = navigation.documentId
         if (id == null) {
             LibraryScreen(
                 repository = repository,
                 contentPadding = padding,
                 busy = busy,
-                onOpenDocument = { selectedDocumentId = it },
+                onOpenDocument = { navigation.openDocument(it) },
                 onScan = { mode, rapid ->
                     pendingScanAction = PendingScanAction.NewDocument(
                         mode = mode,
@@ -667,7 +671,7 @@ private fun ScanApp(
                         }
                     },
                     onBack = {
-                        selectedDocumentId = null
+                        navigation.showLibrary()
                     }
                 )
             } else {
@@ -675,8 +679,8 @@ private fun ScanApp(
                 documentId = id,
                 repository = repository,
                 contentPadding = padding,
-                onBack = { selectedDocumentId = null },
-                onDeleted = { selectedDocumentId = null },
+                onBack = { navigation.showLibrary() },
+                onDeleted = { navigation.showLibrary() },
                 onRapidScan = { mode ->
                     pendingScanAction = PendingScanAction.RapidExistingStart(
                         documentId = id,
