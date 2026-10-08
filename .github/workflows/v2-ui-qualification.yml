@@ -49,7 +49,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             mkdir -p v2-ui-evidence
             gradle :app:connectedDebugAndroidTest \
               -Pandroid.testInstrumentationRunnerArguments.class=com.thiepn.scan.ScanV2LibraryInstrumentedTest,com.thiepn.scan.LargeTextAccessibilityInstrumentedTest \
