@@ -28,7 +28,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import andro@OptIn(ExperimentalMaterial3Api::class)
+import androidx.compose.ui.unit.dp
+import com.thiepn.scan.data.DocumentFieldEntity
+import com.thiepn.scan.data.ScanMode
+import com.thiepn.scan.data.ScanModeProfiles
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanModeChooserDialog(
     onDismiss: () -> Unit,
