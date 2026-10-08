@@ -28,7 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import com.thiepn.scan.capture.ScanCapturePayload
 import com.thiepn.scan.data.DocumentSecuritySettingsCodec
 import com.thiepn.scan.data.ScanMode
 import com.thiepn.scan.data.ScanRepository
@@ -198,9 +198,9 @@ private fun ScanApp(
             return@rememberLauncherForActivityResult
         }
 
-        val scan = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
-        val pages = scan?.pages?.map { it.imageUri }.orEmpty()
-        val pdf = scan?.pdf?.uri
+        val capture = ScanCapturePayload.fromScannerIntent(result.data)
+        val pages = capture.pageUris
+        val pdf = capture.pdfUri
 
         when (action) {
             is PendingScanAction.NewDocument -> {
