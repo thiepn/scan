@@ -9,6 +9,7 @@ on:
       - 'app/build.gradle.kts'
       - 'scripts/check-v2-release-contract.py'
       - 'scripts/test_v2_release_contract.py'
+      - 'docs/v2/P39_RELEASE_ENGINEERING.md'
 
 permissions:
   contents: read
