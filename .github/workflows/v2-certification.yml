@@ -2,6 +2,13 @@ name: Scan v2 Certification Dry Run
 
 on:
   workflow_dispatch:
+  push:
+    branches: [v2/development]
+    paths:
+      - '.github/workflows/v2-certification.yml'
+      - 'app/build.gradle.kts'
+      - 'scripts/check-v2-release-contract.py'
+      - 'scripts/test_v2_release_contract.py'
 
 permissions:
   contents: read
