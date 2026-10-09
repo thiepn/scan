@@ -1,0 +1,105 @@
+name: Scan v2 Certification Dry Run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-v2-certification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certify:
+    name: Disposable-key release APK and AAB
+    if: github.ref == 'refs/heads/v2/development'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      # Certification key is deliberately disposable and not an app update identity.
+      SCAN_RELEASE_STORE_FILE: /tmp/scan-v2-disposable-certification.jks
+      SCAN_RELEASE_STORE_PASSWORD: disposable-certification-only
+      SCAN_RELEASE_KEY_ALIAS: scan-v2-disposable
+      SCAN_RELEASE_KEY_PASSWORD: disposable-certification-only
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Require exact v2 branch and source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/v2/development"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python3 -m unittest discover -s scripts -p 'test_v2_release_contract.py' -v
+          python3 scripts/check-v2-release-contract.py --output v2-source-preflight.json
+      - name: Create disposable non-production signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt \
+            -keystore "${SCAN_RELEASE_STORE_FILE}" \
+            -storepass "${SCAN_RELEASE_STORE_PASSWORD}" \
+            -keypass "${SCAN_RELEASE_KEY_PASSWORD}" \
+            -alias "${SCAN_RELEASE_KEY_ALIAS}" \
+            -keyalg RSA -keysize 3072 -validity 2 \
+            -dname "CN=Scan v2 NON-PRODUCTION QA, O=THIEPN, C=DE"
+      - name: Build candidate, lint and JVM test
+        run: gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:bundleRelease --stacktrace
+      - name: Validate APK/AAB provenance and signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
+          APKSIGNER="${ANDROID_HOME}/build-tools/36.0.0/apksigner"
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -s "${APK}" && test -s "${AAB}"
+          "${APKSIGNER}" verify --print-certs "${APK}" > v2-certification-signer.txt
+          "${AAPT}" dump badging "${APK}" > v2-certification-badging.txt
+          grep -q "package: name='com.thiepn.scan' versionCode='2' versionName='2.0.0'" v2-certification-badging.txt
+          "${AAPT}" dump permissions "${APK}" > v2-certification-permissions.txt
+          if grep -Eq "android.permission.(INTERNET|MANAGE_EXTERNAL_STORAGE|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE)" v2-certification-permissions.txt; then
+            echo "::error::Forbidden merged release permission"; exit 1
+          fi
+          cp "${APK}" Scan-v2.0.0-CERTIFICATION-ONLY.apk
+          cp "${AAB}" Scan-v2.0.0-CERTIFICATION-ONLY.aab
+          sha256sum Scan-v2.0.0-CERTIFICATION-ONLY.apk Scan-v2.0.0-CERTIFICATION-ONLY.aab > scan-v2-certification-checksums.sha256
+          {
+            echo "source_sha=${GITHUB_SHA}"
+            echo "workflow_run_id=${GITHUB_RUN_ID}"
+            echo "workflow_path=.github/workflows/v2-certification.yml"
+            echo "version=2.0.0"
+            echo "version_code=2"
+            echo "signing_identity=disposable-non-production"
+            echo "production_approved=false"
+          } > scan-v2-certification-provenance.txt
+      - name: Upload non-production certification bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-v2-certification-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            Scan-v2.0.0-CERTIFICATION-ONLY.apk
+            Scan-v2.0.0-CERTIFICATION-ONLY.aab
+            scan-v2-certification-checksums.sha256
+            scan-v2-certification-provenance.txt
+            v2-source-preflight.json
+            v2-certification-signer.txt
+            v2-certification-badging.txt
+            v2-certification-permissions.txt
+            app/build/reports/lint-results-release.html
+            app/build/test-results/
