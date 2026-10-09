@@ -1,0 +1,82 @@
+name: Scan v2 Development Gate
+
+on:
+  push:
+    branches: [v2/development]
+    paths:
+      - 'app/**'
+      - 'scripts/check-v2-release-contract.py'
+      - 'scripts/test_v2_release_contract.py'
+      - 'scripts/generate_v2_fixtures.py'
+      - 'scripts/test_v2_fixtures.py'
+      - '.github/workflows/v2-development.yml'
+      - 'docs/v2/**'
+  pull_request:
+    branches: [v2/development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-v2-development-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  develop:
+    name: Version, privacy, tests and Android build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 37
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --channel=3 "platforms;android-37.0" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Validate v2 source contract
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_v2_release_contract.py' -v
+          python3 scripts/check-v2-release-contract.py --output v2-source-preflight.json
+      - name: Validate PDF test fixtures
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_v2_fixtures.py' -v
+          python3 scripts/generate_v2_fixtures.py --output-dir "${RUNNER_TEMP}/scan-v2-fixtures" --stress-pages 1000
+      - name: Build and run JVM tests
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --stacktrace
+      - name: Audit final merged debug APK permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "${APK}"
+          "${AAPT}" dump badging "${APK}" | grep -q "package: name='com.thiepn.scan'"
+          "${AAPT}" dump badging "${APK}" | grep -q "versionName='2.0.0'"
+          "${AAPT}" dump permissions "${APK}" > v2-merged-permissions.txt
+          if grep -Eq "android.permission.(INTERNET|MANAGE_EXTERNAL_STORAGE|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE)" v2-merged-permissions.txt; then
+            echo "::error::Merged APK requests a forbidden permission."
+            cat v2-merged-permissions.txt
+            exit 1
+          fi
+          sha256sum "${APK}" > v2-debug-checksums.sha256
+      - name: Upload v2 build evidence (not distributable)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scan-v2-development-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            v2-source-preflight.json
+            v2-merged-permissions.txt
+            v2-debug-checksums.sha256
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/app-debug.apk
