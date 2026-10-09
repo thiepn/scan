@@ -1,0 +1,76 @@
+name: Scan v2 Publication Rehearsal (Read Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: '40-hex exact v2/development SHA certified in the dry run'
+        required: true
+        type: string
+      certification_run_id:
+        description: 'Successful Scan v2 Certification Dry Run workflow run ID'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rehearse:
+    name: Verify candidate evidence, never publish
+    if: github.ref == 'refs/heads/v2/development'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      CERT_RUN: ${{ inputs.certification_run_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Bind evidence to exact Git SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${EXPECTED_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid commit SHA"; exit 1; }
+          [[ "${CERT_RUN}" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid workflow run ID"; exit 1; }
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "${EXPECTED_SHA}" = "${GITHUB_SHA}"
+          git fetch origin v2/development --no-tags
+          test "${EXPECTED_SHA}" = "$(git rev-parse origin/v2/development)"
+      - name: Verify exact successful v2 certification run
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="/repos/${GITHUB_REPOSITORY}/actions/runs/${CERT_RUN}"
+          [[ "$(gh api "${API}" --jq .head_sha)" == "${EXPECTED_SHA}" ]]
+          [[ "$(gh api "${API}" --jq .head_branch)" == "v2/development" ]]
+          [[ "$(gh api "${API}" --jq .status)" == "completed" ]]
+          [[ "$(gh api "${API}" --jq .conclusion)" == "success" ]]
+          [[ "$(gh api "${API}" --jq .path)" == ".github/workflows/v2-certification.yml" ]]
+          [[ "$(gh api "${API}" --jq .event)" == "workflow_dispatch" ]]
+      - name: Download exact non-production candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/v2-dry-run"
+          gh run download "${CERT_RUN}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "scan-v2-certification-${EXPECTED_SHA}" \
+            --dir "${RUNNER_TEMP}/v2-dry-run"
+      - name: Verify byte identity and prohibit release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/v2-dry-run"
+          sha256sum -c scan-v2-certification-checksums.sha256
+          grep -Fx "source_sha=${EXPECTED_SHA}" scan-v2-certification-provenance.txt
+          grep -Fx 'version=2.0.0' scan-v2-certification-provenance.txt
+          grep -Fx 'signing_identity=disposable-non-production' scan-v2-certification-provenance.txt
+          grep -Fx 'production_approved=false' scan-v2-certification-provenance.txt
+          test -s Scan-v2.0.0-CERTIFICATION-ONLY.apk
+          test -s Scan-v2.0.0-CERTIFICATION-ONLY.aab
+          echo 'P39 publication rehearsal: exact candidate checked; no release created.'
+          echo 'P40 must certify the permanent signing identity, same-key upgrade, device evidence, and independent re-download.'
