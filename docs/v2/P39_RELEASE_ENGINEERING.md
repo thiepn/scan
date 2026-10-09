@@ -16,8 +16,8 @@ Source of truth: `docs/v2/MASTER_PLAN.md` (the official P39 entry was read on 20
 | Path | Purpose | Allowed to publish? |
 | --- | --- | --- |
 | `.github/workflows/v2-development.yml` | Version/privacy preflight, fixture tests, JVM tests, debug APK/test APK and *merged* permission audit | No |
-| `.github/workflows/v2-certification.yml` | Manual build of 2.0.0 APK + AAB, lint/tests, byte hashes and signing report with a **disposable test key** | No |
-| `.github/workflows/v2-device-acceptance.yml` | Manual API 26 and API 35 emulator UI/storage/instrumentation suite with exact-SHA evidence | No |
+| `.github/workflows/v2-certification.yml` | v2-branch release-contract change or manual build of 2.0.0 APK + AAB, lint/tests, byte hashes and signing report with a **disposable test key** | No |
+| `.github/workflows/v2-device-acceptance.yml` | v2-branch release-contract change or manual API 26 and API 35 emulator UI/storage/instrumentation suite with exact-SHA evidence | No |
 | `.github/workflows/v2-publication-rehearsal.yml` | Read-only exact-commit verification of a successful certification run and downloaded checksums | No |
 
 These workflows use new names and artifact names (`scan-v2-*`, `Scan-v2.0.0-CERTIFICATION-ONLY.*`). They do **not** invoke the hardcoded v1 promotion, v1 acceptance, or publishing scripts. The frozen `main` branch remains unchanged. On `v2/development`, the legacy `.github/workflows/release.yml` v1 tag trigger is narrowed from `v*` to `v1.*` so a future `v2.0.0` tag cannot accidentally start the hardcoded v1 release workflow. No v1 publication logic or signed artifact was executed. The publication rehearsal has `contents: read`, not `contents: write`, and therefore cannot create a GitHub Release.
@@ -39,7 +39,7 @@ The source manifest explicitly removes transitive `INTERNET` and disables Androi
 
 ## Store/distribution readiness
 
-- Keep `play/` v1 listing copy and assets as historical material; **do not relabel v1 screenshots as v2**.
+- Keep `play/` v1 listing copy and assets as historical material; **do not relabel v1 screenshots as v2**. V2-specific asset requirements are recorded in `play/v2/README.md`.
 - Produce authentic, correctly sized v2 screen captures from a **feature-complete exact candidate** after P25–P38 integration; store hashes, device identifiers and captured source SHA.
 - Re-review `play/DATA_SAFETY_DRAFT.md`, `play/SIGNING_STRATEGY.md`, privacy URL `https://thiepn.dev/scan/privacy/`, support email, SDK disclosures, content rating, and Play app-access declarations.
 - Do not show a live Google Play badge until the actual public Play listing is independently verified.
@@ -63,10 +63,10 @@ The source manifest explicitly removes transitive `INTERNET` and disables Androi
 
 1. Finish P25–P38 integration and keep `main` frozen.
 2. Check development gate for exact v2 head and exported logs/merged permissions.
-3. Manually dispatch **Scan v2 Certification Dry Run** on `v2/development`.
+3. Use the v2-branch `P39_RELEASE_ENGINEERING.md` push trigger to run **Scan v2 Certification Dry Run**. GitHub `workflow_dispatch` usually requires workflow registration on the default branch; it must not be assumed functional while `main` stays frozen.
 4. Inspect the `scan-v2-certification-<SHA>` artifact's APK, AAB, signing report, provenance and checksum list. Note test signing only.
-5. Manually dispatch **Scan v2 Device Acceptance (Emulators)** on `v2/development`, review API-specific evidence.
-6. Run **Scan v2 Publication Rehearsal (Read Only)** with that exact SHA and certification run ID.
+5. Use the same v2 branch push to execute **Scan v2 Device Acceptance (Emulators)** and review API-specific evidence. Manual dispatch after default-branch registration is optional.
+6. **After the workflow exists on the default branch**, run **Scan v2 Publication Rehearsal (Read Only)** with the exact SHA and certification run ID. Before that, inspect local certification checksums and reports; the independent GitHub re-download rehearsal remains outstanding.
 7. P40: production key, physical update compatibility, approval and release; do **not** reuse the disposable certification artifacts.
 
 No P39 script, job or document is permission to publish to GitHub or Google Play.
