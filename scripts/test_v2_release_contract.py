@@ -101,6 +101,10 @@ xmlns:tools="http://schemas.android.com/tools">
         self.put(self.gradle, self.read(self.gradle).replace("minSdk = 26", "minSdk = 24"))
         self.blocked("sdk")
 
+    def test_stale_play_target_api_35_blocked(self):
+        self.put(self.gradle, self.read(self.gradle).replace("targetSdk = 36", "targetSdk = 35"))
+        self.blocked("sdk")
+
 
 if __name__ == "__main__":
     unittest.main()
