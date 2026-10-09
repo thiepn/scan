@@ -2,6 +2,11 @@ name: Scan v2 Device Acceptance (Emulators)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [v2/development]
+    paths:
+      - '.github/workflows/v2-device-acceptance.yml'
+      - 'docs/v2/P39_RELEASE_ENGINEERING.md'
 
 permissions:
   contents: read
