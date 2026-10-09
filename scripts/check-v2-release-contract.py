@@ -56,7 +56,7 @@ def check(root: Path) -> dict:
            f"versionCode={code}; confirm Play Console's maximum previously distributed versionCode before P40")
     record("applicationId", bool(app_id and app_id.group(1) == "com.thiepn.scan"),
            f"applicationId={app_id.group(1) if app_id else 'missing'}")
-    record("sdk", target is not None and target >= 35 and minimum == 26,
+    record("sdk", target is not None and target >= 36 and minimum == 26,
            f"targetSdk={target} minSdk={minimum}; current Play policy must be rechecked at P40")
     record("schema", bool(re.search(r"version\s*=\s*22\b", database))
            and "fallbackToDestructiveMigration" not in database,
