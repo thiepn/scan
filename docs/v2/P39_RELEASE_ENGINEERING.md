@@ -20,7 +20,7 @@ Source of truth: `docs/v2/MASTER_PLAN.md` (the official P39 entry was read on 20
 | `.github/workflows/v2-device-acceptance.yml` | Manual API 26 and API 35 emulator UI/storage/instrumentation suite with exact-SHA evidence | No |
 | `.github/workflows/v2-publication-rehearsal.yml` | Read-only exact-commit verification of a successful certification run and downloaded checksums | No |
 
-These workflows use new names and artifact names (`scan-v2-*`, `Scan-v2.0.0-CERTIFICATION-ONLY.*`). They do **not** invoke the hardcoded v1 promotion, v1 acceptance, or publishing scripts. Existing `main` and v1 workflows remain unchanged. The publication rehearsal has `contents: read`, not `contents: write`, and therefore cannot create a GitHub Release.
+These workflows use new names and artifact names (`scan-v2-*`, `Scan-v2.0.0-CERTIFICATION-ONLY.*`). They do **not** invoke the hardcoded v1 promotion, v1 acceptance, or publishing scripts. The frozen `main` branch remains unchanged. On `v2/development`, the legacy `.github/workflows/release.yml` v1 tag trigger is narrowed from `v*` to `v1.*` so a future `v2.0.0` tag cannot accidentally start the hardcoded v1 release workflow. No v1 publication logic or signed artifact was executed. The publication rehearsal has `contents: read`, not `contents: write`, and therefore cannot create a GitHub Release.
 
 The **certification key is ephemeral and knowingly unsuitable for update-compatible production distribution**. Never publish the dry-run APK or upload its AAB to Play.
 
